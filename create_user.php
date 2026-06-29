@@ -31,6 +31,21 @@ function jsonOut($arr){
   echo json_encode($arr);
   exit;
 }
+function tableHasColumn(mysqli $connection, string $table, string $column): bool {
+  $stmt = $connection->prepare("
+    SELECT COUNT(*) AS c
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+  ");
+  $stmt->bind_param("ss", $table, $column);
+  $stmt->execute();
+  $count = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
+  $stmt->close();
+
+  return $count > 0;
+}
 
 /* =========================================================
    AJAX HANDLER
@@ -46,7 +61,9 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === '1') {
   // --- LIST (search realtime) ---
   if ($action === 'list') {
     $keyword = clean($_POST['q'] ?? '');
-    $sql = "SELECT username, password, jabatan, divisi, created_at FROM usermlp";
+    $hasCreatedAt = tableHasColumn($koneksi, 'usermlp', 'created_at');
+    $createdAtSelect = $hasCreatedAt ? "created_at" : "NULL AS created_at";
+    $sql = "SELECT username, password, jabatan, divisi, $createdAtSelect FROM usermlp";
     $params = [];
     $types = "";
 
@@ -56,7 +73,7 @@ if (isset($_POST['ajax']) && $_POST['ajax'] === '1') {
       $params = [$kw, $kw, $kw];
       $types = "sss";
     }
-    $sql .= " ORDER BY created_at DESC, username ASC";
+    $sql .= $hasCreatedAt ? " ORDER BY created_at DESC, username ASC" : " ORDER BY username ASC";
 
     $stmt = $koneksi->prepare($sql);
     if (!$stmt) jsonOut(['ok'=>false,'msg'=>"Prepare error: ".$koneksi->error]);
