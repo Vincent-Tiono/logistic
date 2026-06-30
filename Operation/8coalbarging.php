@@ -9,11 +9,113 @@ if (!isset($_SESSION['username'])) {
 
 require_once __DIR__ . '/../config/database.php';
 
+const COAL_BARGING_SOURCE_DATABASE = 'databarging';
+const COAL_BARGING_DATABASE = 'datacoalbarging';
+const COAL_BARGING_OPERATION_TABLE = 'coal_barge_operations';
+const COAL_BARGING_RC_TABLE = 'coal_barge_rc_rows';
+const COAL_BARGING_DELETED_TABLE = 'coal_barge_deleted_rows';
+
 try {
-  $koneksi = db_connect('databarging');
+  $koneksi = db_connect(COAL_BARGING_SOURCE_DATABASE);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
+}
+
+function ensureCoalBargingDatabase(): void
+{
+  $host = getenv('DB_HOST') ?: '127.0.0.1';
+  $port = (int) (getenv('DB_PORT') ?: 3306);
+  $user = getenv('DB_USER') ?: 'logistic_app';
+  $password = getenv('DB_PASS');
+
+  if ($password === false || $password === '') {
+    throw new RuntimeException('DB_PASS belum diatur.');
+  }
+
+  $server = new mysqli($host, $user, $password, '', $port);
+  $server->set_charset('utf8mb4');
+  $server->query(
+    "CREATE DATABASE IF NOT EXISTS `" . COAL_BARGING_DATABASE . "` " .
+    "DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+  );
+  $server->select_db(COAL_BARGING_DATABASE);
+  $server->query("
+    CREATE TABLE IF NOT EXISTS `" . COAL_BARGING_OPERATION_TABLE . "` (
+      `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+      `sibarges_id` bigint unsigned NOT NULL,
+      `operation_data` json DEFAULT NULL,
+      `remarks` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+      `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`),
+      UNIQUE KEY `uq_coal_barge_operations_sibarges` (`sibarges_id`),
+      KEY `idx_coal_barge_operations_created_at` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  ");
+  $server->query("
+    CREATE TABLE IF NOT EXISTS `" . COAL_BARGING_RC_TABLE . "` (
+      `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+      `source_sibarges_id` bigint unsigned NOT NULL,
+      `usage_status` enum('used','unused') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'used',
+      `operation_data` json DEFAULT NULL,
+      `remarks` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+      `created_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      `updated_at` timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (`id`),
+      KEY `idx_coal_barge_rc_usage_status` (`usage_status`),
+      KEY `idx_coal_barge_rc_source_sibarges` (`source_sibarges_id`),
+      KEY `idx_coal_barge_rc_created_at` (`created_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  ");
+  $statusColumn = $server->query("SHOW COLUMNS FROM `" . COAL_BARGING_RC_TABLE . "` LIKE 'usage_status'");
+  if ($statusColumn && $statusColumn->num_rows === 0) {
+    $server->query("
+      ALTER TABLE `" . COAL_BARGING_RC_TABLE . "`
+      ADD COLUMN `usage_status` enum('used','unused') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'used' AFTER `source_sibarges_id`,
+      ADD KEY `idx_coal_barge_rc_usage_status` (`usage_status`)
+    ");
+  }
+  $server->query("
+    CREATE TABLE IF NOT EXISTS `" . COAL_BARGING_DELETED_TABLE . "` (
+      `sibarges_id` bigint unsigned NOT NULL,
+      `deleted_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      `deleted_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (`sibarges_id`),
+      KEY `idx_coal_barge_deleted_at` (`deleted_at`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  ");
+  $server->close();
+}
+
+function seedCoalBargingFromTlu(mysqli $coalConnection): void
+{
+  $coalConnection->query("
+    INSERT INTO `" . COAL_BARGING_OPERATION_TABLE . "`
+      (sibarges_id, operation_data, remarks, created_by, created_at, updated_at)
+    SELECT
+      tlu.sibarges_id,
+      tlu.operation_data,
+      tlu.remarks,
+      tlu.created_by,
+      tlu.created_at,
+      tlu.updated_at
+    FROM `" . COAL_BARGING_SOURCE_DATABASE . "`.`barge_operations` tlu
+    LEFT JOIN `" . COAL_BARGING_OPERATION_TABLE . "` coal
+      ON coal.sibarges_id = tlu.sibarges_id
+    WHERE coal.sibarges_id IS NULL
+  ");
+}
+
+try {
+  ensureCoalBargingDatabase();
+  $coalKoneksi = db_connect(COAL_BARGING_DATABASE);
+  seedCoalBargingFromTlu($coalKoneksi);
+} catch (Throwable $exception) {
+  http_response_code(500);
+  die(htmlspecialchars('Koneksi database Coal Barging gagal: ' . $exception->getMessage(), ENT_QUOTES, 'UTF-8'));
 }
 
 function jsonOut($data){
@@ -23,6 +125,8 @@ function jsonOut($data){
 }
 
 const TLU_OPERATION_FIELDS = [
+  'status_act_rc',
+  'status_act_act_rc',
   'qty',
   'qty_disc',
   'rc',
@@ -179,6 +283,11 @@ function formatOperationNumber($value) {
   return rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
 }
 
+function operationNumberValue($value): ?float {
+  $normalized = str_replace([',', ' '], ['', ''], trim((string)$value));
+  return $normalized !== '' && is_numeric($normalized) ? (float)$normalized : null;
+}
+
 function formatOperationDisplayNumber($value) {
   $value = trim((string)$value);
   if ($value === '') return '';
@@ -267,13 +376,7 @@ function tableExportRow($row) {
   $data = decodeOperationData($row['operation_data'] ?? '');
   $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
   $rc = trim((string)($data['rc'] ?? ''));
-  $qtyActual = '';
-  if ($qtyDisc !== '' || $rc !== '') {
-    $qtyActual = formatOperationNumber(
-      (float)str_replace(',', '', $qtyDisc) +
-      (float)str_replace(',', '', $rc)
-    );
-  }
+  $qtyActual = trim((string)($data['qty_actual'] ?? ''));
 
   $laycanDateTime = fn($value) => trim((string)$value) === ''
     ? ''
@@ -354,7 +457,8 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
       s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
       s.created_by, s.created_at, s.updated_at,
       p.earliest_laycan_start,
-      o.operation_data, o.remarks AS operation_remarks
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
     FROM sibarges s
     INNER JOIN (
       SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
@@ -365,7 +469,8 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
       GROUP BY no_pk, mothervessel
       HAVING MIN(laycan_start) IS NOT NULL
     ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
-    LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+    LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
     WHERE s.record_status = 'ACT'
   ";
 
@@ -470,9 +575,11 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
     SELECT
       s.no_pk, s.buyer, s.mothervessel, s.si_barges,
       s.jetty_code, s.tugboat, s.barge, s.laycan_start, s.laycan_end,
-      o.operation_data, o.remarks AS operation_remarks
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
     FROM sibarges s
-    LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+    LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
     WHERE s.no_pk = ? AND s.record_status = 'ACT'
     ORDER BY s.barge_seq ASC, s.id ASC
   ");
@@ -500,10 +607,7 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
     $data = decodeOperationData($row['operation_data'] ?? '');
     $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
     $rc = trim((string)($data['rc'] ?? ''));
-    $qtyActual = '';
-    if ($qtyDisc !== '' || $rc !== '') {
-      $qtyActual = formatOperationNumber((float)str_replace(',', '', $qtyDisc) + (float)str_replace(',', '', $rc));
-    }
+    $qtyActual = trim((string)($data['qty_actual'] ?? ''));
 
     $csvRow = [
       'si_barges' => $row['si_barges'],
@@ -539,13 +643,19 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
   exit;
 }
 
-/* ========= AJAX: SAVE TLU OPERATION ========= */
+/* ========= AJAX: SAVE COAL BARGING ========= */
 if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $payload = json_decode(file_get_contents('php://input'), true);
   if (!is_array($payload)) jsonOut(['ok' => false, 'msg' => 'Payload tidak valid.']);
 
+  $rowType = ($payload['row_type'] ?? '') === 'rc' ? 'rc' : 'base';
   $sibargesId = filter_var($payload['sibarges_id'] ?? null, FILTER_VALIDATE_INT);
-  if (!$sibargesId) jsonOut(['ok' => false, 'msg' => 'Data barge tidak valid.']);
+  $rcRowId = filter_var($payload['rc_row_id'] ?? null, FILTER_VALIDATE_INT);
+  if ($rowType === 'rc') {
+    if (!$rcRowId) jsonOut(['ok' => false, 'msg' => 'Data RC tidak valid.']);
+  } elseif (!$sibargesId) {
+    jsonOut(['ok' => false, 'msg' => 'Data barge tidak valid.']);
+  }
 
   $submittedData = is_array($payload['data'] ?? null) ? $payload['data'] : [];
   $operationRemarks = trim((string)($submittedData['operation_remarks'] ?? ''));
@@ -555,12 +665,24 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
     if ($value !== '') $operationData[$field] = $value;
   }
 
+  if ($rowType === 'rc') {
+    foreach (['no_pk', 'buyer', 'mothervessel'] as $field) {
+      $value = trim((string)($submittedData[$field] ?? ''));
+      if ($value === '') {
+        unset($operationData[$field]);
+      } else {
+        $operationData[$field] = $value;
+      }
+    }
+  }
+
   $qtyDisc = parseOperationNumber($submittedData['qty_disc'] ?? '', 'QTY DISC');
   $rc = parseOperationNumber($submittedData['rc'] ?? '', 'RC');
-  if ($qtyDisc === null && $rc === null) {
+  $qtyActual = parseOperationNumber($submittedData['qty_actual'] ?? '', 'QTY Laut');
+  if ($qtyActual === null) {
     unset($operationData['qty_actual']);
   } else {
-    $operationData['qty_actual'] = formatOperationNumber(($qtyDisc ?? 0) + ($rc ?? 0));
+    $operationData['qty_actual'] = formatOperationNumber($qtyActual);
   }
 
   foreach (TLU_DATETIME_FIELDS as $field => $label) {
@@ -589,23 +711,46 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
     ]);
   }
 
-  $check = $koneksi->prepare("SELECT id, no_pk FROM sibarges WHERE id = ? AND record_status = 'ACT'");
-  if (!$check) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
-  $check->bind_param('i', $sibargesId);
+  if ($rowType === 'rc') {
+    $check = $coalKoneksi->prepare("
+      SELECT rc.id, rc.source_sibarges_id AS sibarges_id, s.no_pk
+      FROM `" . COAL_BARGING_RC_TABLE . "` rc
+      INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` s
+        ON s.id = rc.source_sibarges_id
+      WHERE rc.id = ?
+        AND s.record_status = 'ACT'
+      LIMIT 1
+    ");
+    if (!$check) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+    $check->bind_param('i', $rcRowId);
+  } else {
+    $check = $koneksi->prepare("SELECT id, no_pk FROM sibarges WHERE id = ? AND record_status = 'ACT'");
+    if (!$check) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+    $check->bind_param('i', $sibargesId);
+  }
   $check->execute();
   $exists = $check->get_result()->fetch_assoc();
   $check->close();
-  if (!$exists) jsonOut(['ok' => false, 'msg' => 'Data barge tidak ditemukan.']);
+  if (!$exists) jsonOut(['ok' => false, 'msg' => $rowType === 'rc' ? 'Data RC tidak ditemukan.' : 'Data barge tidak ditemukan.']);
 
   $sequence = trim((string)($submittedData['discharge_sequence'] ?? ''));
   if ($sequence !== '') {
     $countStmt = $koneksi->prepare("
-      SELECT COUNT(*)
+      SELECT
+        COUNT(*) + (
+          SELECT COUNT(*)
+          FROM `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_RC_TABLE . "` rc
+          INNER JOIN sibarges s2
+            ON s2.id = rc.source_sibarges_id
+          WHERE s2.no_pk = ?
+            AND s2.record_status = 'ACT'
+            AND rc.usage_status = 'used'
+        ) AS max_sequence
       FROM sibarges
       WHERE no_pk = ? AND record_status = 'ACT'
     ");
     if (!$countStmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
-    $countStmt->bind_param('s', $exists['no_pk']);
+    $countStmt->bind_param('ss', $exists['no_pk'], $exists['no_pk']);
     $countStmt->execute();
     $countStmt->bind_result($maxSequence);
     $countStmt->fetch();
@@ -622,17 +767,29 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
 
   $operationJson = json_encode($operationData, JSON_UNESCAPED_UNICODE);
   $createdBy = (string)$_SESSION['username'];
-  $stmt = $koneksi->prepare("
-    INSERT INTO barge_operations (sibarges_id, operation_data, remarks, created_by)
-    VALUES (?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      operation_data = VALUES(operation_data),
-      remarks = VALUES(remarks),
-      updated_at = CURRENT_TIMESTAMP
-  ");
-  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  if ($rowType === 'rc') {
+    $stmt = $coalKoneksi->prepare("
+      UPDATE `" . COAL_BARGING_RC_TABLE . "`
+      SET operation_data = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    ");
+  } else {
+    $stmt = $coalKoneksi->prepare("
+      INSERT INTO `" . COAL_BARGING_OPERATION_TABLE . "` (sibarges_id, operation_data, remarks, created_by)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        operation_data = VALUES(operation_data),
+        remarks = VALUES(remarks),
+        updated_at = CURRENT_TIMESTAMP
+    ");
+  }
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
 
-  $stmt->bind_param('isss', $sibargesId, $operationJson, $operationRemarks, $createdBy);
+  if ($rowType === 'rc') {
+    $stmt->bind_param('ssi', $operationJson, $operationRemarks, $rcRowId);
+  } else {
+    $stmt->bind_param('isss', $sibargesId, $operationJson, $operationRemarks, $createdBy);
+  }
   if (!$stmt->execute()) {
     $message = $stmt->error;
     $stmt->close();
@@ -645,7 +802,314 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
   jsonOut(['ok' => true, 'data' => $responseData, 'msg' => 'Data operasi berhasil disimpan.']);
 }
 
-/* ========= AJAX: IMPORT TLU OPERATION CSV ========= */
+/* ========= AJAX: CREATE RC ROW ========= */
+if (($_GET['action'] ?? '') === 'create_rc_row' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  $payload = json_decode(file_get_contents('php://input'), true);
+  if (!is_array($payload)) jsonOut(['ok' => false, 'msg' => 'Payload tidak valid.']);
+
+  $sibargesId = filter_var($payload['sibarges_id'] ?? null, FILTER_VALIDATE_INT);
+  if (!$sibargesId) jsonOut(['ok' => false, 'msg' => 'Data barge tidak valid.']);
+
+  $stmt = $koneksi->prepare("
+    SELECT
+      s.id,
+      s.no_pk,
+      s.buyer,
+      s.mothervessel,
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
+    FROM sibarges s
+    LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal
+      ON coal.sibarges_id = s.id
+    WHERE s.id = ?
+      AND s.record_status = 'ACT'
+    LIMIT 1
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $stmt->bind_param('i', $sibargesId);
+  $stmt->execute();
+  $source = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$source) jsonOut(['ok' => false, 'msg' => 'Data barge tidak ditemukan.']);
+
+  $submittedData = is_array($payload['data'] ?? null)
+    ? $payload['data']
+    : decodeOperationData($payload['operation_data'] ?? '');
+  $operationData = [];
+  foreach (TLU_OPERATION_FIELDS as $field) {
+    $value = trim((string)($submittedData[$field] ?? ''));
+    if ($value !== '') $operationData[$field] = $value;
+  }
+
+  foreach (TLU_DATETIME_FIELDS as $field => $label) {
+    $normalizedDateTime = normalizeOperationDateTime($submittedData[$field] ?? '', $label);
+    if ($normalizedDateTime === '') {
+      unset($operationData[$field]);
+    } else {
+      $operationData[$field] = $normalizedDateTime;
+    }
+  }
+
+  $sourceQtyJetty = operationNumberValue($submittedData['qty'] ?? null);
+  $sourceQtyDisc = operationNumberValue($submittedData['qty_disc'] ?? null);
+  $sourceQtyLaut = operationNumberValue($submittedData['qty_actual'] ?? null);
+
+  $operationData['qty'] = '0';
+  $operationData['qty_disc'] = formatOperationNumber(($sourceQtyJetty ?? 0) - ($sourceQtyDisc ?? 0));
+  $operationData['qty_actual'] = formatOperationNumber(($sourceQtyJetty ?? 0) - ($sourceQtyLaut ?? 0));
+  $operationData['status_act_rc'] = 'RC';
+  $operationData['status_act_act_rc'] = 'ACT&RC';
+  unset(
+    $operationData['no_pk'],
+    $operationData['buyer'],
+    $operationData['mothervessel'],
+    $operationData['pbm_vendor'],
+    $operationData['floating_crane'],
+    $operationData['start_disch'],
+    $operationData['completed_disch']
+  );
+
+  $remarks = trim((string)($payload['operation_remarks'] ?? ''));
+  $operationJson = json_encode($operationData, JSON_UNESCAPED_UNICODE);
+  $createdBy = (string)$_SESSION['username'];
+
+  $sourceOperationData = decodeOperationData($source['operation_data'] ?? '');
+  $sourceOperationData['status_act_act_rc'] = 'ACT&RC';
+  $sourceOperationJson = json_encode($sourceOperationData, JSON_UNESCAPED_UNICODE);
+  $sourceRemarks = trim((string)($source['operation_remarks'] ?? ''));
+
+  try {
+    $coalKoneksi->begin_transaction();
+
+    $stmt = $coalKoneksi->prepare("
+      INSERT INTO `" . COAL_BARGING_OPERATION_TABLE . "` (sibarges_id, operation_data, remarks, created_by)
+      VALUES (?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        operation_data = VALUES(operation_data),
+        remarks = VALUES(remarks),
+        updated_at = CURRENT_TIMESTAMP
+    ");
+    if (!$stmt) throw new RuntimeException($coalKoneksi->error);
+    $stmt->bind_param('isss', $sibargesId, $sourceOperationJson, $sourceRemarks, $createdBy);
+    $stmt->execute();
+    $stmt->close();
+
+    $stmt = $coalKoneksi->prepare("
+      INSERT INTO `" . COAL_BARGING_RC_TABLE . "`
+        (source_sibarges_id, usage_status, operation_data, remarks, created_by)
+      VALUES (?, 'unused', ?, ?, ?)
+    ");
+    if (!$stmt) throw new RuntimeException($coalKoneksi->error);
+    $stmt->bind_param('isss', $sibargesId, $operationJson, $remarks, $createdBy);
+    $stmt->execute();
+    $rcRowId = $stmt->insert_id;
+    $stmt->close();
+
+    $coalKoneksi->commit();
+  } catch (Throwable $exception) {
+    $coalKoneksi->rollback();
+    jsonOut(['ok' => false, 'msg' => $exception->getMessage()]);
+  }
+
+  jsonOut([
+    'ok' => true,
+    'rc_row_id' => $rcRowId,
+    'data' => $operationData,
+    'msg' => 'RC berhasil dibuat sebagai unused.'
+  ]);
+}
+
+/* ========= AJAX: DELETE COAL BARGING ROW ========= */
+if (($_GET['action'] ?? '') === 'delete_coal_barging_row' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  $payload = json_decode(file_get_contents('php://input'), true);
+  if (!is_array($payload)) jsonOut(['ok' => false, 'msg' => 'Payload tidak valid.']);
+
+  $rowType = ($payload['row_type'] ?? '') === 'rc' ? 'rc' : 'base';
+  $sibargesId = filter_var($payload['sibarges_id'] ?? null, FILTER_VALIDATE_INT);
+  $rcRowId = filter_var($payload['rc_row_id'] ?? null, FILTER_VALIDATE_INT);
+  $deletedBy = (string)$_SESSION['username'];
+
+  $deleteScope = ($payload['delete_scope'] ?? '') === 'unused' ? 'unused' : 'main';
+
+  if ($rowType === 'rc') {
+    if (!$rcRowId) jsonOut(['ok' => false, 'msg' => 'Data RC tidak valid.']);
+
+    if ($deleteScope === 'unused') {
+      $stmt = $coalKoneksi->prepare("
+        DELETE FROM `" . COAL_BARGING_RC_TABLE . "`
+        WHERE id = ?
+          AND usage_status = 'unused'
+      ");
+      if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+      $stmt->bind_param('i', $rcRowId);
+      $stmt->execute();
+      $deleted = $stmt->affected_rows;
+      $stmt->close();
+
+      if ($deleted < 1) jsonOut(['ok' => false, 'msg' => 'Data RC tidak ditemukan.']);
+      jsonOut(['ok' => true, 'msg' => 'Data RC berhasil dihapus.']);
+    }
+
+    $stmt = $coalKoneksi->prepare("
+      UPDATE `" . COAL_BARGING_RC_TABLE . "`
+      SET usage_status = 'unused',
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    ");
+    if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+    $stmt->bind_param('i', $rcRowId);
+    $stmt->execute();
+    $deleted = $stmt->affected_rows;
+    $stmt->close();
+
+    if ($deleted < 1) jsonOut(['ok' => false, 'msg' => 'Data RC tidak ditemukan.']);
+    jsonOut(['ok' => true, 'msg' => 'Data RC berhasil dihapus.']);
+  }
+
+  if (!$sibargesId) jsonOut(['ok' => false, 'msg' => 'Data barge tidak valid.']);
+
+  $stmt = $koneksi->prepare("SELECT id FROM sibarges WHERE id = ? AND record_status = 'ACT' LIMIT 1");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $stmt->bind_param('i', $sibargesId);
+  $stmt->execute();
+  $source = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$source) jsonOut(['ok' => false, 'msg' => 'Data barge tidak ditemukan.']);
+
+  $stmt = $coalKoneksi->prepare("
+    INSERT INTO `" . COAL_BARGING_DELETED_TABLE . "` (sibarges_id, deleted_by)
+    VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE
+      deleted_by = VALUES(deleted_by),
+      deleted_at = CURRENT_TIMESTAMP
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+  $stmt->bind_param('is', $sibargesId, $deletedBy);
+  $stmt->execute();
+  $stmt->close();
+
+  $stmt = $coalKoneksi->prepare("
+    UPDATE `" . COAL_BARGING_RC_TABLE . "`
+    SET usage_status = 'unused', updated_at = CURRENT_TIMESTAMP
+    WHERE source_sibarges_id = ?
+      AND usage_status = 'used'
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+  $stmt->bind_param('i', $sibargesId);
+  $stmt->execute();
+  $stmt->close();
+
+  jsonOut(['ok' => true, 'msg' => 'Data berhasil dihapus dari Coal Barging.']);
+}
+
+/* ========= AJAX: IMPORT COAL BARGING CSV ========= */
+if (($_GET['action'] ?? '') === 'import_from_tlu_operation' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  $payload = json_decode(file_get_contents('php://input'), true);
+  if (!is_array($payload)) jsonOut(['ok' => false, 'msg' => 'Payload tidak valid.']);
+
+  $noPk = trim((string)($payload['no_pk'] ?? ''));
+  if ($noPk === '') jsonOut(['ok' => false, 'msg' => 'Pilih Mother Vessel terlebih dahulu.']);
+
+  $countStmt = $koneksi->prepare("
+    SELECT COUNT(*)
+    FROM sibarges
+    WHERE no_pk = ? AND record_status = 'ACT'
+  ");
+  if (!$countStmt) jsonOut(['ok' => false, 'msg' => 'Gagal validasi vessel: ' . $koneksi->error]);
+  $countStmt->bind_param('s', $noPk);
+  $countStmt->execute();
+  $countStmt->bind_result($activeBarges);
+  $countStmt->fetch();
+  $countStmt->close();
+
+  if ((int)$activeBarges === 0) {
+    jsonOut(['ok' => false, 'msg' => 'Data SI Barges tidak ditemukan untuk vessel ini.']);
+  }
+
+  try {
+    $coalKoneksi->begin_transaction();
+
+    $deleteStmt = $coalKoneksi->prepare("
+      DELETE coal
+      FROM `" . COAL_BARGING_OPERATION_TABLE . "` coal
+      INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` s
+        ON s.id = coal.sibarges_id
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+    ");
+    if (!$deleteStmt) throw new RuntimeException($coalKoneksi->error);
+    $deleteStmt->bind_param('s', $noPk);
+    $deleteStmt->execute();
+    $deleted = $deleteStmt->affected_rows;
+    $deleteStmt->close();
+
+    $deleteRcStmt = $coalKoneksi->prepare("
+      UPDATE `" . COAL_BARGING_RC_TABLE . "` rc
+      INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` s
+        ON s.id = rc.source_sibarges_id
+      SET rc.usage_status = 'unused',
+          rc.updated_at = CURRENT_TIMESTAMP
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+        AND rc.usage_status = 'used'
+    ");
+    if (!$deleteRcStmt) throw new RuntimeException($coalKoneksi->error);
+    $deleteRcStmt->bind_param('s', $noPk);
+    $deleteRcStmt->execute();
+    $deleted += $deleteRcStmt->affected_rows;
+    $deleteRcStmt->close();
+
+    $deleteHiddenStmt = $coalKoneksi->prepare("
+      DELETE hidden
+      FROM `" . COAL_BARGING_DELETED_TABLE . "` hidden
+      INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` s
+        ON s.id = hidden.sibarges_id
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+    ");
+    if (!$deleteHiddenStmt) throw new RuntimeException($coalKoneksi->error);
+    $deleteHiddenStmt->bind_param('s', $noPk);
+    $deleteHiddenStmt->execute();
+    $deleted += $deleteHiddenStmt->affected_rows;
+    $deleteHiddenStmt->close();
+
+    $insertStmt = $coalKoneksi->prepare("
+      INSERT INTO `" . COAL_BARGING_OPERATION_TABLE . "`
+        (sibarges_id, operation_data, remarks, created_by, created_at, updated_at)
+      SELECT
+        tlu.sibarges_id,
+        tlu.operation_data,
+        tlu.remarks,
+        tlu.created_by,
+        tlu.created_at,
+        tlu.updated_at
+      FROM `" . COAL_BARGING_SOURCE_DATABASE . "`.`barge_operations` tlu
+      INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` s
+        ON s.id = tlu.sibarges_id
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+    ");
+    if (!$insertStmt) throw new RuntimeException($coalKoneksi->error);
+    $insertStmt->bind_param('s', $noPk);
+    $insertStmt->execute();
+    $inserted = $insertStmt->affected_rows;
+    $insertStmt->close();
+
+    $coalKoneksi->commit();
+  } catch (Throwable $exception) {
+    $coalKoneksi->rollback();
+    jsonOut(['ok' => false, 'msg' => 'Import from TLU Operation gagal: ' . $exception->getMessage()]);
+  }
+
+  jsonOut([
+    'ok' => true,
+    'msg' => "Import from TLU Operation selesai. Deleted: {$deleted}, Imported: {$inserted}.",
+    'deleted' => $deleted,
+    'imported' => $inserted
+  ]);
+}
+
 if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METHOD'] === 'POST') {
   $noPk = trim((string)($_POST['no_pk'] ?? ''));
   if ($noPk === '') jsonOut(['ok' => false, 'msg' => 'Pilih Mother Vessel terlebih dahulu.']);
@@ -686,8 +1150,8 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
     WHERE si_barges = ? AND no_pk = ? AND record_status = 'ACT'
     LIMIT 1
   ");
-  $stmtSave = $koneksi->prepare("
-    INSERT INTO barge_operations (sibarges_id, operation_data, remarks, created_by)
+  $stmtSave = $coalKoneksi->prepare("
+    INSERT INTO `" . COAL_BARGING_OPERATION_TABLE . "` (sibarges_id, operation_data, remarks, created_by)
     VALUES (?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       operation_data = VALUES(operation_data),
@@ -696,7 +1160,7 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
   ");
   if (!$stmtFind || !$stmtSave) {
     fclose($fh);
-    jsonOut(['ok' => false, 'msg' => 'Prepare import gagal: ' . $koneksi->error]);
+    jsonOut(['ok' => false, 'msg' => 'Prepare import gagal: ' . ($koneksi->error ?: $coalKoneksi->error)]);
   }
 
   $restrictedFloatingCranes = ['KTM' => 'STV KTM', 'MLS' => 'STV MAESTRO'];
@@ -744,22 +1208,21 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
 
     $operationData = [];
     foreach (TLU_OPERATION_FIELDS as $field) {
-      if ($field === 'qty_actual') continue;
       $fieldValue = $value($field);
       if ($fieldValue !== '') $operationData[$field] = $fieldValue;
     }
 
     $qtyDiscRaw = $value('qty_disc');
     $rcRaw = $value('rc');
+    $qtyActualRaw = $value('qty_actual');
     $qtyDiscNormalized = str_replace([',', ' '], ['', ''], $qtyDiscRaw);
     $rcNormalized = str_replace([',', ' '], ['', ''], $rcRaw);
+    $qtyActualNormalized = str_replace([',', ' '], ['', ''], $qtyActualRaw);
     if ($qtyDiscRaw !== '' && !is_numeric($qtyDiscNormalized)) $rowErrors[] = 'qty_disc harus angka';
     if ($rcRaw !== '' && !is_numeric($rcNormalized)) $rowErrors[] = 'rc harus angka';
-    if (!$rowErrors && ($qtyDiscRaw !== '' || $rcRaw !== '')) {
-      $operationData['qty_actual'] = formatOperationNumber(
-        ($qtyDiscRaw === '' ? 0 : (float)$qtyDiscNormalized) +
-        ($rcRaw === '' ? 0 : (float)$rcNormalized)
-      );
+    if ($qtyActualRaw !== '' && !is_numeric($qtyActualNormalized)) $rowErrors[] = 'qty_actual harus angka';
+    if (!$rowErrors && $qtyActualRaw !== '') {
+      $operationData['qty_actual'] = formatOperationNumber((float)$qtyActualNormalized);
     }
 
     foreach (TLU_DATETIME_FIELDS as $field => $label) {
@@ -830,14 +1293,183 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
   ]);
 }
 
+/* ========= AJAX: UNUSED RC OPTIONS ========= */
+if (($_GET['action'] ?? '') === 'unused_rc_options') {
+  $noPk = trim((string)($_GET['no_pk'] ?? ''));
+  if ($noPk === '') jsonOut(['ok' => false, 'msg' => 'No PK wajib dipilih.']);
+
+  $stmt = $koneksi->prepare("
+    SELECT
+      rc.id AS rc_row_id,
+      target.id AS target_sibarges_id,
+      target.barge_seq AS target_barge_seq,
+      target.jetty_code,
+      target.jetty_name,
+      target.tugboat AS target_tugboat,
+      target.barge AS target_barge,
+      target.laycan_start,
+      target.laycan_end,
+      source.tugboat AS source_tugboat,
+      source.barge AS source_barge,
+      rc.operation_data,
+      rc.remarks AS operation_remarks,
+      rc.created_by,
+      rc.created_at,
+      rc.updated_at
+    FROM `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_RC_TABLE . "` rc
+    INNER JOIN sibarges source
+      ON source.id = rc.source_sibarges_id
+      AND source.record_status = 'ACT'
+    INNER JOIN sibarges target
+      ON target.tugboat = source.tugboat
+      AND target.no_pk = ?
+      AND target.record_status = 'ACT'
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden
+      ON hidden.sibarges_id = target.id
+    WHERE rc.usage_status = 'unused'
+      AND hidden.sibarges_id IS NULL
+    ORDER BY target.barge_seq ASC, rc.created_at ASC, rc.id ASC
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $stmt->bind_param('s', $noPk);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+	  $data = array_map(function($row) {
+	    $operationData = decodeOperationData($row['operation_data'] ?? '');
+	    return [
+	      'rc_row_id' => (int)$row['rc_row_id'],
+	      'target_sibarges_id' => (int)$row['target_sibarges_id'],
+	      'target_barge_seq' => (int)$row['target_barge_seq'],
+	      'row_type' => 'rc',
+	      'sibarges_id' => (int)$row['target_sibarges_id'],
+	      'no_pk' => $operationData['no_pk'] ?? '',
+	      'buyer' => $operationData['buyer'] ?? '',
+	      'mothervessel' => $operationData['mothervessel'] ?? '',
+	      'jetty_code' => $row['jetty_code'] ?? '',
+	      'jetty_name' => $row['jetty_name'] ?? '',
+	      'tugboat' => $row['target_tugboat'] ?? '',
+      'barge' => $row['target_barge'] ?? '',
+      'anchorage' => '',
+      'laycan_start' => $row['laycan_start'] ?? '',
+      'laycan_end' => $row['laycan_end'] ?? '',
+      'operation_data' => $row['operation_data'] ?? '',
+      'operation_remarks' => $row['operation_remarks'] ?? '',
+      'created_by' => $row['created_by'] ?? '',
+      'created_at' => $row['created_at'] ?? '',
+      'updated_at' => $row['updated_at'] ?? ''
+    ];
+  }, $rows);
+
+  jsonOut(['ok' => true, 'data' => $data]);
+}
+
+/* ========= AJAX: INPUT UNUSED RC ========= */
+if (($_GET['action'] ?? '') === 'input_rc_row' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+  $payload = json_decode(file_get_contents('php://input'), true);
+  if (!is_array($payload)) jsonOut(['ok' => false, 'msg' => 'Payload tidak valid.']);
+
+  $rcRowId = filter_var($payload['rc_row_id'] ?? null, FILTER_VALIDATE_INT);
+  $targetSibargesId = filter_var($payload['target_sibarges_id'] ?? null, FILTER_VALIDATE_INT);
+  if (!$rcRowId || !$targetSibargesId) jsonOut(['ok' => false, 'msg' => 'Pilihan RC tidak valid.']);
+
+  $stmt = $coalKoneksi->prepare("
+    SELECT rc.id, rc.operation_data, source.tugboat AS source_tugboat
+    FROM `" . COAL_BARGING_RC_TABLE . "` rc
+    INNER JOIN `" . COAL_BARGING_SOURCE_DATABASE . "`.`sibarges` source
+      ON source.id = rc.source_sibarges_id
+    WHERE rc.id = ?
+      AND rc.usage_status = 'unused'
+    LIMIT 1
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+  $stmt->bind_param('i', $rcRowId);
+  $stmt->execute();
+  $rcRow = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$rcRow) jsonOut(['ok' => false, 'msg' => 'RC tidak ditemukan atau sudah digunakan.']);
+
+  $stmt = $koneksi->prepare("
+    SELECT
+      s.id,
+      s.tugboat,
+      s.no_pk,
+      s.buyer,
+      s.mothervessel,
+      s.anchorage,
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data
+    FROM sibarges s
+    LEFT JOIN barge_operations tlu
+      ON tlu.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal
+      ON coal.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden
+      ON hidden.sibarges_id = s.id
+    WHERE s.id = ?
+      AND s.record_status = 'ACT'
+      AND hidden.sibarges_id IS NULL
+    LIMIT 1
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $stmt->bind_param('i', $targetSibargesId);
+  $stmt->execute();
+  $targetRow = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  if (!$targetRow) jsonOut(['ok' => false, 'msg' => 'Target TB tidak ditemukan.']);
+  if ((string)$targetRow['tugboat'] !== (string)$rcRow['source_tugboat']) {
+    jsonOut(['ok' => false, 'msg' => 'RC hanya bisa dipakai untuk TB yang sama.']);
+  }
+
+  $operationData = decodeOperationData($rcRow['operation_data'] ?? '');
+  foreach (['no_pk', 'buyer', 'mothervessel'] as $field) {
+    $operationData[$field] = (string)($targetRow[$field] ?? '');
+  }
+  $targetOperationData = decodeOperationData($targetRow['operation_data'] ?? '');
+  foreach (['pbm_vendor', 'floating_crane', 'start_disch', 'completed_disch'] as $field) {
+    $targetValue = trim((string)($targetOperationData[$field] ?? ''));
+    if ($targetValue === '') {
+      unset($operationData[$field]);
+    } else {
+      $operationData[$field] = $targetValue;
+    }
+  }
+  $operationJson = json_encode($operationData, JSON_UNESCAPED_UNICODE);
+
+  $stmt = $coalKoneksi->prepare("
+    UPDATE `" . COAL_BARGING_RC_TABLE . "`
+    SET source_sibarges_id = ?,
+        usage_status = 'used',
+        operation_data = ?,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+      AND usage_status = 'unused'
+  ");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+  $stmt->bind_param('isi', $targetSibargesId, $operationJson, $rcRowId);
+  $stmt->execute();
+  $updated = $stmt->affected_rows;
+  $stmt->close();
+  if ($updated < 1) jsonOut(['ok' => false, 'msg' => 'RC gagal dipakai.']);
+
+  jsonOut(['ok' => true, 'msg' => 'RC berhasil dimasukkan.']);
+}
+
 /* ========= AJAX: SI BARGES BY MOTHER VESSEL ========= */
 if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
   $no_pk = trim((string)($_GET['no_pk'] ?? ''));
   if ($no_pk === '') jsonOut(['ok' => false, 'msg' => 'No PK wajib dipilih.']);
 
   $stmt = $koneksi->prepare("
-    SELECT
-      s.id, s.no_pk, s.no_si_vessel, s.buyer, s.mothervessel,
+    SELECT *
+    FROM (
+      SELECT
+      s.id AS id,
+      s.id AS sibarges_id,
+      NULL AS rc_row_id,
+      'base' AS row_type,
+      0 AS is_rc_clone,
+      s.no_pk, s.no_si_vessel, s.buyer, s.mothervessel,
       s.si_type, s.month_num, s.year_num, s.barge_seq, s.si_barges,
       s.tugboat, s.barge, s.anchorage, s.term, s.qty_plan,
       s.laycan_start, s.laycan_end,
@@ -845,33 +1477,83 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
       s.shipper_code, s.shipper_name,
       s.record_status, s.remarks,
       s.created_by, s.created_at, s.updated_at,
-      o.id AS operation_id,
-      o.arrival_jetty,
-      o.commence_loading,
-      o.completed_loading,
-      o.departure_jetty,
-      o.arrival_anchorage,
-      o.mooring,
-      o.commence_discharging,
-      o.completed_discharging,
-      o.clear_pass,
-      o.qty_ds,
-      o.flf,
-      o.operation_status,
-      o.operation_data,
-      o.remarks AS operation_remarks,
-      o.created_by AS operation_created_by,
-      o.created_at AS operation_created_at,
-      o.updated_at AS operation_updated_at
-    FROM sibarges s
-    LEFT JOIN barge_operations o ON o.sibarges_id = s.id
-    WHERE s.no_pk = ?
-      AND s.record_status = 'ACT'
-    ORDER BY s.barge_seq ASC, s.id ASC
+      coal.id AS operation_id,
+      NULL AS arrival_jetty,
+      NULL AS commence_loading,
+      NULL AS completed_loading,
+      NULL AS departure_jetty,
+      NULL AS arrival_anchorage,
+      NULL AS mooring,
+      NULL AS commence_discharging,
+      NULL AS completed_discharging,
+      NULL AS clear_pass,
+      NULL AS qty_ds,
+      NULL AS flf,
+      NULL AS operation_status,
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks,
+      COALESCE(coal.created_by, tlu.created_by) AS operation_created_by,
+      COALESCE(coal.created_at, tlu.created_at) AS operation_created_at,
+      COALESCE(coal.updated_at, tlu.updated_at) AS operation_updated_at
+      FROM sibarges s
+      LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+      LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
+      LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden ON hidden.sibarges_id = s.id
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+        AND hidden.sibarges_id IS NULL
+
+      UNION ALL
+
+      SELECT
+      s.id AS id,
+      s.id AS sibarges_id,
+      rc.id AS rc_row_id,
+      'rc' AS row_type,
+      1 AS is_rc_clone,
+	      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.no_pk')), ''), s.no_pk) AS no_pk,
+	      s.no_si_vessel,
+	      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.buyer')), ''), s.buyer) AS buyer,
+	      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.mothervessel')), ''), s.mothervessel) AS mothervessel,
+      s.si_type, s.month_num, s.year_num, s.barge_seq, s.si_barges,
+      s.tugboat, s.barge, s.anchorage, s.term, s.qty_plan,
+      s.laycan_start, s.laycan_end,
+      s.jetty_code, s.jetty_name,
+      s.shipper_code, s.shipper_name,
+      s.record_status, s.remarks,
+      s.created_by, s.created_at, s.updated_at,
+      rc.id AS operation_id,
+      NULL AS arrival_jetty,
+      NULL AS commence_loading,
+      NULL AS completed_loading,
+      NULL AS departure_jetty,
+      NULL AS arrival_anchorage,
+      NULL AS mooring,
+      NULL AS commence_discharging,
+      NULL AS completed_discharging,
+      NULL AS clear_pass,
+      NULL AS qty_ds,
+      NULL AS flf,
+      NULL AS operation_status,
+      rc.operation_data AS operation_data,
+      rc.remarks AS operation_remarks,
+      rc.created_by AS operation_created_by,
+      rc.created_at AS operation_created_at,
+      rc.updated_at AS operation_updated_at
+      FROM sibarges s
+      INNER JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_RC_TABLE . "` rc
+        ON rc.source_sibarges_id = s.id
+      LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden ON hidden.sibarges_id = s.id
+      WHERE s.no_pk = ?
+        AND s.record_status = 'ACT'
+        AND rc.usage_status = 'used'
+        AND hidden.sibarges_id IS NULL
+    ) coal_rows
+    ORDER BY barge_seq ASC, sibarges_id ASC, is_rc_clone DESC, rc_row_id ASC
   ");
   if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
 
-  $stmt->bind_param('s', $no_pk);
+  $stmt->bind_param('ss', $no_pk, $no_pk);
   $stmt->execute();
   $res = $stmt->get_result();
   $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
@@ -928,7 +1610,7 @@ if ($res) {
 }
 
 /* ========= PAGE META ========= */
-$pageTitle = "TLU Operation";
+$pageTitle = "Coal Barging";
 
 /* ========= LAYOUT ========= */
 include __DIR__ . "/../includes/header.php";
@@ -939,7 +1621,7 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="content">
 
     <div class="d-flex align-items-center justify-content-between mb-3">
-      <h4 class="m-0">TLU Operation</h4>
+      <h4 class="m-0">Coal Barging</h4>
       <div class="small text-muted">
         Source: SI Barges → Actual Operation (timestamps, movement, ds, flf, dll)
       </div>
@@ -947,7 +1629,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <div class="card" id="tluModeSelector">
       <div class="card-body py-5">
-        <h5 class="text-center mb-4">Pilih TLU Operation</h5>
+        <h5 class="text-center mb-4">Pilih Coal Barging</h5>
         <div class="d-flex justify-content-center flex-wrap gap-3">
           <button type="button" class="btn btn-primary tlu-mode-button" id="openInputWorkflow">
             Input
@@ -961,7 +1643,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <div class="d-none" id="tluInputWorkflow">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="m-0">TLU Operation — Input</h5>
+        <h5 class="m-0">Coal Barging — Input</h5>
         <button type="button" class="btn btn-sm btn-outline-secondary backToTluMode">
           Kembali
         </button>
@@ -1020,6 +1702,9 @@ include __DIR__ . "/../includes/sidebar.php";
                 <a class="btn btn-sm btn-outline-primary" id="downloadOperationCsv" href="#">
                   Download CSV
                 </a>
+                <button type="button" class="btn btn-sm btn-outline-warning flex-shrink-0" id="importFromTluButton" disabled>
+                  Import from TLU Operation
+                </button>
                 <form id="importOperationForm" class="d-flex align-items-center flex-nowrap gap-2">
                   <input type="file" class="form-control form-control-sm operation-csv-file" id="operationCsvFile" accept=".csv,text/csv" required>
                   <button type="submit" class="btn btn-sm btn-primary flex-shrink-0" id="importOperationButton">Import CSV</button>
@@ -1033,6 +1718,53 @@ include __DIR__ . "/../includes/sidebar.php";
             Klik salah satu baris untuk melihat dan mengedit data operasi.
           </div>
 
+          <div class="border rounded mb-3" id="unusedRcBox">
+            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+              <h6 class="m-0">Unused RC</h6>
+              <div class="small text-muted" id="unusedRcCount"></div>
+            </div>
+            <div class="table-responsive data-barges-horizontal-scroll">
+              <table class="table table-sm table-bordered align-middle mb-0" id="unusedRcTable">
+                <thead class="table-light">
+                  <tr>
+                    <th>Insert</th>
+                    <th>No.</th>
+                    <th data-calculated="true">MONTH VESSEL</th>
+                    <th data-edit-field="status_act_rc" data-input-type="status-act-rc">STATUS ACT/RC</th>
+                    <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">STATUS ACT/ACT&RC</th>
+                    <th data-field="laycan_start">Laycan Start</th>
+                    <th data-field="laycan_end">Laycan End</th>
+                    <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
+                    <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
+                    <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
+                    <th data-field="jetty_code">JETTY</th>
+                    <th data-field="tugboat">TB</th>
+                    <th data-field="barge">BG</th>
+                    <th data-edit-field="qty">QTY Jetty</th>
+                    <th data-edit-field="qty_disc">QTY DISC</th>
+                    <th data-edit-field="qty_actual">QTY Laut</th>
+                    <th data-calculated="true">DSR VS REDRAFT</th>
+                    <th data-field="no_pk">NO.REFF</th>
+                    <th data-field="buyer">Buyer</th>
+                    <th data-field="mothervessel">POD MV</th>
+                    <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
+                    <th data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
+                    <th data-edit-field="start_disch" data-input-type="datetime-local">Start Disch</th>
+                    <th data-edit-field="completed_disch" data-input-type="datetime-local">Completed Disch</th>
+                    <th data-field="anchorage">Anchorage</th>
+                    <th data-edit-field="operation_remarks" data-input-type="textarea">Remarks</th>
+                    <th data-field="created_by">Created By</th>
+                    <th data-field="created_at">Created At</th>
+                    <th data-field="updated_at">Updated At</th>
+                  </tr>
+                </thead>
+                <tbody id="unusedRcBody">
+                  <tr><td colspan="99" class="text-muted text-center py-2">Tidak ada RC unused untuk TB vessel ini.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div class="d-flex justify-content-end mb-3">
             <button type="button" class="btn btn-sm btn-outline-secondary" id="sortByDischargeSequence" disabled>
               Urutkan sesuai dengan “Discharge Sequence”.
@@ -1044,43 +1776,29 @@ include __DIR__ . "/../includes/sidebar.php";
             <thead class="table-light">
               <tr>
                 <th>No.</th>
-                <th data-field="no_pk">NO.REFF</th>
-                <th data-field="buyer">Buyer</th>
-                <th data-field="mothervessel">POD MV</th>
-                <th data-field="jetty_code">JETTY</th>
-                <th data-field="tugboat">TB</th>
-                <th data-field="barge">BG</th>
-                <th data-edit-field="qty">QTY</th>
-                <th data-edit-field="qty_disc">QTY DISC</th>
-                <th data-edit-field="rc">RC</th>
-                <th data-edit-field="qty_actual" data-calculated="true">QTY Actual</th>
-                <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
-                <th data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
+                <th data-calculated="true">MONTH VESSEL</th>
+                <th data-edit-field="status_act_rc" data-input-type="status-act-rc">STATUS ACT/RC</th>
+                <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">STATUS ACT/ACT&RC</th>
                 <th data-field="laycan_start">Laycan Start</th>
                 <th data-field="laycan_end">Laycan End</th>
                 <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
                 <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
                 <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
-                <th data-edit-field="lhv" data-input-type="datetime-local">LHV</th>
-                <th data-edit-field="spog_zona_2" data-input-type="datetime-local">SPOG ZONA 2</th>
-                <th data-edit-field="pkk" data-input-type="datetime-local">PKK</th>
-                <th data-edit-field="rkbm" data-input-type="datetime-local">RKBM</th>
-                <th data-edit-field="sts_spb" data-input-type="datetime-local">STS/ SPB</th>
-                <th data-edit-field="start_mooring" data-input-type="datetime-local">Start mooring</th>
-                <th data-edit-field="end_mooring" data-input-type="datetime-local">End mooring</th>
-                <th data-edit-field="mooring_place_1">Mooring Place 1</th>
-                <th data-edit-field="clear_pass" data-input-type="datetime-local">Clear pass</th>
-                <th data-edit-field="start_mooring_clear_pass" data-input-type="datetime-local">Start Mooring clear pass</th>
-                <th data-edit-field="cast_off_mooring_clear_pass" data-input-type="datetime-local">Cast off mooring clear pass</th>
-                <th data-edit-field="mooring_place_2">Mooring Place 2</th>
-                <th data-edit-field="ta_barges_actual" data-input-type="datetime-local">TA Barges Actual</th>
-                <th data-edit-field="ta_mv" data-input-type="datetime-local">TA MV</th>
-                <th data-edit-field="ta_flf" data-input-type="datetime-local">TA FLF</th>
-                <th data-edit-field="cargo_readiness_actual" data-input-type="datetime-local">Cargo Readiness Actual</th>
+                <th data-field="jetty_code">JETTY</th>
+                <th data-field="tugboat">TB</th>
+                <th data-field="barge">BG</th>
+                <th data-edit-field="qty">QTY Jetty</th>
+                <th data-edit-field="qty_disc">QTY DISC</th>
+                <th data-edit-field="qty_actual">QTY Laut</th>
+                <th data-calculated="true">DSR VS REDRAFT</th>
+                <th data-field="no_pk">NO.REFF</th>
+                <th data-field="buyer">Buyer</th>
+                <th data-field="mothervessel">POD MV</th>
+                <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
+                <th data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
                 <th data-edit-field="start_disch" data-input-type="datetime-local">Start Disch</th>
                 <th data-edit-field="completed_disch" data-input-type="datetime-local">Completed Disch</th>
-                <th data-edit-field="discharge_sequence" data-input-type="discharge-sequence">Discharge Sequence</th>
-                <th data-edit-field="back_to_jetty" data-input-type="datetime-local">Back to jetty</th>
+                <th data-field="anchorage">Anchorage</th>
                 <th data-edit-field="operation_remarks" data-input-type="textarea">Remarks</th>
                 <th data-field="created_by">Created By</th>
                 <th data-field="created_at">Created At</th>
@@ -1101,7 +1819,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <div class="d-none" id="tluExportWorkflow">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h5 class="m-0">TLU Operation — Export CSV</h5>
+        <h5 class="m-0">Coal Barging — Export CSV</h5>
         <button type="button" class="btn btn-sm btn-outline-secondary backToTluMode">
           Kembali
         </button>
@@ -1191,6 +1909,8 @@ include __DIR__ . "/../includes/sidebar.php";
       </div>
       <div class="modal-footer">
         <div class="me-auto small" id="siBargesSaveStatus"></div>
+        <button type="button" class="btn btn-outline-primary" id="siBargesCreateRcButton">Create RC</button>
+        <button type="button" class="btn btn-outline-danger" id="siBargesDeleteButton">Delete</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
         <button type="button" class="btn btn-primary" id="siBargesSaveButton">Save</button>
       </div>
@@ -1267,7 +1987,8 @@ include __DIR__ . "/../includes/sidebar.php";
     -webkit-overflow-scrolling: touch;
   }
 
-  #dataBargesTable {
+  #dataBargesTable,
+  #unusedRcTable {
     width: max-content;
     min-width: 1900px;
     font-size: 15px;
@@ -1287,11 +2008,13 @@ include __DIR__ . "/../includes/sidebar.php";
     background-color: var(--bs-table-bg, #f8f9fa);
   }
 
-  #siBargesBody tr[data-row-index] {
+  #siBargesBody tr[data-row-index],
+  #unusedRcBody tr[data-unused-rc-index] {
     cursor: pointer;
   }
 
-  #siBargesBody tr[data-row-index]:hover > td {
+  #siBargesBody tr[data-row-index]:hover > td,
+  #unusedRcBody tr[data-unused-rc-index]:hover > td {
     background-color: #eaf2f8;
   }
 
@@ -1338,14 +2061,19 @@ const siBargesHiddenFields = document.getElementById('siBargesHiddenFields');
 const siBargesDetailModal = document.getElementById('siBargesDetailModal');
 const siBargesDetailSubtitle = document.getElementById('siBargesDetailSubtitle');
 const siBargesDetailBody = document.getElementById('siBargesDetailBody');
+const siBargesCreateRcButton = document.getElementById('siBargesCreateRcButton');
+const siBargesDeleteButton = document.getElementById('siBargesDeleteButton');
 const siBargesSaveButton = document.getElementById('siBargesSaveButton');
 const siBargesSaveStatus = document.getElementById('siBargesSaveStatus');
 const downloadOperationCsv = document.getElementById('downloadOperationCsv');
 const exportDataBargesCsv = document.getElementById('exportDataBargesCsv');
 const sortByDischargeSequence = document.getElementById('sortByDischargeSequence');
+const unusedRcBody = document.getElementById('unusedRcBody');
+const unusedRcCount = document.getElementById('unusedRcCount');
 const importOperationForm = document.getElementById('importOperationForm');
 const operationCsvFile = document.getElementById('operationCsvFile');
 const importOperationButton = document.getElementById('importOperationButton');
+const importFromTluButton = document.getElementById('importFromTluButton');
 const operationCsvStatus = document.getElementById('operationCsvStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -1355,7 +2083,9 @@ const restrictedFloatingCranes = {
   MLS: 'STV MAESTRO'
 };
 let currentSiBargesRows = [];
+let currentUnusedRcRows = [];
 let currentDetailRowIndex = null;
+let currentDetailSource = 'main';
 
 const monthNames = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -1505,7 +2235,7 @@ downloadGroupedExport.addEventListener('click', () => {
   if (['vessel', 'month'].includes(scope)) params.set('month', month);
   if (scope === 'vessel') params.set('no_pk', noPk);
 
-  window.location.href = `7tluoperation.php?${params.toString()}`;
+  window.location.href = `8coalbarging.php?${params.toString()}`;
 });
 
 tluYearSelect.addEventListener('change', () => {
@@ -1557,7 +2287,6 @@ const siBargesAvailableHiddenFields = [
   { label: 'Year', keys: ['year_num'] },
   { label: 'Barge Sequence', keys: ['barge_seq'] },
   { label: 'SI Barges', keys: ['si_barges'] },
-  { label: 'Anchorage', keys: ['anchorage'] },
   { label: 'Term', keys: ['term'] },
   { label: 'Qty Plan', keys: ['qty_plan'] },
   { label: 'Jetty Name', keys: ['jetty_name'] },
@@ -1589,16 +2318,19 @@ function updateHiddenFieldsSummary() {
 }
 
 const siBargesDetailFields = [
+  ['MONTH VESSEL', null],
+  ['STATUS ACT/RC', null],
+  ['STATUS ACT/ACT&RC', null],
   ['NO.REFF', 'no_pk'],
   ['Buyer', 'buyer'],
   ['POD MV', 'mothervessel'],
   ['JETTY', 'jetty_code'],
   ['TB', 'tugboat'],
   ['BG', 'barge'],
-  ['QTY', null],
+  ['QTY Jetty', null],
   ['QTY DISC', null],
-  ['RC', null],
-  ['QTY ACTUAL', null],
+  ['QTY Laut', null],
+  ['DSR VS REDRAFT', null],
   ['PBM Vendor', null],
   ['Floating Crane', null],
   ['Month', 'month_num'],
@@ -1609,26 +2341,9 @@ const siBargesDetailFields = [
   ['Arrival jetty', null],
   ['Start loading', null],
   ['Completed loading', null],
-  ['LHV', null],
-  ['SPOG ZONA 2', null],
-  ['PKK', null],
-  ['RKBM', null],
-  ['STS/ SPB', null],
-  ['Start mooring', null],
-  ['End mooring', null],
-  ['Mooring Place 1', null],
-  ['Clear pass', null],
-  ['Start Mooring clear pass', null],
-  ['Cast off mooring clear pass', null],
-  ['Mooring Place 2', null],
-  ['TA Barges Actual', null],
-  ['TA MV', null],
-  ['TA FLF', null],
-  ['Cargo Readiness Actual', null],
   ['Start Disch', null],
   ['Completed Disch', null],
-  ['Discharge Sequence', null],
-  ['Back to jetty', null],
+  ['Anchorage', 'anchorage'],
   ['Jetty Name', 'jetty_name'],
   ['CARGO', 'shipper_code'],
   ['Shipper Name', 'shipper_name'],
@@ -1671,6 +2386,7 @@ function displayValue(value) {
 }
 
 const formattedNumberFields = new Set(['qty', 'qty_disc', 'rc', 'qty_actual']);
+const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);
 
 function formatDisplayNumber(value) {
   const text = String(value ?? '').trim();
@@ -1689,6 +2405,10 @@ function displayLaycanDateTime(value) {
   return date === '' ? '-' : `${esc(date)} 00:00`;
 }
 
+function formatOperationDateTimeDisplay(value) {
+  return String(value ?? '').trim().replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?$/, '$1 $2');
+}
+
 function parseOperationData(value) {
   if (value && typeof value === 'object') return value;
   if (!value) return {};
@@ -1704,9 +2424,56 @@ function parseOperationData(value) {
 function operationCell(operationData, field) {
   const value = formattedNumberFields.has(field)
     ? formatDisplayNumber(operationData[field])
+    : operationDateTimeFields.has(field)
+    ? formatOperationDateTimeDisplay(operationData[field])
     : operationData[field];
 
   return `<td>${displayValue(value)}</td>`;
+}
+
+function statusActRcValue(operationData) {
+  const value = String(operationData.status_act_rc ?? '').trim().toUpperCase();
+  return value === 'RC' ? 'RC' : 'ACT';
+}
+
+function statusActRcSelectMarkup(value, rowIndex = null) {
+  const selectedValue = value === 'RC' ? 'RC' : 'ACT';
+  const rowAttribute = rowIndex === null ? '' : ` data-row-index="${rowIndex}"`;
+
+  return `
+    <select class="form-select form-select-sm statusActRcSelect" data-operation-field="status_act_rc"${rowAttribute}>
+      <option value="ACT"${selectedValue === 'ACT' ? ' selected' : ''}>ACT</option>
+      <option value="RC"${selectedValue === 'RC' ? ' selected' : ''}>RC</option>
+    </select>
+  `;
+}
+
+function statusActActRcValue(operationData) {
+  const savedValue = String(operationData.status_act_act_rc ?? '').trim().toUpperCase();
+  if (savedValue === 'ACT&RC') return 'ACT&RC';
+  if (savedValue === 'ACT') return 'ACT';
+
+  return statusActRcValue(operationData) === 'RC' ? 'ACT&RC' : 'ACT';
+}
+
+function statusActActRcSelectMarkup(value, rowIndex = null) {
+  const selectedValue = value === 'ACT&RC' ? 'ACT&RC' : 'ACT';
+  const rowAttribute = rowIndex === null ? '' : ` data-row-index="${rowIndex}"`;
+
+  return `
+    <select class="form-select form-select-sm statusActActRcSelect" data-operation-field="status_act_act_rc"${rowAttribute}>
+      <option value="ACT"${selectedValue === 'ACT' ? ' selected' : ''}>ACT</option>
+      <option value="ACT&RC"${selectedValue === 'ACT&RC' ? ' selected' : ''}>ACT&RC</option>
+    </select>
+  `;
+}
+
+function monthVesselFromCompletedDisch(value) {
+  const text = String(value ?? '').trim();
+  const match = text.match(/^\d{4}-(\d{2})-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/);
+  if (!match) return '';
+
+  return String(Number(match[1]));
 }
 
 function parseOperationNumber(value) {
@@ -1717,12 +2484,12 @@ function parseOperationNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-function calculateQtyActual(data) {
+function calculateDsrVsRedraft(data) {
   const qtyDisc = parseOperationNumber(data.qty_disc);
-  const rc = parseOperationNumber(data.rc);
-  if (qtyDisc === null && rc === null) return '';
+  const qtyLaut = parseOperationNumber(data.qty_actual);
+  if (qtyDisc === null || qtyLaut === null) return '';
 
-  return formatDisplayNumber((qtyDisc ?? 0) + (rc ?? 0));
+  return formatDisplayNumber(qtyDisc - qtyLaut);
 }
 
 function selectMarkup(field, value, options) {
@@ -1769,7 +2536,7 @@ function exportVisibleDataBarges() {
     .map((row, originalIndex) => ({
       originalIndex,
       values: [...row.cells].slice(1).map(cell => {
-        const value = cell.textContent.trim();
+        const value = cell.querySelector('select')?.value?.trim() || cell.textContent.trim();
         return value === '-' ? '' : value;
       })
     }))
@@ -1810,7 +2577,9 @@ function dischargeSequenceSortValue(row) {
 }
 
 function urutkanSesuaiDenganDischargeSequence(rows) {
-  return [...rows].sort((left, right) => {
+  const baseRows = rows.filter(row => row.row_type !== 'rc');
+  const rcRows = rows.filter(row => row.row_type === 'rc');
+  const compareRows = (left, right) => {
     const leftSequence = dischargeSequenceSortValue(left);
     const rightSequence = dischargeSequenceSortValue(right);
 
@@ -1826,8 +2595,45 @@ function urutkanSesuaiDenganDischargeSequence(rows) {
       return leftBargeSequence - rightBargeSequence;
     }
 
-    return (Number(left.id) || 0) - (Number(right.id) || 0);
+    const leftSourceId = Number(left.sibarges_id ?? left.id) || 0;
+    const rightSourceId = Number(right.sibarges_id ?? right.id) || 0;
+    if (leftSourceId !== rightSourceId) {
+      return leftSourceId - rightSourceId;
+    }
+
+    const leftIsRc = Number(left.is_rc_clone) || 0;
+    const rightIsRc = Number(right.is_rc_clone) || 0;
+    if (leftIsRc !== rightIsRc) {
+      return leftIsRc - rightIsRc;
+    }
+
+    return (Number(left.rc_row_id) || 0) - (Number(right.rc_row_id) || 0);
+  };
+
+  const rcRowsBySource = rcRows.reduce((groups, row) => {
+    const sourceId = String(row.sibarges_id ?? row.id);
+    if (!groups.has(sourceId)) groups.set(sourceId, []);
+    groups.get(sourceId).push(row);
+    return groups;
+  }, new Map());
+
+  rcRowsBySource.forEach(group => group.sort(compareRows));
+
+  const groupedRows = [];
+  const attachedSourceIds = new Set();
+  baseRows.sort(compareRows).forEach(row => {
+    const sourceId = String(row.sibarges_id ?? row.id);
+    const attachedRcRows = rcRowsBySource.get(sourceId) || [];
+    groupedRows.push(...attachedRcRows);
+    groupedRows.push(row);
+    attachedSourceIds.add(sourceId);
   });
+
+  rcRowsBySource.forEach((group, sourceId) => {
+    if (!attachedSourceIds.has(sourceId)) groupedRows.push(...group);
+  });
+
+  return groupedRows;
 }
 
 function renderSiBargesRows(rows) {
@@ -1835,48 +2641,37 @@ function renderSiBargesRows(rows) {
 
   siBargesBody.innerHTML = currentSiBargesRows.map((row, index) => {
     const operationData = parseOperationData(row.operation_data);
-    operationData.qty_actual = calculateQtyActual(operationData);
+    const dsrVsRedraft = calculateDsrVsRedraft(operationData);
+    const monthVessel = monthVesselFromCompletedDisch(operationData.completed_disch);
+    const statusActRc = statusActRcValue(operationData);
+    const statusActActRc = statusActActRcValue(operationData);
 
     return `
       <tr data-row-index="${index}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
         <td>${index + 1}</td>
-        <td>${displayValue(row.no_pk)}</td>
-        <td>${displayValue(row.buyer)}</td>
-        <td>${displayValue(row.mothervessel)}</td>
-        <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
-        <td>${displayValue(row.tugboat)}</td>
-        <td>${displayValue(row.barge)}</td>
-        ${operationCell(operationData, 'qty')}
-        ${operationCell(operationData, 'qty_disc')}
-        ${operationCell(operationData, 'rc')}
-        ${operationCell(operationData, 'qty_actual')}
-        ${operationCell(operationData, 'pbm_vendor')}
-        ${operationCell(operationData, 'floating_crane')}
+        <td>${displayValue(monthVessel)}</td>
+        <td>${statusActRcSelectMarkup(statusActRc, index)}</td>
+        <td>${statusActActRcSelectMarkup(statusActActRc, index)}</td>
         <td>${displayLaycanDateTime(row.laycan_start)}</td>
         <td>${displayLaycanDateTime(row.laycan_end)}</td>
         ${operationCell(operationData, 'arrival_jetty')}
         ${operationCell(operationData, 'start_loading')}
         ${operationCell(operationData, 'completed_loading')}
-        ${operationCell(operationData, 'lhv')}
-        ${operationCell(operationData, 'spog_zona_2')}
-        ${operationCell(operationData, 'pkk')}
-        ${operationCell(operationData, 'rkbm')}
-        ${operationCell(operationData, 'sts_spb')}
-        ${operationCell(operationData, 'start_mooring')}
-        ${operationCell(operationData, 'end_mooring')}
-        ${operationCell(operationData, 'mooring_place_1')}
-        ${operationCell(operationData, 'clear_pass')}
-        ${operationCell(operationData, 'start_mooring_clear_pass')}
-        ${operationCell(operationData, 'cast_off_mooring_clear_pass')}
-        ${operationCell(operationData, 'mooring_place_2')}
-        ${operationCell(operationData, 'ta_barges_actual')}
-        ${operationCell(operationData, 'ta_mv')}
-        ${operationCell(operationData, 'ta_flf')}
-        ${operationCell(operationData, 'cargo_readiness_actual')}
+        <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
+        <td>${displayValue(row.tugboat)}</td>
+        <td>${displayValue(row.barge)}</td>
+        ${operationCell(operationData, 'qty')}
+        ${operationCell(operationData, 'qty_disc')}
+        ${operationCell(operationData, 'qty_actual')}
+        <td>${displayValue(dsrVsRedraft)}</td>
+        <td>${displayValue(row.no_pk)}</td>
+        <td>${displayValue(row.buyer)}</td>
+        <td>${displayValue(row.mothervessel)}</td>
+        ${operationCell(operationData, 'pbm_vendor')}
+        ${operationCell(operationData, 'floating_crane')}
         ${operationCell(operationData, 'start_disch')}
         ${operationCell(operationData, 'completed_disch')}
-        ${operationCell(operationData, 'discharge_sequence')}
-        ${operationCell(operationData, 'back_to_jetty')}
+        <td>${displayValue(row.anchorage)}</td>
         <td>${displayValue(row.operation_remarks)}</td>
         <td>${displayValue(row.created_by)}</td>
         <td>${displayValue(row.created_at)}</td>
@@ -1888,6 +2683,90 @@ function renderSiBargesRows(rows) {
 
 updateHiddenFieldsSummary();
 
+function setUnusedRcMessage(message = 'Tidak ada RC unused untuk TB vessel ini') {
+  unusedRcBody.innerHTML = `<tr><td colspan="99" class="text-muted text-center py-2">${esc(message)}</td></tr>`;
+  unusedRcCount.textContent = '';
+  currentUnusedRcRows = [];
+}
+
+function renderUnusedRcRows(rows) {
+  currentUnusedRcRows = rows;
+  unusedRcCount.textContent = `${rows.length} data`;
+  unusedRcBody.innerHTML = rows.map((row, index) => {
+    const operationData = parseOperationData(row.operation_data);
+    const dsrVsRedraft = calculateDsrVsRedraft(operationData);
+    const monthVessel = monthVesselFromCompletedDisch(operationData.completed_disch);
+    const statusActRc = statusActRcValue(operationData);
+    const statusActActRc = statusActActRcValue(operationData);
+
+    return `
+      <tr data-unused-rc-index="${index}" tabindex="0" role="button" aria-label="Buka detail unused RC ${esc(row.rc_row_id)}">
+        <td>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-primary insertRcRowButton"
+            data-rc-row-id="${esc(row.rc_row_id)}"
+            data-target-sibarges-id="${esc(row.target_sibarges_id)}"
+          >
+            Insert
+          </button>
+        </td>
+        <td>${index + 1}</td>
+        <td>${displayValue(monthVessel)}</td>
+        <td>${displayValue(statusActRc)}</td>
+        <td>${displayValue(statusActActRc)}</td>
+        <td>${displayLaycanDateTime(row.laycan_start)}</td>
+        <td>${displayLaycanDateTime(row.laycan_end)}</td>
+        ${operationCell(operationData, 'arrival_jetty')}
+        ${operationCell(operationData, 'start_loading')}
+        ${operationCell(operationData, 'completed_loading')}
+        <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
+        <td>${displayValue(row.tugboat)}</td>
+        <td>${displayValue(row.barge)}</td>
+        ${operationCell(operationData, 'qty')}
+        ${operationCell(operationData, 'qty_disc')}
+        ${operationCell(operationData, 'qty_actual')}
+        <td>${displayValue(dsrVsRedraft)}</td>
+        <td>${displayValue(row.no_pk)}</td>
+        <td>${displayValue(row.buyer)}</td>
+        <td>${displayValue(row.mothervessel)}</td>
+        ${operationCell(operationData, 'pbm_vendor')}
+        ${operationCell(operationData, 'floating_crane')}
+        ${operationCell(operationData, 'start_disch')}
+        ${operationCell(operationData, 'completed_disch')}
+        <td>${displayValue(row.anchorage)}</td>
+        <td>${displayValue(row.operation_remarks)}</td>
+        <td>${displayValue(row.created_by)}</td>
+        <td>${displayValue(row.created_at)}</td>
+        <td>${displayValue(row.updated_at)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function loadUnusedRcRows(noPk) {
+  setUnusedRcMessage('Loading RC unused...');
+
+  try {
+    const response = await fetch(
+      `8coalbarging.php?action=unused_rc_options&no_pk=${encodeURIComponent(noPk)}`,
+      { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+    );
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal mengambil RC unused.');
+
+    const options = result.data || [];
+    if (!options.length) {
+      setUnusedRcMessage();
+      return;
+    }
+
+    renderUnusedRcRows(options);
+  } catch (error) {
+    setUnusedRcMessage(error.message);
+  }
+}
+
 async function loadSelectedVessel() {
   const noPk = noPkSelect.value.trim();
 
@@ -1898,20 +2777,24 @@ async function loadSelectedVessel() {
     currentSiBargesRows = [];
     exportDataBargesCsv.disabled = true;
     sortByDischargeSequence.disabled = true;
+    importFromTluButton.disabled = true;
+    setUnusedRcMessage();
     return;
   }
 
   downloadOperationCsv.href =
-    `7tluoperation.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
+    `8coalbarging.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
   siBargesBox.classList.remove('d-none');
   siBargesCount.textContent = '';
   exportDataBargesCsv.disabled = true;
   sortByDischargeSequence.disabled = true;
+  importFromTluButton.disabled = true;
+  setUnusedRcMessage('Loading RC unused...');
   siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
 
   try {
     const response = await fetch(
-      `7tluoperation.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
+      `8coalbarging.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
       { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
     );
     const result = await response.json();
@@ -1923,24 +2806,173 @@ async function loadSelectedVessel() {
 
     if (!rows.length) {
       siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
+      setUnusedRcMessage();
       return;
     }
 
     renderSiBargesRows(rows);
     exportDataBargesCsv.disabled = false;
     sortByDischargeSequence.disabled = false;
+    importFromTluButton.disabled = false;
+    await loadUnusedRcRows(noPk);
   } catch (error) {
     siBargesCount.textContent = '';
     exportDataBargesCsv.disabled = true;
     sortByDischargeSequence.disabled = true;
+    importFromTluButton.disabled = true;
+    setUnusedRcMessage();
     siBargesBody.innerHTML = `<tr><td colspan="99" class="text-center text-danger py-3">${esc(error.message)}</td></tr>`;
   }
 }
 
 exportDataBargesCsv.addEventListener('click', exportVisibleDataBarges);
+unusedRcBody.addEventListener('click', async event => {
+  const button = event.target.closest('.insertRcRowButton');
+  if (!button) {
+    const row = event.target.closest('tr[data-unused-rc-index]');
+    if (!row) return;
+    openSiBargesDetail(Number(row.dataset.unusedRcIndex), 'unused');
+    return;
+  }
+
+  const rcRowId = Number(button.dataset.rcRowId);
+  const targetSibargesId = Number(button.dataset.targetSibargesId);
+  if (!rcRowId || !targetSibargesId) return;
+
+  event.stopPropagation();
+  button.disabled = true;
+  button.textContent = 'Inserting...';
+  operationCsvStatus.className = 'alert d-none mt-3 mb-0';
+
+  try {
+    const response = await fetch('8coalbarging.php?action=input_rc_row', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        rc_row_id: rcRowId,
+        target_sibarges_id: targetSibargesId
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Insert RC gagal.');
+
+    operationCsvStatus.textContent = result.msg;
+    operationCsvStatus.className = 'alert alert-success mt-3 mb-0';
+    await loadSelectedVessel();
+  } catch (error) {
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.className = 'alert alert-danger mt-3 mb-0';
+    button.disabled = false;
+  } finally {
+    button.textContent = 'Insert';
+  }
+});
+
+unusedRcBody.addEventListener('keydown', event => {
+  if (event.target.closest('.insertRcRowButton')) return;
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+
+  const row = event.target.closest('tr[data-unused-rc-index]');
+  if (!row) return;
+
+  event.preventDefault();
+  openSiBargesDetail(Number(row.dataset.unusedRcIndex), 'unused');
+});
 sortByDischargeSequence.addEventListener('click', () => {
   if (!currentSiBargesRows.length) return;
   renderSiBargesRows(currentSiBargesRows);
+});
+
+siBargesBody.addEventListener('change', async event => {
+  const select = event.target.closest('.statusActRcSelect, .statusActActRcSelect');
+  if (!select) return;
+
+  const rowIndex = Number(select.dataset.rowIndex);
+  const row = currentSiBargesRows[rowIndex];
+  if (!row) return;
+
+  const previousData = parseOperationData(row.operation_data);
+  const field = select.dataset.operationField;
+  const previousStatus = field === 'status_act_act_rc'
+    ? statusActActRcValue(previousData)
+    : statusActRcValue(previousData);
+  const data = {
+    ...previousData,
+    [field]: field === 'status_act_act_rc'
+      ? (select.value === 'ACT&RC' ? 'ACT&RC' : 'ACT')
+      : (select.value === 'RC' ? 'RC' : 'ACT'),
+    operation_remarks: row.operation_remarks || ''
+  };
+
+  select.disabled = true;
+
+  try {
+    const response = await fetch('8coalbarging.php?action=save_operation_data', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        sibarges_id: row.sibarges_id || row.id,
+        row_type: row.row_type === 'rc' ? 'rc' : 'base',
+        rc_row_id: Number(row.rc_row_id) || 0,
+        data
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan status.');
+
+    row.operation_data = result.data;
+    row.operation_remarks = result.data.operation_remarks || '';
+    renderSiBargesRows(currentSiBargesRows);
+  } catch (error) {
+    select.value = previousStatus;
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.className = 'alert alert-danger mt-3 mb-0';
+  } finally {
+    select.disabled = false;
+  }
+});
+
+importFromTluButton.addEventListener('click', async () => {
+  const noPk = noPkSelect.value.trim();
+  if (!noPk) return;
+
+  const confirmed = confirm(
+    'Overwrite semua data Coal Barging untuk vessel ini dari TLU Operation?'
+  );
+  if (!confirmed) return;
+
+  operationCsvStatus.className = 'alert d-none mt-3 mb-0';
+  importFromTluButton.disabled = true;
+  importFromTluButton.textContent = 'Importing...';
+
+  try {
+    const response = await fetch('8coalbarging.php?action=import_from_tlu_operation', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ no_pk: noPk })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Import from TLU Operation gagal.');
+
+    operationCsvStatus.textContent = result.msg;
+    operationCsvStatus.className = 'alert alert-success mt-3 mb-0';
+    await loadSelectedVessel();
+  } catch (error) {
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.className = 'alert alert-danger mt-3 mb-0';
+  } finally {
+    importFromTluButton.disabled = false;
+    importFromTluButton.textContent = 'Import from TLU Operation';
+  }
 });
 
 noPkSelect.addEventListener('change', () => {
@@ -1964,7 +2996,7 @@ importOperationForm.addEventListener('submit', async event => {
   operationCsvStatus.className = 'alert d-none mt-3 mb-0';
 
   try {
-    const response = await fetch('7tluoperation.php?action=import_operation_csv', {
+    const response = await fetch('8coalbarging.php?action=import_operation_csv', {
       method: 'POST',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       body: formData
@@ -1986,38 +3018,69 @@ importOperationForm.addEventListener('submit', async event => {
   }
 });
 
-function openSiBargesDetail(rowIndex) {
-  const row = currentSiBargesRows[rowIndex];
+function openSiBargesDetail(rowIndex, source = 'main') {
+  const rows = source === 'unused' ? currentUnusedRcRows : currentSiBargesRows;
+  const row = rows[rowIndex];
   if (!row) return;
 
-  const tableRow = siBargesBody.querySelector(`tr[data-row-index="${rowIndex}"]`);
+  const tableRow = source === 'unused'
+    ? unusedRcBody.querySelector(`tr[data-unused-rc-index="${rowIndex}"]`)
+    : siBargesBody.querySelector(`tr[data-row-index="${rowIndex}"]`);
   if (!tableRow) return;
 
-  const headers = [...document.querySelectorAll('#dataBargesTable thead th')];
+  const headers = source === 'unused'
+    ? [...document.querySelectorAll('#unusedRcTable thead th')].slice(1)
+    : [...document.querySelectorAll('#dataBargesTable thead th')];
   const cells = [...tableRow.cells]
-    .map(cell => cell.textContent.trim());
+    .slice(source === 'unused' ? 1 : 0)
+    .map(cell => cell.querySelector('select')?.value?.trim() || cell.textContent.trim());
 
   currentDetailRowIndex = rowIndex;
+  currentDetailSource = source;
   siBargesSaveStatus.textContent = '';
   siBargesSaveStatus.className = 'me-auto small';
-  siBargesDetailSubtitle.textContent = `${row.si_barges || '-'} — ${row.mothervessel || '-'}`;
-  siBargesDetailBody.innerHTML = headers.map((header, index) => {
-    const label = header.textContent.trim();
-    const editField = header.dataset.editField;
-    const value = cells[index] === '-' ? '' : (cells[index] ?? '');
-    const isCalculated = header.dataset.calculated === 'true';
-    const inputType = header.dataset.inputType;
-    const valueMarkup = isCalculated
-      ? `
-        <div>
-          <div class="si-detail-value fw-semibold" data-operation-field="${esc(editField)}">${esc(value || '-')}</div>
-          <div class="form-text">Dihitung otomatis: QTY DISC + RC</div>
+  siBargesCreateRcButton.classList.toggle('d-none', source === 'unused' || row.row_type === 'rc');
+  siBargesCreateRcButton.disabled = source === 'unused' || row.row_type === 'rc';
+  siBargesDeleteButton.classList.remove('d-none');
+  siBargesDeleteButton.disabled = false;
+  siBargesDeleteButton.textContent = 'Delete';
+  siBargesSaveButton.textContent = 'Save';
+  siBargesSaveButton.disabled = false;
+  siBargesDetailSubtitle.textContent = source === 'unused'
+    ? `Unused RC #${row.rc_row_id || '-'} — ${row.tugboat || '-'}`
+    : `${row.si_barges || '-'} — ${row.mothervessel || '-'}`;
+	  siBargesDetailBody.innerHTML = headers.map((header, index) => {
+	    const label = header.textContent.trim();
+	    const editField = header.dataset.editField;
+	    const value = cells[index] === '-' ? '' : (cells[index] ?? '');
+	    const isCalculated = header.dataset.calculated === 'true';
+	    const inputType = header.dataset.inputType;
+	    const rcVesselFields = {
+	      'NO.REFF': 'no_pk',
+	      'Buyer': 'buyer',
+	      'POD MV': 'mothervessel'
+	    };
+	    const isRcVesselField = (source === 'unused' || row.row_type === 'rc') && rcVesselFields[label];
+	    const calculatedHelp = label === 'DSR VS REDRAFT'
+	      ? 'Dihitung otomatis: QTY DISC - QTY Laut'
+	      : 'Dihitung otomatis';
+	    const valueMarkup = isRcVesselField
+	      ? `<input type="text" class="form-control" data-operation-field="${esc(rcVesselFields[label])}" value="${esc(value)}">`
+	      : isCalculated
+	      ? `
+	        <div>
+	          <div class="si-detail-value fw-semibold" data-operation-field="${esc(editField)}">${esc(value || '-')}</div>
+          <div class="form-text">${esc(calculatedHelp)}</div>
         </div>
       `
       : inputType === 'pbm-vendor'
       ? selectMarkup(editField, value, pbmVendorOptions)
       : inputType === 'floating-crane'
       ? selectMarkup(editField, value, floatingCraneOptions)
+      : inputType === 'status-act-rc'
+      ? statusActRcSelectMarkup(value)
+      : inputType === 'status-act-act-rc'
+      ? statusActActRcSelectMarkup(value)
       : inputType === 'discharge-sequence'
       ? dischargeSequenceMarkup(editField, value)
       : inputType === 'datetime-local'
@@ -2037,19 +3100,21 @@ function openSiBargesDetail(rowIndex) {
   }).join('');
 
   const qtyDiscInput = siBargesDetailBody.querySelector('[data-operation-field="qty_disc"]');
-  const rcInput = siBargesDetailBody.querySelector('[data-operation-field="rc"]');
   const qtyActualInput = siBargesDetailBody.querySelector('[data-operation-field="qty_actual"]');
-  const updateQtyActual = () => {
-    if (!qtyActualInput) return;
-    const calculatedValue = calculateQtyActual({
-      qty_disc: qtyDiscInput?.value,
-      rc: rcInput?.value
-    });
-    qtyActualInput.textContent = calculatedValue || '-';
+  const dsrVsRedraftRow = [...siBargesDetailBody.querySelectorAll('.si-detail-row')]
+    .find(row => row.querySelector('label')?.textContent.trim() === 'DSR VS REDRAFT');
+  const dsrVsRedraftValue = dsrVsRedraftRow?.querySelector('.si-detail-value');
+  const updateDsrVsRedraft = () => {
+    if (dsrVsRedraftValue) {
+      dsrVsRedraftValue.textContent = calculateDsrVsRedraft({
+        qty_disc: qtyDiscInput?.value,
+        qty_actual: qtyActualInput?.value
+      }) || '-';
+    }
   };
-  qtyDiscInput?.addEventListener('input', updateQtyActual);
-  rcInput?.addEventListener('input', updateQtyActual);
-  updateQtyActual();
+  qtyDiscInput?.addEventListener('input', updateDsrVsRedraft);
+  qtyActualInput?.addEventListener('input', updateDsrVsRedraft);
+  updateDsrVsRedraft();
 
   const pbmVendorSelect = siBargesDetailBody.querySelector('[data-operation-field="pbm_vendor"]');
   const floatingCraneSelect = siBargesDetailBody.querySelector('[data-operation-field="floating_crane"]');
@@ -2078,44 +3143,74 @@ function openSiBargesDetail(rowIndex) {
       }
     }
   };
-  pbmVendorSelect?.addEventListener('change', applyFloatingCraneRestriction);
-  applyFloatingCraneRestriction();
+	  pbmVendorSelect?.addEventListener('change', applyFloatingCraneRestriction);
+	  applyFloatingCraneRestriction();
 
-  bootstrap.Modal.getOrCreateInstance(siBargesDetailModal).show();
-}
+	  bootstrap.Modal.getOrCreateInstance(siBargesDetailModal).show();
+	}
 
-siBargesSaveButton.addEventListener('click', async () => {
-  const row = currentSiBargesRows[currentDetailRowIndex];
-  if (!row) return;
-
+function collectSiBargesDetailData() {
   const data = {};
   siBargesDetailBody.querySelectorAll('[data-operation-field]').forEach(input => {
-    data[input.dataset.operationField] = input.matches('input, textarea, select')
+    const field = input.dataset.operationField;
+    if (!field || field === 'undefined') return;
+
+    data[field] = input.matches('input, textarea, select')
       ? input.value.trim()
       : input.textContent.trim() === '-' ? '' : input.textContent.trim();
   });
+  return data;
+}
+
+siBargesSaveButton.addEventListener('click', async () => {
+  const activeRows = currentDetailSource === 'unused' ? currentUnusedRcRows : currentSiBargesRows;
+  const row = activeRows[currentDetailRowIndex];
+  if (!row) return;
+
+  const data = collectSiBargesDetailData();
 
   siBargesSaveButton.disabled = true;
   siBargesSaveButton.textContent = 'Saving...';
   siBargesSaveStatus.textContent = '';
 
   try {
-    const response = await fetch('7tluoperation.php?action=save_operation_data', {
+    const response = await fetch('8coalbarging.php?action=save_operation_data', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest'
       },
-      body: JSON.stringify({ sibarges_id: row.id, data })
+      body: JSON.stringify({
+        sibarges_id: row.sibarges_id || row.id,
+        row_type: row.row_type === 'rc' ? 'rc' : 'base',
+        rc_row_id: Number(row.rc_row_id) || 0,
+        data
+      })
     });
     const result = await response.json();
     if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan data operasi.');
 
-    const savedRowId = row.id;
-    row.operation_data = result.data;
-    row.operation_remarks = result.data.operation_remarks || '';
-    renderSiBargesRows(currentSiBargesRows);
-    currentDetailRowIndex = currentSiBargesRows.findIndex(item => item.id === savedRowId);
+	    const savedRowId = row.id;
+	    const savedRcRowId = Number(row.rc_row_id) || 0;
+	    row.operation_data = result.data;
+	    row.operation_remarks = result.data.operation_remarks || '';
+	    if (row.row_type === 'rc') {
+	      row.no_pk = result.data.no_pk || '';
+	      row.buyer = result.data.buyer || '';
+	      row.mothervessel = result.data.mothervessel || '';
+	    }
+	    if (currentDetailSource === 'unused') {
+	      renderUnusedRcRows(currentUnusedRcRows);
+	      currentDetailRowIndex = currentUnusedRcRows.findIndex(item =>
+        (Number(item.rc_row_id) || 0) === savedRcRowId
+      );
+    } else {
+      renderSiBargesRows(currentSiBargesRows);
+      currentDetailRowIndex = currentSiBargesRows.findIndex(item =>
+        Number(item.id) === Number(savedRowId) &&
+        (Number(item.rc_row_id) || 0) === savedRcRowId
+      );
+    }
 
     siBargesSaveStatus.textContent = result.msg;
     siBargesSaveStatus.className = 'me-auto small text-success';
@@ -2128,20 +3223,113 @@ siBargesSaveButton.addEventListener('click', async () => {
   }
 });
 
+siBargesCreateRcButton.addEventListener('click', async () => {
+  if (currentDetailSource !== 'main') return;
+  const row = currentSiBargesRows[currentDetailRowIndex];
+  if (!row || row.row_type === 'rc') return;
+
+  const data = {
+    ...collectSiBargesDetailData(),
+    status_act_rc: 'RC',
+    status_act_act_rc: 'ACT&RC'
+  };
+
+  siBargesCreateRcButton.disabled = true;
+  siBargesCreateRcButton.textContent = 'Creating...';
+  siBargesSaveStatus.textContent = '';
+
+  try {
+    const response = await fetch('8coalbarging.php?action=create_rc_row', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        sibarges_id: row.sibarges_id || row.id,
+        data,
+        operation_remarks: data.operation_remarks || row.operation_remarks || ''
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal membuat RC.');
+
+    siBargesSaveStatus.textContent = result.msg;
+    siBargesSaveStatus.className = 'me-auto small text-success';
+    bootstrap.Modal.getOrCreateInstance(siBargesDetailModal).hide();
+    await loadSelectedVessel();
+  } catch (error) {
+    siBargesSaveStatus.textContent = error.message;
+    siBargesSaveStatus.className = 'me-auto small text-danger';
+  } finally {
+    siBargesCreateRcButton.disabled = false;
+    siBargesCreateRcButton.textContent = 'Create RC';
+  }
+});
+
+siBargesDeleteButton.addEventListener('click', async () => {
+  const activeRows = currentDetailSource === 'unused' ? currentUnusedRcRows : currentSiBargesRows;
+  const row = activeRows[currentDetailRowIndex];
+  if (!row) return;
+
+  const confirmed = confirm(
+    currentDetailSource === 'unused'
+      ? 'Hapus data RC unused ini?'
+      : 'Hapus data ini dari Coal Barging?'
+  );
+  if (!confirmed) return;
+
+  siBargesDeleteButton.disabled = true;
+  siBargesDeleteButton.textContent = 'Deleting...';
+  siBargesSaveStatus.textContent = '';
+
+  try {
+    const response = await fetch('8coalbarging.php?action=delete_coal_barging_row', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        sibarges_id: row.sibarges_id || row.id,
+        row_type: row.row_type === 'rc' ? 'rc' : 'base',
+        rc_row_id: Number(row.rc_row_id) || 0,
+        delete_scope: currentDetailSource === 'unused' ? 'unused' : 'main'
+      })
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal menghapus data.');
+
+    siBargesSaveStatus.textContent = result.msg;
+    siBargesSaveStatus.className = 'me-auto small text-success';
+    bootstrap.Modal.getOrCreateInstance(siBargesDetailModal).hide();
+    await loadSelectedVessel();
+  } catch (error) {
+    siBargesSaveStatus.textContent = error.message;
+    siBargesSaveStatus.className = 'me-auto small text-danger';
+  } finally {
+    siBargesDeleteButton.disabled = false;
+    siBargesDeleteButton.textContent = 'Delete';
+  }
+});
+
 siBargesBody.addEventListener('click', event => {
+  if (event.target.closest('.statusActRcSelect, .statusActActRcSelect')) return;
+
   const row = event.target.closest('tr[data-row-index]');
   if (!row) return;
-  openSiBargesDetail(Number(row.dataset.rowIndex));
+  openSiBargesDetail(Number(row.dataset.rowIndex), 'main');
 });
 
 siBargesBody.addEventListener('keydown', event => {
+  if (event.target.closest('.statusActRcSelect, .statusActActRcSelect')) return;
   if (event.key !== 'Enter' && event.key !== ' ') return;
 
   const row = event.target.closest('tr[data-row-index]');
   if (!row) return;
 
   event.preventDefault();
-  openSiBargesDetail(Number(row.dataset.rowIndex));
+  openSiBargesDetail(Number(row.dataset.rowIndex), 'main');
 });
 </script>
 

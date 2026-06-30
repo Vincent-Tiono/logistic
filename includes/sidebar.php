@@ -98,10 +98,14 @@ function canAccess($divisi, $target){
         <span class="nav-text">SI Barges</span>
       </a>
 
-      <!-- ✅ NEW MENU -->
       <a class="nav-item-link<?= isActive('/logistic/Operation/7tluoperation.php') ?>" href="/logistic/Operation/7tluoperation.php">
         <span class="nav-icon">🧭</span>
         <span class="nav-text">TLU Operation</span>
+      </a>
+
+      <a class="nav-item-link<?= isActive('/logistic/Operation/8coalbarging.php') ?>" href="/logistic/Operation/8coalbarging.php">
+        <span class="nav-icon">🚚</span>
+        <span class="nav-text">Coal Barging</span>
       </a>
 
     </div>
