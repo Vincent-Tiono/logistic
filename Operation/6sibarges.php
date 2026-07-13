@@ -95,6 +95,34 @@ function jsonOut($arr){
   exit;
 }
 
+function ensureDiscardStatusAllowed(mysqli $koneksi){
+  $dbName = '';
+  $res = $koneksi->query("SELECT DATABASE() AS db_name");
+  if ($res) {
+    $row = $res->fetch_assoc();
+    $dbName = (string)($row['db_name'] ?? '');
+  }
+  if ($dbName === '') return [false, 'Database aktif tidak ditemukan.'];
+
+  $stmt = $koneksi->prepare("
+    SELECT COLUMN_TYPE
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA=? AND TABLE_NAME='sibarges' AND COLUMN_NAME='record_status'
+    LIMIT 1
+  ");
+  if (!$stmt) return [false, 'Gagal cek status enum: ' . $koneksi->error];
+  $stmt->bind_param("s", $dbName);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  $columnType = (string)($row['COLUMN_TYPE'] ?? '');
+  if (strpos($columnType, "'DISCARD'") !== false) return [true, ''];
+
+  $ok = $koneksi->query("ALTER TABLE sibarges MODIFY record_status enum('ACT','CANCEL','DISCARD') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACT'");
+  return $ok ? [true, ''] : [false, 'Gagal update enum record_status: ' . $koneksi->error];
+}
+
 function pdfText($text){
   $text = (string)$text;
   $text = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $text);
@@ -605,6 +633,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   // ===== LIST + SEARCH + SORT =====
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
+    $filter_month = clean($_GET['filter_month'] ?? '');
+    $filter_no_pk = clean($_GET['filter_no_pk'] ?? '');
+    $filter_discarded = clean($_GET['filter_discarded'] ?? 'hide');
     $sort_by = clean($_GET['sort_by'] ?? 'created_at');
     $sort_dir = strtoupper(clean($_GET['sort_dir'] ?? 'DESC'));
     if (!in_array($sort_dir, ['ASC','DESC'], true)) $sort_dir = 'DESC';
@@ -628,9 +659,10 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $types = "";
     $params = [];
+    $where = [];
 
     if ($q !== "") {
-      $sql .= " WHERE
+      $where[] = "(
         si_barges LIKE ? OR
         no_pk LIKE ? OR
         no_si_vessel LIKE ? OR
@@ -640,10 +672,34 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
         barge LIKE ? OR
         jetty_code LIKE ? OR
         shipper_code LIKE ? OR
-        record_status LIKE ?";
+        record_status LIKE ?
+      )";
       $kw = "%{$q}%";
-      $types = "ssssssssss";
+      $types .= "ssssssssss";
       $params = [$kw,$kw,$kw,$kw,$kw,$kw,$kw,$kw,$kw,$kw];
+    }
+
+    if (preg_match('/^(\d{4})-(\d{2})$/', $filter_month, $m)) {
+      $where[] = "year_num = ? AND month_num = ?";
+      $types .= "ii";
+      $params[] = (int)$m[1];
+      $params[] = (int)$m[2];
+    }
+
+    if ($filter_no_pk !== "") {
+      $where[] = "no_pk = ?";
+      $types .= "s";
+      $params[] = $filter_no_pk;
+    }
+
+    if ($filter_discarded === 'only') {
+      $where[] = "record_status = 'DISCARD'";
+    } elseif ($filter_discarded !== 'all') {
+      $where[] = "record_status <> 'DISCARD'";
+    }
+
+    if ($where) {
+      $sql .= " WHERE " . implode(" AND ", $where);
     }
 
     $sql .= " ORDER BY {$sort_by} {$sort_dir}, id DESC LIMIT 800";
@@ -792,6 +848,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $remarks = clean($_POST['remarks'] ?? '');
 
+    $stmtStatus = $koneksi->prepare("SELECT record_status FROM sibarges WHERE id=? LIMIT 1");
+    if (!$stmtStatus) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
+    $stmtStatus->bind_param("i", $id);
+    $stmtStatus->execute();
+    $currentStatusRow = $stmtStatus->get_result()->fetch_assoc();
+    $stmtStatus->close();
+    if (!$currentStatusRow) jsonOut(["ok"=>false,"msg"=>"Data SI Barges tidak ditemukan."]);
+    if (($currentStatusRow['record_status'] ?? '') === 'DISCARD') {
+      jsonOut(["ok"=>false,"msg"=>"SI Barges status DISCARD tidak bisa diubah kembali ke ACT/CANCEL."]);
+    }
+
     if ($tugboat === "" || $barge === "") jsonOut(["ok"=>false,"msg"=>"Tugboat/Barge wajib diisi."]);
     if (!in_array($term, ['FOB','FAS','CIF'], true)) jsonOut(["ok"=>false,"msg"=>"Term wajib dipilih."]);
     if (!in_array($anchorage, ['MUARA BERAU','MUARA JAWA','PRIMA ANCHORAGE'], true)) jsonOut(["ok"=>false,"msg"=>"Anchorage wajib dipilih."]);
@@ -835,6 +902,129 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmt->close();
 
     jsonOut($ok ? ["ok"=>true,"msg"=>"Data SI Barges berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
+  }
+
+  // ===== CHANGE VESSEL =====
+  if ($action === 'change_vessel') {
+    $id = (int)($_POST['id'] ?? 0);
+    $target_no_pk = clean($_POST['no_pk'] ?? '');
+
+    if ($id <= 0) jsonOut(["ok"=>false,"msg"=>"ID tidak valid."]);
+    if ($target_no_pk === "") jsonOut(["ok"=>false,"msg"=>"Vessel wajib dipilih."]);
+
+    [$discardReady, $discardMsg] = ensureDiscardStatusAllowed($koneksi);
+    if (!$discardReady) jsonOut(["ok"=>false,"msg"=>$discardMsg]);
+
+    $stmt = $koneksi->prepare("SELECT
+        id, no_pk, no_si_vessel, buyer, mothervessel,
+        si_type, month_num, year_num, si_barges,
+        tugboat, barge, term, anchorage, qty_plan,
+        laycan_start, laycan_end,
+        jetty_code, jetty_name,
+        shipper_code, shipper_name,
+        record_status, remarks
+      FROM sibarges
+      WHERE id=? LIMIT 1");
+    if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
+    $stmt->bind_param("i", $id);
+    $stmt->execute();
+    $current = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$current) jsonOut(["ok"=>false,"msg"=>"Data SI Barges tidak ditemukan."]);
+    if (($current['record_status'] ?? '') === 'DISCARD') {
+      jsonOut(["ok"=>false,"msg"=>"SI Barges yang sudah DISCARD tidak bisa dipindahkan lagi."]);
+    }
+    if ($target_no_pk === (string)$current['no_pk']) {
+      jsonOut(["ok"=>false,"msg"=>"Pilih vessel yang berbeda dari vessel saat ini."]);
+    }
+
+    $stmtV = $koneksi->prepare("SELECT no_pk, no_si_vessel, buyer, mothervessel, anchorage, term FROM vessel WHERE no_pk=? LIMIT 1");
+    if (!$stmtV) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
+    $stmtV->bind_param("s", $target_no_pk);
+    $stmtV->execute();
+    $target = $stmtV->get_result()->fetch_assoc();
+    $stmtV->close();
+    if (!$target) jsonOut(["ok"=>false,"msg"=>"Data vessel tidak ditemukan untuk no_pk: {$target_no_pk}"]);
+
+    $stmtSeq = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) AS mx FROM sibarges WHERE no_pk=?");
+    if (!$stmtSeq) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
+    $stmtSeq->bind_param("s", $target_no_pk);
+    $stmtSeq->execute();
+    $mx = $stmtSeq->get_result()->fetch_assoc();
+    $stmtSeq->close();
+    $new_seq = ((int)($mx['mx'] ?? 0)) + 1;
+
+    $si_type = cleanCode($current['si_type'] ?? 'SJN');
+    $month_num = (int)($current['month_num'] ?? 0);
+    $year_num = (int)($current['year_num'] ?? 0);
+    $romawi = romawiBulan($month_num);
+    if ($si_type === "" || $romawi === "" || $year_num <= 0) {
+      jsonOut(["ok"=>false,"msg"=>"Data SI Barges lama tidak lengkap untuk generate nomor SI baru."]);
+    }
+
+    $new_si_barges = "SI-{$si_type}/{$romawi}/{$year_num}/{$target['no_si_vessel']}/{$new_seq}";
+    $target_anchorage = clean($target['anchorage'] ?? '');
+    $target_term = cleanCode($target['term'] ?? '');
+    $new_term = $target_term === '' ? ($current['term'] ?? null) : $target_term;
+    $new_anchorage = $target_anchorage === '' ? ($current['anchorage'] ?? null) : $target_anchorage;
+    $new_no_pk = $target['no_pk'];
+    $new_no_si_vessel = $target['no_si_vessel'];
+    $new_buyer = $target['buyer'];
+    $new_mothervessel = $target['mothervessel'];
+    $new_tugboat = $current['tugboat'];
+    $new_barge = $current['barge'];
+    $new_qty_plan = (float)$current['qty_plan'];
+    $new_laycan_start = $current['laycan_start'];
+    $new_laycan_end = $current['laycan_end'];
+    $new_jetty_code = $current['jetty_code'];
+    $new_jetty_name = $current['jetty_name'];
+    $new_shipper_code = $current['shipper_code'];
+    $new_shipper_name = $current['shipper_name'];
+    $new_record_status = $current['record_status'] === 'CANCEL' ? 'CANCEL' : 'ACT';
+    $new_remarks = $current['remarks'];
+    $created_by = $_SESSION['username'];
+
+    $koneksi->begin_transaction();
+    try {
+      $stmtIns = $koneksi->prepare("INSERT INTO sibarges (
+          no_pk, no_si_vessel, buyer, mothervessel,
+          si_type, month_num, year_num, barge_seq, si_barges,
+          tugboat, barge, term, anchorage, qty_plan,
+          laycan_start, laycan_end,
+          jetty_code, jetty_name,
+          shipper_code, shipper_name,
+          record_status, remarks,
+          created_by
+        ) VALUES (?,?,?,?, ?,?,?,?, ?,?,?,?,?, ?,?, ?,?, ?,?, ?,?, ?,?)");
+      if (!$stmtIns) throw new RuntimeException($koneksi->error);
+
+      $stmtIns->bind_param(
+        str_repeat('s', 5) . str_repeat('i', 3) . str_repeat('s', 5) . 'd' . str_repeat('s', 9),
+        $new_no_pk, $new_no_si_vessel, $new_buyer, $new_mothervessel,
+        $si_type, $month_num, $year_num, $new_seq, $new_si_barges,
+        $new_tugboat, $new_barge, $new_term, $new_anchorage, $new_qty_plan,
+        $new_laycan_start, $new_laycan_end,
+        $new_jetty_code, $new_jetty_name,
+        $new_shipper_code, $new_shipper_name,
+        $new_record_status, $new_remarks,
+        $created_by
+      );
+      if (!$stmtIns->execute()) throw new RuntimeException($stmtIns->error);
+      $stmtIns->close();
+
+      $discard_status = 'DISCARD';
+      $stmtDiscard = $koneksi->prepare("UPDATE sibarges SET record_status=? WHERE id=?");
+      if (!$stmtDiscard) throw new RuntimeException($koneksi->error);
+      $stmtDiscard->bind_param("si", $discard_status, $id);
+      if (!$stmtDiscard->execute()) throw new RuntimeException($stmtDiscard->error);
+      $stmtDiscard->close();
+
+      $koneksi->commit();
+      jsonOut(["ok"=>true,"msg"=>"Vessel berhasil diubah. Original SI disimpan sebagai DISCARD. SI Barges baru: {$new_si_barges}"]);
+    } catch (Throwable $e) {
+      $koneksi->rollback();
+      jsonOut(["ok"=>false,"msg"=>"Gagal change vessel: ".$e->getMessage()]);
+    }
   }
 
   // ===== DELETE =====
@@ -1121,7 +1311,7 @@ include __DIR__ . "/../includes/sidebar.php";
   }
 
   #tbl{
-    min-width: 1700px;
+    min-width: 1800px;
   }
 </style>
 
@@ -1315,9 +1505,26 @@ include __DIR__ . "/../includes/sidebar.php";
     <!-- TABLE -->
     <div class="card">
       <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between mb-2">
+        <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
           <h6 class="m-0">Data SI Barges</h6>
-          <div class="small text-muted">Hidden: No PK / No SI Vessel / Buyer / Type / Remarks</div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <input id="filterMonth" type="month" class="form-control form-control-sm" style="width:150px;" aria-label="Filter month">
+            <select id="filterMotherVessel" class="form-select form-select-sm" style="width:280px;" aria-label="Filter mother vessel">
+              <option value="">All Mother Vessel</option>
+              <?php foreach ($vesselRows as $v): ?>
+                <option value="<?= htmlspecialchars($v['no_pk']) ?>">
+                  <?= htmlspecialchars($v['no_pk']) ?> — <?= htmlspecialchars($v['mothervessel']) ?>
+                </option>
+              <?php endforeach; ?>
+            </select>
+            <select id="filterDiscardedSI" class="form-select form-select-sm" style="width:150px;" aria-label="Filter discarded SI">
+              <option value="hide">ACT+CANCEL SI</option>
+              <option value="only">DISCARD SI</option>
+              <option value="all">All SI</option>
+            </select>
+            <button class="btn btn-sm btn-outline-secondary" id="btnFilterReset" type="button">Reset Filters</button>
+            <div class="small text-muted">Hidden: No PK / No SI Vessel / Buyer / Type / Remarks</div>
+          </div>
         </div>
 
         <div class="table-responsive si-horizontal-scroll">
@@ -1335,7 +1542,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th style="min-width:120px;">Laycan Start</th>
                 <th style="min-width:120px;">Laycan End</th>
                 <th style="min-width:90px;">Status</th>
-                <th style="width:190px;">Action</th>
+                <th style="width:280px;">Action</th>
               </tr>
             </thead>
             <tbody id="tbody">
@@ -1353,9 +1560,37 @@ include __DIR__ . "/../includes/sidebar.php";
   </div>
 </main>
 
+<div class="modal fade" id="changeVesselModal" tabindex="-1" aria-labelledby="changeVesselTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="changeVesselTitle">Change Vessel</h5>
+          <div class="small text-muted" id="changeVesselCurrent"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label mb-1" for="changeVesselSearch">Cari Vessel (no_pk / nama)</label>
+        <input id="changeVesselSearch" class="form-control form-control-sm mb-2" placeholder="contoh: M.26-006 / MARINER" autocomplete="off">
+
+        <label class="form-label mb-1" for="changeVesselNoPk">Vessel (No PK)</label>
+        <select id="changeVesselNoPk" class="form-select form-select-sm">
+          <option value="">-- pilih --</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="btnSaveChangeVessel">Save Change</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const SELF = "<?= $SELF ?>";
 const JETTY_OPTIONS = <?= json_encode($jettyRows, JSON_UNESCAPED_UNICODE); ?>;
+const VESSEL_OPTIONS = <?= json_encode($vesselRows, JSON_UNESCAPED_UNICODE); ?>;
 
 const alertBox = document.getElementById('alertBox');
 const tbody = document.getElementById('tbody');
@@ -1363,6 +1598,17 @@ const q = document.getElementById('q');
 const btnReset = document.getElementById('btnReset');
 const sortBy = document.getElementById('sortBy');
 const sortDir = document.getElementById('sortDir');
+const filterMonth = document.getElementById('filterMonth');
+const filterMotherVessel = document.getElementById('filterMotherVessel');
+const filterDiscardedSI = document.getElementById('filterDiscardedSI');
+const btnFilterReset = document.getElementById('btnFilterReset');
+const changeVesselSearch = document.getElementById('changeVesselSearch');
+const changeVesselNoPk = document.getElementById('changeVesselNoPk');
+const changeVesselCurrent = document.getElementById('changeVesselCurrent');
+const btnSaveChangeVessel = document.getElementById('btnSaveChangeVessel');
+const changeVesselModalEl = document.getElementById('changeVesselModal');
+let changeVesselModal = null;
+let changeVesselRowId = "";
 
 const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
@@ -1490,10 +1736,21 @@ function rowTemplate(r){
   const id = esc(r.id);
   const layS = fmtDDMonYY(r.laycan_start);
   const layE = fmtDDMonYY(r.laycan_end);
+  const isDiscard = r.record_status === 'DISCARD';
+  const statusControl = isDiscard
+    ? `<input class="form-control form-control-sm" name="record_status" value="DISCARD" disabled>`
+    : `<select class="form-select form-select-sm" name="record_status">
+        <option value="ACT" ${r.record_status==='ACT'?'selected':''}>ACT</option>
+        <option value="CANCEL" ${r.record_status==='CANCEL'?'selected':''}>CANCEL</option>
+      </select>`;
+  const changeVesselButton = isDiscard
+    ? ''
+    : `<button class="btn btn-sm btn-outline-primary btnChangeVessel" type="button">Change Vessel</button>`;
 
   return `
   <tr data-id="${id}">
     <td>
+      <input type="hidden" name="no_pk_current" value="${esc(r.no_pk)}">
       <input type="hidden" name="term" value="${esc(r.term)}">
       <input class="form-control form-control-sm" value="${esc(r.si_barges)}" disabled>
     </td>
@@ -1519,26 +1776,82 @@ function rowTemplate(r){
     <td><input class="form-control form-control-sm" name="laycan_end" value="${esc(layE)}" placeholder="17/Dec/25" readonly></td>
 
     <td>
-      <select class="form-select form-select-sm" name="record_status">
-        <option value="ACT" ${r.record_status==='ACT'?'selected':''}>ACT</option>
-        <option value="CANCEL" ${r.record_status==='CANCEL'?'selected':''}>CANCEL</option>
-      </select>
+      ${statusControl}
     </td>
 
     <td class="d-flex gap-2 flex-wrap">
       <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
+      ${changeVesselButton}
       <a class="btn btn-sm btn-outline-secondary btnDownload" href="${SELF}?download=si_pdf&id=${id}" download>Download SI</a>
       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
     </td>
   </tr>`;
 }
 
+function renderChangeVesselOptions(keyword = "", selectedNoPk = ""){
+  const kw = keyword.trim().toLowerCase();
+  const selected = selectedNoPk.trim();
+  let firstValue = "";
+  let html = `<option value="">-- pilih --</option>`;
+
+  for (const v of VESSEL_OPTIONS){
+    const noPk = (v.no_pk ?? '').toString();
+    const mv = (v.mothervessel ?? '').toString();
+    const buyer = (v.buyer ?? '').toString();
+    const noSi = (v.no_si_vessel ?? '').toString();
+    const haystack = `${noPk} ${mv} ${buyer} ${noSi}`.toLowerCase();
+    if (kw && !haystack.includes(kw)) continue;
+    if (!firstValue) firstValue = noPk;
+    const isSelected = noPk === selected ? 'selected' : '';
+    html += `<option value="${esc(noPk)}" ${isSelected}>${esc(noPk)} — ${esc(mv)}</option>`;
+  }
+
+  changeVesselNoPk.innerHTML = html;
+  return firstValue;
+}
+
+function openChangeVesselModal(tr){
+  changeVesselRowId = tr.getAttribute('data-id') || "";
+  const currentNoPk = tr.querySelector('[name="no_pk_current"]')?.value ?? "";
+  const currentMv = tr.children[1]?.querySelector('input')?.value ?? "";
+  changeVesselCurrent.textContent = currentNoPk ? `Current: ${currentNoPk} - ${currentMv}` : '';
+  changeVesselSearch.value = "";
+  renderChangeVesselOptions("", currentNoPk);
+  if (window.bootstrap?.Modal) {
+    changeVesselModal = bootstrap.Modal.getOrCreateInstance(changeVesselModalEl);
+    changeVesselModal.show();
+  } else {
+    changeVesselModalEl.classList.add('show');
+    changeVesselModalEl.style.display = 'block';
+    changeVesselModalEl.removeAttribute('aria-hidden');
+    changeVesselModalEl.setAttribute('aria-modal', 'true');
+  }
+  setTimeout(()=> changeVesselSearch.focus(), 150);
+}
+
+function hideChangeVesselModal(){
+  if (changeVesselModal) {
+    changeVesselModal.hide();
+    return;
+  }
+  changeVesselModalEl.classList.remove('show');
+  changeVesselModalEl.style.display = 'none';
+  changeVesselModalEl.setAttribute('aria-hidden', 'true');
+  changeVesselModalEl.removeAttribute('aria-modal');
+}
+
 async function loadTable(){
   const kw = q.value.trim();
   const sb = sortBy.value;
   const sd = sortDir.value;
+  const fm = filterMonth.value;
+  const fv = filterMotherVessel.value;
+  const fd = filterDiscardedSI.value;
 
-  const res = await apiGet('list', `&q=${encodeURIComponent(kw)}&sort_by=${encodeURIComponent(sb)}&sort_dir=${encodeURIComponent(sd)}`);
+  const res = await apiGet(
+    'list',
+    `&q=${encodeURIComponent(kw)}&sort_by=${encodeURIComponent(sb)}&sort_dir=${encodeURIComponent(sd)}&filter_month=${encodeURIComponent(fm)}&filter_no_pk=${encodeURIComponent(fv)}&filter_discarded=${encodeURIComponent(fd)}`
+  );
   if (!res.ok){
     tbody.innerHTML = `<tr><td colspan="12" class="text-danger">Error: ${esc(res.msg)}</td></tr>`;
     return;
@@ -1593,6 +1906,36 @@ vesselSearch.addEventListener('keydown', (e)=>{
       no_pk.value = v;
       no_pk.dispatchEvent(new Event('change'));
     }
+  }
+});
+
+changeVesselSearch.addEventListener('input', ()=>{
+  renderChangeVesselOptions(changeVesselSearch.value, changeVesselNoPk.value);
+});
+changeVesselSearch.addEventListener('keydown', (e)=>{
+  if (e.key === 'Enter'){
+    e.preventDefault();
+    const firstValue = renderChangeVesselOptions(changeVesselSearch.value, changeVesselNoPk.value);
+    if (firstValue) changeVesselNoPk.value = firstValue;
+  }
+});
+btnSaveChangeVessel.addEventListener('click', async ()=>{
+  const targetNoPk = changeVesselNoPk.value.trim();
+  if (!changeVesselRowId || !targetNoPk){
+    showAlert('warning', 'Pilih vessel terlebih dahulu.');
+    return;
+  }
+
+  btnSaveChangeVessel.disabled = true;
+  const res = await apiPost('change_vessel', { id: changeVesselRowId, no_pk: targetNoPk });
+  btnSaveChangeVessel.disabled = false;
+
+  if (res.ok){
+    hideChangeVesselModal();
+    showAlert('success', res.msg);
+    await loadTable();
+  } else {
+    showAlert('danger', res.msg);
   }
 });
 
@@ -1667,6 +2010,10 @@ tbody.addEventListener('click', async (e)=>{
   if (!tr) return;
   const id = tr.getAttribute('data-id');
 
+  if (e.target.classList.contains('btnChangeVessel')){
+    openChangeVesselModal(tr);
+  }
+
   if (e.target.classList.contains('btnDelete')){
     if (!confirm(`Hapus SI Barges ini?`)) return;
     const res = await apiPost('delete', { id });
@@ -1720,10 +2067,22 @@ q.addEventListener('input', ()=>{
 });
 btnReset.addEventListener('click', ()=>{
   q.value = "";
+  filterMonth.value = "";
+  filterMotherVessel.value = "";
+  filterDiscardedSI.value = "hide";
   loadTable();
 });
 sortBy.addEventListener('change', loadTable);
 sortDir.addEventListener('change', loadTable);
+filterMonth.addEventListener('change', loadTable);
+filterMotherVessel.addEventListener('change', loadTable);
+filterDiscardedSI.addEventListener('change', loadTable);
+btnFilterReset.addEventListener('click', ()=>{
+  filterMonth.value = "";
+  filterMotherVessel.value = "";
+  filterDiscardedSI.value = "hide";
+  loadTable();
+});
 
 /* ===== Import CSV ===== */
 formImport.addEventListener('submit', async (e)=>{

@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
+  <title id="title">MLP Logistics System Code Flow</title>
+  <desc id="desc">Slide-ready code flow diagram for the PHP logistics system.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .bg { fill: #f8fafc; }
+      .title { font: 700 34px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 16px Arial, sans-serif; fill: #475569; }
+      .laneTitle { font: 700 17px Arial, sans-serif; fill: #334155; }
+      .boxTitle { font: 700 18px Arial, sans-serif; fill: #0f172a; }
+      .boxText { font: 400 14px Arial, sans-serif; fill: #334155; }
+      .smallText { font: 400 12px Arial, sans-serif; fill: #475569; }
+      .dbTitle { font: 700 15px Arial, sans-serif; fill: #111827; }
+      .dbText { font: 400 12px Arial, sans-serif; fill: #374151; }
+      .line { stroke: #475569; stroke-width: 2.2; fill: none; marker-end: url(#arrow); }
+      .dash { stroke-dasharray: 7 6; }
+      .card { stroke-width: 1.4; rx: 10; }
+      .auth { fill: #e0f2fe; stroke: #0284c7; }
+      .layout { fill: #eef2ff; stroke: #6366f1; }
+      .master { fill: #ecfdf5; stroke: #10b981; }
+      .txn { fill: #fff7ed; stroke: #f97316; }
+      .coal { fill: #fef2f2; stroke: #ef4444; }
+      .db { fill: #ffffff; stroke: #64748b; }
+      .group { fill: #ffffff; stroke: #cbd5e1; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="900"/>
+  <text class="title" x="60" y="58">MLP Logistics System - Code Flow</text>
+  <text class="subtitle" x="60" y="86">Actual PHP request flow, Operation modules, and database handoffs for presentation use.</text>
+
+  <rect class="group card" x="50" y="120" width="320" height="705"/>
+  <text class="laneTitle" x="75" y="152">1. Access and Session</text>
+
+  <rect class="auth card" x="80" y="185" width="260" height="76"/>
+  <text class="boxTitle" x="105" y="216">Browser</text>
+  <text class="boxText" x="105" y="241">User opens protected page</text>
+
+  <rect class="auth card" x="80" y="305" width="260" height="92"/>
+  <text class="boxTitle" x="105" y="337">login.php</text>
+  <text class="boxText" x="105" y="362">Validates username/password</text>
+  <text class="smallText" x="105" y="383">Plain-text password compare</text>
+
+  <rect class="db card" x="95" y="438" width="230" height="96"/>
+  <text class="dbTitle" x="123" y="467">databasemlp</text>
+  <text class="dbText" x="123" y="491">usermlp</text>
+  <text class="dbText" x="123" y="513">username, password</text>
+
+  <rect class="auth card" x="80" y="577" width="260" height="96"/>
+  <text class="boxTitle" x="105" y="609">PHP Session</text>
+  <text class="boxText" x="105" y="634">username, jabatan, divisi</text>
+  <text class="smallText" x="105" y="655">Used by all protected pages</text>
+
+  <rect class="layout card" x="80" y="716" width="260" height="74"/>
+  <text class="boxTitle" x="105" y="747">home.php</text>
+  <text class="boxText" x="105" y="772">Protected landing page</text>
+
+  <rect class="group card" x="415" y="120" width="330" height="705"/>
+  <text class="laneTitle" x="440" y="152">2. Shared UI and Routing</text>
+
+  <rect class="layout card" x="445" y="185" width="270" height="106"/>
+  <text class="boxTitle" x="470" y="217">Shared Includes</text>
+  <text class="boxText" x="470" y="242">includes/header.php</text>
+  <text class="boxText" x="470" y="264">includes/sidebar.php</text>
+  <text class="boxText" x="470" y="286">includes/footer.php</text>
+
+  <rect class="layout card" x="445" y="340" width="270" height="110"/>
+  <text class="boxTitle" x="470" y="373">Role-aware Sidebar</text>
+  <text class="boxText" x="470" y="398">IT sees all modules</text>
+  <text class="boxText" x="470" y="420">Operation divisi sees Operation</text>
+
+  <rect class="layout card" x="445" y="500" width="270" height="98"/>
+  <text class="boxTitle" x="470" y="532">create_user.php</text>
+  <text class="boxText" x="470" y="557">IT user management</text>
+  <text class="smallText" x="470" y="580">CRUD against usermlp</text>
+
+  <rect class="layout card" x="445" y="650" width="270" height="100"/>
+  <text class="boxTitle" x="470" y="682">Operation Menu</text>
+  <text class="boxText" x="470" y="707">Links to pages 1-8</text>
+  <text class="smallText" x="470" y="730">Each page checks session</text>
+
+  <rect class="group card" x="790" y="120" width="360" height="705"/>
+  <text class="laneTitle" x="815" y="152">3. Operation Modules</text>
+
+  <rect class="master card" x="820" y="185" width="300" height="132"/>
+  <text class="boxTitle" x="845" y="217">Master Data CRUD</text>
+  <text class="boxText" x="845" y="242">1vessel.php, 2barges.php</text>
+  <text class="boxText" x="845" y="264">3jetty.php, 4shipper.php</text>
+  <text class="boxText" x="845" y="286">5flf.php</text>
+  <text class="smallText" x="845" y="308">AJAX: list/create/update/delete/import_csv</text>
+
+  <rect class="txn card" x="820" y="365" width="300" height="122"/>
+  <text class="boxTitle" x="845" y="397">6sibarges.php</text>
+  <text class="boxText" x="845" y="422">Builds Shipping Instruction</text>
+  <text class="boxText" x="845" y="444">Generates SI number and PDF</text>
+  <text class="smallText" x="845" y="466">Reads master data, writes sibarges</text>
+
+  <rect class="txn card" x="820" y="535" width="300" height="112"/>
+  <text class="boxTitle" x="845" y="567">7tluoperation.php</text>
+  <text class="boxText" x="845" y="592">Barge operation timeline</text>
+  <text class="boxText" x="845" y="614">Saves operation_data JSON</text>
+  <text class="smallText" x="845" y="636">CSV import/export and grouped export</text>
+
+  <rect class="coal card" x="820" y="695" width="300" height="94"/>
+  <text class="boxTitle" x="845" y="727">8coalbarging.php</text>
+  <text class="boxText" x="845" y="752">Coal-specific operation overlay</text>
+  <text class="smallText" x="845" y="775">Seeds from TLU, adds RC rows</text>
+
+  <rect class="group card" x="1195" y="120" width="355" height="705"/>
+  <text class="laneTitle" x="1220" y="152">4. Data Stores</text>
+
+  <rect class="db card" x="1225" y="185" width="295" height="154"/>
+  <text class="dbTitle" x="1252" y="217">databarging - Master Data</text>
+  <text class="dbText" x="1252" y="243">vessel: mother vessel and laycan</text>
+  <text class="dbText" x="1252" y="265">barges: tugboat/barge capacity</text>
+  <text class="dbText" x="1252" y="287">jetty, shipper, flf lookups</text>
+  <text class="dbText" x="1252" y="309">Used by SI and TLU validation</text>
+
+  <rect class="db card" x="1225" y="390" width="295" height="118"/>
+  <text class="dbTitle" x="1252" y="422">databarging.sibarges</text>
+  <text class="dbText" x="1252" y="448">Transactional SI Barges rows</text>
+  <text class="dbText" x="1252" y="470">FK: vessel, jetty, shipper</text>
+  <text class="dbText" x="1252" y="492">Status: ACT / CANCEL</text>
+
+  <rect class="db card" x="1225" y="560" width="295" height="104"/>
+  <text class="dbTitle" x="1252" y="592">databarging.barge_operations</text>
+  <text class="dbText" x="1252" y="618">One operation record per SI Barge</text>
+  <text class="dbText" x="1252" y="640">operation_data stored as JSON</text>
+
+  <rect class="db card" x="1225" y="714" width="295" height="86"/>
+  <text class="dbTitle" x="1252" y="746">datacoalbarging</text>
+  <text class="dbText" x="1252" y="772">coal_barge_operations, RC rows</text>
+  <text class="dbText" x="1252" y="792">deleted/hidden coal rows</text>
+
+  <path class="line" d="M210 261 L210 305"/>
+  <path class="line" d="M210 397 L210 438"/>
+  <path class="line" d="M210 534 L210 577"/>
+  <path class="line" d="M210 673 L210 716"/>
+
+  <path class="line" d="M340 753 C382 753 397 238 445 238"/>
+  <path class="line" d="M580 291 L580 340"/>
+  <path class="line" d="M580 450 L580 500"/>
+  <path class="line" d="M580 598 L580 650"/>
+
+  <path class="line" d="M715 700 L820 251"/>
+  <path class="line" d="M715 700 C760 700 760 426 820 426"/>
+  <path class="line" d="M715 700 C765 700 765 591 820 591"/>
+  <path class="line" d="M715 700 L820 742"/>
+
+  <path class="line" d="M1120 251 L1225 262"/>
+  <path class="line" d="M1225 262 C1175 306 1145 365 1120 426"/>
+  <path class="line" d="M1120 426 L1225 449"/>
+  <path class="line" d="M1225 449 C1168 488 1150 535 1120 591"/>
+  <path class="line" d="M1120 591 L1225 612"/>
+  <path class="line" d="M1225 612 C1170 665 1150 710 1120 742"/>
+  <path class="line" d="M1120 742 L1225 757"/>
+  <path class="line dash" d="M1225 612 C1180 650 1168 704 1120 742"/>
+
+  <rect class="coal card" x="60" y="838" width="1480" height="44"/>
+  <text class="boxText" x="85" y="865">Return Cargo in 8coalbarging.php:</text>
+  <text class="smallText" x="305" y="865">Create RC creates an unused coal_barge_rc_rows clone</text>
+  <text class="smallText" x="650" y="865">-> unused_rc_by_vessel matches same tugboat</text>
+  <text class="smallText" x="965" y="865">-> input_rc_row inserts it as used</text>
+  <text class="smallText" x="1205" y="865">-> deleting used RC returns it to unused</text>
+</svg>
