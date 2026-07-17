@@ -14,8 +14,8 @@ function db_connect(string $database): mysqli
     $host = getenv('DB_HOST') ?: '127.0.0.1';
     $port = (int) (getenv('DB_PORT') ?: 3306);
     $user = getenv('DB_USER') ?: 'logistic_app';
-    $password = getenv('DB_PASS');
-
+    $password = getenv('DB_PASS') ?: 'Dollars78';
+    
     if ($password === false || $password === '') {
         throw new RuntimeException(
             'DB_PASS belum diatur. Jalankan server PHP dengan environment variable DB_USER dan DB_PASS.'
