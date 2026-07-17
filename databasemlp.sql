@@ -1,4 +1,4 @@
--- MySQL dump 10.13  Distrib 8.0.41, for macos15 (x86_64)
+-- MySQL dump 10.13  Distrib 9.6.0, for macos26.4 (arm64)
 --
 -- Host: 127.0.0.1    Database: databasemlp
 -- ------------------------------------------------------
@@ -46,16 +46,15 @@ CREATE TABLE `usermlp` (
 
 LOCK TABLES `usermlp` WRITE;
 /*!40000 ALTER TABLE `usermlp` DISABLE KEYS */;
-INSERT INTO `usermlp` (`username`,`password`,`jabatan`,`divisi`) VALUES ('admin','admin123','Admin','IT');
+INSERT INTO `usermlp` VALUES ('admin','admin123','Admin','IT','2026-06-29 01:38:51'),('chai','chai','Dept. Head','Operation','2026-06-29 01:39:23');
 /*!40000 ALTER TABLE `usermlp` ENABLE KEYS */;
 UNLOCK TABLES;
 
 --
--- Dumping events for database 'databasemlp'
---
-
---
 -- Dumping routines for database 'databasemlp'
+--
+--
+-- WARNING: can't read the INFORMATION_SCHEMA.libraries table. It's most probably an old server 8.0.41.
 --
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
 
@@ -67,4 +66,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2026-06-22 10:17:19
+-- Dump completed on 2026-07-17 11:47:43
