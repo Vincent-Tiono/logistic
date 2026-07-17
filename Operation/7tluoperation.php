@@ -10,7 +10,7 @@ if (!isset($_SESSION['username'])) {
 require_once __DIR__ . '/../config/database.php';
 
 try {
-  $koneksi = db_connect('databarging');x  
+  $koneksi = db_connect('databarging');
   ensure_vessel_schedule_columns($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
