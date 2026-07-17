@@ -11,6 +11,7 @@ require_once __DIR__ . '/../config/database.php';
 
 try {
   $koneksi = db_connect('databarging');
+  ensure_vessel_schedule_columns($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
@@ -244,6 +245,35 @@ function normalizeOperationDateTime($value, $label) {
   return $normalized;
 }
 
+function operationTimelineErrors(array $operationData) {
+  $arrivalJetty = trim((string)($operationData['arrival_jetty'] ?? ''));
+  $startLoading = trim((string)($operationData['start_loading'] ?? ''));
+  $completedLoading = trim((string)($operationData['completed_loading'] ?? ''));
+  $startMooring = trim((string)($operationData['start_mooring'] ?? ''));
+  $endMooring = trim((string)($operationData['end_mooring'] ?? ''));
+  $startDisch = trim((string)($operationData['start_disch'] ?? ''));
+  $completedDisch = trim((string)($operationData['completed_disch'] ?? ''));
+  $errors = [];
+
+  if ($arrivalJetty !== '' && $startLoading !== '' && strcmp($startLoading, $arrivalJetty) < 0) {
+    $errors[] = 'Start loading harus sama dengan atau setelah Arrival jetty';
+  }
+  if ($startLoading !== '' && $completedLoading !== '' && strcmp($completedLoading, $startLoading) < 0) {
+    $errors[] = 'Completed loading harus sama dengan atau setelah Start loading';
+  }
+  if ($startLoading === '' && $arrivalJetty !== '' && $completedLoading !== '' && strcmp($completedLoading, $arrivalJetty) < 0) {
+    $errors[] = 'Completed loading harus sama dengan atau setelah Arrival jetty';
+  }
+  if ($startMooring !== '' && $endMooring !== '' && strcmp($endMooring, $startMooring) < 0) {
+    $errors[] = 'End Mooring harus sama dengan atau setelah Start Mooring';
+  }
+  if ($startDisch !== '' && $completedDisch !== '' && strcmp($completedDisch, $startDisch) < 0) {
+    $errors[] = 'Completed Disch harus sama dengan atau setelah Start Disch';
+  }
+
+  return $errors;
+}
+
 function detectCsvDelimiter($line) {
   $delimiter = ',';
   $bestCount = 0;
@@ -263,8 +293,21 @@ function decodeOperationData($value) {
   return is_array($decoded) ? $decoded : [];
 }
 
-function tableExportRow($row) {
+function decodeOperationDataWithVesselDefaults(array $row) {
   $data = decodeOperationData($row['operation_data'] ?? '');
+  foreach (['pkk', 'rkbm'] as $field) {
+    if (trim((string)($data[$field] ?? '')) !== '') continue;
+
+    $vesselDate = trim((string)($row['vessel_' . $field] ?? ''));
+    if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $vesselDate)) {
+      $data[$field] = $vesselDate . ' 00:00';
+    }
+  }
+  return $data;
+}
+
+function tableExportRow($row) {
+  $data = decodeOperationDataWithVesselDefaults($row);
   $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
   $rc = trim((string)($data['rc'] ?? ''));
   $qtyActual = '';
@@ -353,6 +396,7 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
       s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
       s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
       s.created_by, s.created_at, s.updated_at,
+      v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
       p.earliest_laycan_start,
       o.operation_data, o.remarks AS operation_remarks
     FROM sibarges s
@@ -365,6 +409,7 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
       GROUP BY no_pk, mothervessel
       HAVING MIN(laycan_start) IS NOT NULL
     ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
+    INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
     WHERE s.record_status = 'ACT'
   ";
@@ -470,8 +515,10 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
     SELECT
       s.no_pk, s.buyer, s.mothervessel, s.si_barges,
       s.jetty_code, s.tugboat, s.barge, s.laycan_start, s.laycan_end,
+      v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
       o.operation_data, o.remarks AS operation_remarks
     FROM sibarges s
+    INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
     WHERE s.no_pk = ? AND s.record_status = 'ACT'
     ORDER BY s.barge_seq ASC, s.id ASC
@@ -497,7 +544,7 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
   $out = fopen('php://output', 'w');
   fputcsv($out, TLU_CSV_COLUMNS, ',', '"', '');
   foreach ($rows as $row) {
-    $data = decodeOperationData($row['operation_data'] ?? '');
+    $data = decodeOperationDataWithVesselDefaults($row);
     $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
     $rc = trim((string)($data['rc'] ?? ''));
     $qtyActual = '';
@@ -570,6 +617,11 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
     } else {
       $operationData[$field] = $normalizedDateTime;
     }
+  }
+
+  $timelineErrors = operationTimelineErrors($operationData);
+  if ($timelineErrors) {
+    jsonOut(['ok' => false, 'msg' => implode('. ', $timelineErrors) . '.']);
   }
 
   validateFlfChoice($koneksi, 'vendor_flf', $operationData['pbm_vendor'] ?? '', 'PBM Vendor');
@@ -767,12 +819,15 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
       $normalized = parseOperationDateTimeValue($fieldValue);
       if ($normalized === null) {
         $rowErrors[] = "{$field} tidak valid";
+        unset($operationData[$field]);
       } elseif ($normalized === '') {
         unset($operationData[$field]);
       } else {
         $operationData[$field] = $normalized;
       }
     }
+
+    $rowErrors = array_merge($rowErrors, operationTimelineErrors($operationData));
 
     $sequence = $value('discharge_sequence');
     if ($sequence !== '') {
@@ -845,6 +900,8 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
       s.shipper_code, s.shipper_name,
       s.record_status, s.remarks,
       s.created_by, s.created_at, s.updated_at,
+      v.pkk AS vessel_pkk,
+      v.rkbm AS vessel_rkbm,
       o.id AS operation_id,
       o.arrival_jetty,
       o.commence_loading,
@@ -864,6 +921,7 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
       o.created_at AS operation_created_at,
       o.updated_at AS operation_updated_at
     FROM sibarges s
+    INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
     WHERE s.no_pk = ?
       AND s.record_status = 'ACT'
@@ -876,6 +934,14 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
   $res = $stmt->get_result();
   $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
   $stmt->close();
+
+  foreach ($rows as &$row) {
+    $operationData = decodeOperationDataWithVesselDefaults($row);
+    $row['operation_data'] = $operationData
+      ? json_encode($operationData, JSON_UNESCAPED_UNICODE)
+      : null;
+  }
+  unset($row);
 
   jsonOut(['ok' => true, 'data' => $rows]);
 }
@@ -1754,6 +1820,53 @@ function datetimeLocalValue(value) {
   return match ? `${match[1]}T${match[2]}` : '';
 }
 
+function validateOperationTimelineInputs(reportError = false) {
+  const arrivalJettyInput = siBargesDetailBody.querySelector('[data-operation-field="arrival_jetty"]');
+  const startLoadingInput = siBargesDetailBody.querySelector('[data-operation-field="start_loading"]');
+  const completedLoadingInput = siBargesDetailBody.querySelector('[data-operation-field="completed_loading"]');
+  const startMooringInput = siBargesDetailBody.querySelector('[data-operation-field="start_mooring"]');
+  const endMooringInput = siBargesDetailBody.querySelector('[data-operation-field="end_mooring"]');
+  const startDischInput = siBargesDetailBody.querySelector('[data-operation-field="start_disch"]');
+  const completedDischInput = siBargesDetailBody.querySelector('[data-operation-field="completed_disch"]');
+  const timelineInputs = [
+    arrivalJettyInput,
+    startLoadingInput,
+    completedLoadingInput,
+    startMooringInput,
+    endMooringInput,
+    startDischInput,
+    completedDischInput
+  ];
+  if (timelineInputs.some(input => !input)) return true;
+
+  timelineInputs.forEach(input => input.setCustomValidity(''));
+
+  startLoadingInput.min = arrivalJettyInput.value || '';
+  completedLoadingInput.min = startLoadingInput.value || arrivalJettyInput.value || '';
+  endMooringInput.min = startMooringInput.value || '';
+  completedDischInput.min = startDischInput.value || '';
+
+  if (arrivalJettyInput.value && startLoadingInput.value && startLoadingInput.value < arrivalJettyInput.value) {
+    startLoadingInput.setCustomValidity('Start loading must be equal to or later than Arrival jetty.');
+  }
+  if (startLoadingInput.value && completedLoadingInput.value && completedLoadingInput.value < startLoadingInput.value) {
+    completedLoadingInput.setCustomValidity('Completed loading must be equal to or later than Start loading.');
+  }
+  if (!startLoadingInput.value && arrivalJettyInput.value && completedLoadingInput.value && completedLoadingInput.value < arrivalJettyInput.value) {
+    completedLoadingInput.setCustomValidity('Completed loading must be equal to or later than Arrival jetty.');
+  }
+  if (startMooringInput.value && endMooringInput.value && endMooringInput.value < startMooringInput.value) {
+    endMooringInput.setCustomValidity('End Mooring must be equal to or later than Start Mooring.');
+  }
+  if (startDischInput.value && completedDischInput.value && completedDischInput.value < startDischInput.value) {
+    completedDischInput.setCustomValidity('Completed Disch must be equal to or later than Start Disch.');
+  }
+
+  const invalidInput = timelineInputs.find(input => !input.checkValidity());
+  if (invalidInput && reportError) invalidInput.reportValidity();
+  return !invalidInput;
+}
+
 function csvCell(value) {
   const text = String(value ?? '');
   return `"${text.replaceAll('"', '""')}"`;
@@ -2051,6 +2164,21 @@ function openSiBargesDetail(rowIndex) {
   rcInput?.addEventListener('input', updateQtyActual);
   updateQtyActual();
 
+  [
+    'arrival_jetty',
+    'start_loading',
+    'completed_loading',
+    'start_mooring',
+    'end_mooring',
+    'start_disch',
+    'completed_disch'
+  ].forEach(field => {
+    siBargesDetailBody
+      .querySelector(`[data-operation-field="${field}"]`)
+      ?.addEventListener('input', () => validateOperationTimelineInputs(false));
+  });
+  validateOperationTimelineInputs(false);
+
   const pbmVendorSelect = siBargesDetailBody.querySelector('[data-operation-field="pbm_vendor"]');
   const floatingCraneSelect = siBargesDetailBody.querySelector('[data-operation-field="floating_crane"]');
   const applyFloatingCraneRestriction = () => {
@@ -2087,6 +2215,12 @@ function openSiBargesDetail(rowIndex) {
 siBargesSaveButton.addEventListener('click', async () => {
   const row = currentSiBargesRows[currentDetailRowIndex];
   if (!row) return;
+
+  if (!validateOperationTimelineInputs(true)) {
+    siBargesSaveStatus.textContent = 'Please correct the invalid operation time sequence.';
+    siBargesSaveStatus.className = 'me-auto small text-danger';
+    return;
+  }
 
   const data = {};
   siBargesDetailBody.querySelectorAll('[data-operation-field]').forEach(input => {

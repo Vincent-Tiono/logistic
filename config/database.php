@@ -40,3 +40,55 @@ function db_connect(string $database): mysqli
         );
     }
 }
+
+/**
+ * Keep existing installations compatible with vessel-level TLU schedule dates.
+ */
+function ensure_vessel_schedule_columns(mysqli $connection): void
+{
+    static $checkedDatabases = [];
+
+    $result = $connection->query('SELECT DATABASE() AS db_name');
+    $databaseRow = $result->fetch_assoc();
+    $database = (string) ($databaseRow['db_name'] ?? '');
+    if ($database === '' || isset($checkedDatabases[$database])) {
+        return;
+    }
+
+    try {
+        $statement = $connection->prepare(
+            "SELECT COLUMN_NAME
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = ?
+               AND TABLE_NAME = 'vessel'
+               AND COLUMN_NAME IN ('pkk', 'rkbm')"
+        );
+        $statement->bind_param('s', $database);
+        $statement->execute();
+        $existing = array_column(
+            $statement->get_result()->fetch_all(MYSQLI_ASSOC),
+            'COLUMN_NAME'
+        );
+        $statement->close();
+
+        $alterParts = [];
+        if (!in_array('pkk', $existing, true)) {
+            $alterParts[] = 'ADD COLUMN pkk date DEFAULT NULL AFTER ta_vessel';
+        }
+        if (!in_array('rkbm', $existing, true)) {
+            $alterParts[] = 'ADD COLUMN rkbm date DEFAULT NULL AFTER pkk';
+        }
+
+        if ($alterParts) {
+            $connection->query('ALTER TABLE vessel ' . implode(', ', $alterParts));
+        }
+
+        $checkedDatabases[$database] = true;
+    } catch (Throwable $exception) {
+        throw new RuntimeException(
+            'Gagal menyiapkan kolom PKK/RKBM pada data Vessel.',
+            0,
+            $exception
+        );
+    }
+}

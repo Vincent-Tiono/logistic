@@ -117,10 +117,129 @@ function ensureDiscardStatusAllowed(mysqli $koneksi){
   $stmt->close();
 
   $columnType = (string)($row['COLUMN_TYPE'] ?? '');
-  if (strpos($columnType, "'DISCARD'") !== false) return [true, ''];
+  if (strpos($columnType, "'DISCARD'") === false) {
+    $ok = $koneksi->query("ALTER TABLE sibarges MODIFY record_status enum('ACT','CANCEL','DISCARD') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACT'");
+    if (!$ok) return [false, 'Gagal update enum record_status: ' . $koneksi->error];
+  }
 
-  $ok = $koneksi->query("ALTER TABLE sibarges MODIFY record_status enum('ACT','CANCEL','DISCARD') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACT'");
-  return $ok ? [true, ''] : [false, 'Gagal update enum record_status: ' . $koneksi->error];
+  /*
+   * A discarded row keeps its original SI number for audit purposes. The next
+   * active row may therefore reuse that number after the sequence is closed.
+   * A generated value keeps uniqueness enforced for ACT/CANCEL rows while
+   * allowing discarded audit copies to retain the same SI.
+   */
+  $stmt = $koneksi->prepare("
+    SELECT 1
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA=? AND TABLE_NAME='sibarges' AND COLUMN_NAME='active_si_barges'
+    LIMIT 1
+  ");
+  if (!$stmt) return [false, 'Gagal cek kolom SI Barges aktif: ' . $koneksi->error];
+  $stmt->bind_param("s", $dbName);
+  $stmt->execute();
+  $hasActiveSiColumn = (bool)$stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if (!$hasActiveSiColumn) {
+    $ok = $koneksi->query("ALTER TABLE sibarges ADD COLUMN active_si_barges varchar(120) GENERATED ALWAYS AS (CASE WHEN record_status <> 'DISCARD' THEN si_barges ELSE NULL END) STORED");
+    if (!$ok) return [false, 'Gagal menyiapkan kolom SI Barges aktif: ' . $koneksi->error];
+  }
+
+  $stmt = $koneksi->prepare("
+    SELECT 1
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA=? AND TABLE_NAME='sibarges' AND INDEX_NAME='uq_active_si_barges'
+    LIMIT 1
+  ");
+  if (!$stmt) return [false, 'Gagal cek index SI Barges aktif: ' . $koneksi->error];
+  $stmt->bind_param("s", $dbName);
+  $stmt->execute();
+  $hasActiveUniqueIndex = (bool)$stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if (!$hasActiveUniqueIndex) {
+    $ok = $koneksi->query("ALTER TABLE sibarges ADD UNIQUE INDEX uq_active_si_barges (active_si_barges)");
+    if (!$ok) return [false, 'Gagal menjaga keunikan SI Barges aktif: ' . $koneksi->error];
+  }
+
+  $stmt = $koneksi->prepare("
+    SELECT NON_UNIQUE
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA=? AND TABLE_NAME='sibarges' AND INDEX_NAME='uq_si_barges'
+    LIMIT 1
+  ");
+  if (!$stmt) return [false, 'Gagal cek index SI Barges: ' . $koneksi->error];
+  $stmt->bind_param("s", $dbName);
+  $stmt->execute();
+  $indexRow = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if ($indexRow && (int)$indexRow['NON_UNIQUE'] === 0) {
+    $stmt = $koneksi->prepare("
+      SELECT 1
+      FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA=? AND TABLE_NAME='sibarges' AND INDEX_NAME='idx_si_barges'
+      LIMIT 1
+    ");
+    if (!$stmt) return [false, 'Gagal cek index SI Barges: ' . $koneksi->error];
+    $stmt->bind_param("s", $dbName);
+    $stmt->execute();
+    $hasLookupIndex = (bool)$stmt->get_result()->fetch_assoc();
+    $stmt->close();
+
+    $alterSql = "ALTER TABLE sibarges DROP INDEX uq_si_barges";
+    if (!$hasLookupIndex) $alterSql .= ", ADD INDEX idx_si_barges (si_barges)";
+    if (!$koneksi->query($alterSql)) {
+      return [false, 'Gagal menyiapkan penomoran DISCARD SI: ' . $koneksi->error];
+    }
+  }
+
+  return [true, ''];
+}
+
+function renumberNonDiscardedSibarges(mysqli $koneksi, $noPk){
+  $stmt = $koneksi->prepare("SELECT
+      id, no_si_vessel, si_type, month_num, year_num, barge_seq, si_barges
+    FROM sibarges
+    WHERE no_pk=? AND record_status <> 'DISCARD'
+    ORDER BY barge_seq ASC, id ASC
+    FOR UPDATE");
+  if (!$stmt) throw new RuntimeException($koneksi->error);
+  $stmt->bind_param("s", $noPk);
+  if (!$stmt->execute()) throw new RuntimeException($stmt->error);
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+  $stmtUpdate = $koneksi->prepare("UPDATE sibarges SET barge_seq=?, si_barges=? WHERE id=?");
+  if (!$stmtUpdate) throw new RuntimeException($koneksi->error);
+
+  $renumbered = 0;
+  foreach ($rows as $index => $row) {
+    $newSeq = $index + 1;
+    $siType = cleanCode($row['si_type'] ?? '');
+    $romanMonth = romawiBulan((int)($row['month_num'] ?? 0));
+    $year = (int)($row['year_num'] ?? 0);
+    $noSiVessel = clean($row['no_si_vessel'] ?? '');
+    if ($siType === '' || $romanMonth === '' || $year <= 0 || $noSiVessel === '') {
+      $stmtUpdate->close();
+      throw new RuntimeException('Data SI Barges tidak lengkap saat merapikan nomor urut.');
+    }
+
+    $newSiBarges = "SI-{$siType}/{$romanMonth}/{$year}/{$noSiVessel}/{$newSeq}";
+    if ((int)$row['barge_seq'] === $newSeq && (string)$row['si_barges'] === $newSiBarges) continue;
+
+    $id = (int)$row['id'];
+    $stmtUpdate->bind_param("isi", $newSeq, $newSiBarges, $id);
+    if (!$stmtUpdate->execute()) {
+      $error = $stmtUpdate->error;
+      $stmtUpdate->close();
+      throw new RuntimeException($error);
+    }
+    $renumbered++;
+  }
+  $stmtUpdate->close();
+
+  return $renumbered;
 }
 
 function pdfText($text){
@@ -779,7 +898,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $year_num  = (int)date('Y', strtotime($laycan_start));
     $romawi = romawiBulan($month_num);
 
-    $stmtSeq = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) AS mx FROM sibarges WHERE no_pk=?");
+    $stmtSeq = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) AS mx FROM sibarges WHERE no_pk=? AND record_status <> 'DISCARD'");
     if (!$stmtSeq) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
     $stmtSeq->bind_param("s", $no_pk);
     $stmtSeq->execute();
@@ -917,7 +1036,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $stmt = $koneksi->prepare("SELECT
         id, no_pk, no_si_vessel, buyer, mothervessel,
-        si_type, month_num, year_num, si_barges,
+        si_type, month_num, year_num, barge_seq, si_barges,
         tugboat, barge, term, anchorage, qty_plan,
         laycan_start, laycan_end,
         jetty_code, jetty_name,
@@ -946,7 +1065,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmtV->close();
     if (!$target) jsonOut(["ok"=>false,"msg"=>"Data vessel tidak ditemukan untuk no_pk: {$target_no_pk}"]);
 
-    $stmtSeq = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) AS mx FROM sibarges WHERE no_pk=?");
+    $stmtSeq = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) AS mx FROM sibarges WHERE no_pk=? AND record_status <> 'DISCARD'");
     if (!$stmtSeq) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
     $stmtSeq->bind_param("s", $target_no_pk);
     $stmtSeq->execute();
@@ -1019,8 +1138,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       if (!$stmtDiscard->execute()) throw new RuntimeException($stmtDiscard->error);
       $stmtDiscard->close();
 
+      $renumbered = renumberNonDiscardedSibarges($koneksi, (string)$current['no_pk']);
+
       $koneksi->commit();
-      jsonOut(["ok"=>true,"msg"=>"Vessel berhasil diubah. Original SI disimpan sebagai DISCARD. SI Barges baru: {$new_si_barges}"]);
+      $renumberMsg = $renumbered > 0 ? " {$renumbered} nomor SI berikutnya sudah dirapikan." : "";
+      jsonOut(["ok"=>true,"msg"=>"Vessel berhasil diubah. Original SI disimpan sebagai DISCARD. SI Barges baru: {$new_si_barges}.{$renumberMsg}"]);
     } catch (Throwable $e) {
       $koneksi->rollback();
       jsonOut(["ok"=>false,"msg"=>"Gagal change vessel: ".$e->getMessage()]);
@@ -1100,7 +1222,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmtV = $koneksi->prepare("SELECT no_si_vessel, buyer, mothervessel, term FROM vessel WHERE no_pk=? LIMIT 1");
     $stmtJ = $koneksi->prepare("SELECT nama_panjang FROM jetty WHERE jetty=? LIMIT 1");
     $stmtS = $koneksi->prepare("SELECT nama_lengkap FROM shipper WHERE shipper=? LIMIT 1");
-    $stmtMax = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) mx FROM sibarges WHERE no_pk=?");
+    $stmtMax = $koneksi->prepare("SELECT COALESCE(MAX(barge_seq),0) mx FROM sibarges WHERE no_pk=? AND record_status <> 'DISCARD'");
     if (!$stmtV || !$stmtJ || !$stmtS || !$stmtMax) {
       fclose($fh);
       jsonOut(["ok"=>false,"msg"=>"Prepare lookup gagal: ".$koneksi->error]);

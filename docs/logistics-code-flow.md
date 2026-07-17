@@ -62,6 +62,8 @@ erDiagram
     varchar mothervessel
     date laycan_start
     date laycan_end
+    date pkk
+    date rkbm
   }
 
   barges {

@@ -14,6 +14,7 @@ require_once __DIR__ . '/../config/database.php';
 
 try {
   $koneksi = db_connect('databarging');
+  ensure_vessel_schedule_columns($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
@@ -71,13 +72,13 @@ if (isset($_GET['download']) && $_GET['download'] === 'vessel_template') {
   $out = fopen('php://output', 'w');
   fputcsv($out, [
     'no_pk','no_si_vessel','buyer','mothervessel','anchorage','term',
-    'laycan_start','laycan_end','ta_vessel',
+    'laycan_start','laycan_end','ta_vessel','pkk','rkbm',
     'single_mt','blending_mt','stowageplan_mt','loading_rate_kontrak'
   ]);
 
   // contoh baris (optional)
-  fputcsv($out, ['G.25-052','060','BCPCL','MV. KENZEN','MUARA BERAU','FOB','2025-11-05','2025-11-14','2025-11-07','60500','0','60500','10000']);
-  fputcsv($out, ['M.25-178','160','JAWA POWER','MV. MURSYID','MUARA JAWA','CIF','05/Nov/25','09/Nov/25','04/Nov/25','55000','0','55000','10000']);
+  fputcsv($out, ['G.25-052','060','BCPCL','MV. KENZEN','MUARA BERAU','FOB','2025-11-05','2025-11-14','2025-11-07','2025-11-08','2025-11-09','60500','0','60500','10000']);
+  fputcsv($out, ['M.25-178','160','JAWA POWER','MV. MURSYID','MUARA JAWA','CIF','05/Nov/25','09/Nov/25','04/Nov/25','05/Nov/25','06/Nov/25','55000','0','55000','10000']);
   fclose($out);
   exit;
 }
@@ -90,7 +91,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   // ===== LIST + SEARCH =====
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
-    $sql = "SELECT no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel,
+    $sql = "SELECT no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel, pkk, rkbm,
                    single_mt, blending_mt, stowageplan_mt, loading_rate_kontrak, created_at
             FROM vessel";
     $types = "";
@@ -128,6 +129,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $laycan_start = toDate($_POST['laycan_start'] ?? '');
     $laycan_end   = toDate($_POST['laycan_end'] ?? '');
     $ta_vessel    = toDate($_POST['ta_vessel'] ?? '');
+    $pkk          = toDate($_POST['pkk'] ?? '');
+    $rkbm         = toDate($_POST['rkbm'] ?? '');
 
     $single   = toDecimal($_POST['single_mt'] ?? '');
     $blending = toDecimal($_POST['blending_mt'] ?? '');
@@ -151,14 +154,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $stmt = $koneksi->prepare("INSERT INTO vessel
-      (no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel, single_mt, blending_mt, stowageplan_mt, loading_rate_kontrak)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      (no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel, pkk, rkbm, single_mt, blending_mt, stowageplan_mt, loading_rate_kontrak)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
 
     $stmt->bind_param(
-      "sssssssssdddd",
+      "sssssssssssdddd",
       $no_pk, $no_si_vessel, $buyer, $mothervessel, $anchorage, $term,
-      $laycan_start, $laycan_end, $ta_vessel,
+      $laycan_start, $laycan_end, $ta_vessel, $pkk, $rkbm,
       $single, $blending, $stowage, $loadingRateKontrak
     );
 
@@ -181,6 +184,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $laycan_start = toDate($_POST['laycan_start'] ?? '');
     $laycan_end   = toDate($_POST['laycan_end'] ?? '');
     $ta_vessel    = toDate($_POST['ta_vessel'] ?? '');
+    $pkk          = toDate($_POST['pkk'] ?? '');
+    $rkbm         = toDate($_POST['rkbm'] ?? '');
 
     $single   = toDecimal($_POST['single_mt'] ?? '');
     $blending = toDecimal($_POST['blending_mt'] ?? '');
@@ -193,14 +198,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $stmt = $koneksi->prepare("UPDATE vessel
-      SET no_si_vessel=?, buyer=?, mothervessel=?, anchorage=?, term=?, laycan_start=?, laycan_end=?, ta_vessel=?,
+      SET no_si_vessel=?, buyer=?, mothervessel=?, anchorage=?, term=?, laycan_start=?, laycan_end=?, ta_vessel=?, pkk=?, rkbm=?,
           single_mt=?, blending_mt=?, stowageplan_mt=?, loading_rate_kontrak=?
       WHERE no_pk=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
 
     $stmt->bind_param(
-      "ssssssssdddds",
-      $no_si_vessel, $buyer, $mothervessel, $anchorage, $term, $laycan_start, $laycan_end, $ta_vessel,
+      "ssssssssssdddds",
+      $no_si_vessel, $buyer, $mothervessel, $anchorage, $term, $laycan_start, $laycan_end, $ta_vessel, $pkk, $rkbm,
       $single, $blending, $stowage, $loadingRateKontrak,
       $no_pk
     );
@@ -271,8 +276,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     // prepare statement insert
     $stmtIns = $koneksi->prepare("INSERT INTO vessel
-      (no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel, single_mt, blending_mt, stowageplan_mt, loading_rate_kontrak)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)");
+      (no_pk, no_si_vessel, buyer, mothervessel, anchorage, term, laycan_start, laycan_end, ta_vessel, pkk, rkbm, single_mt, blending_mt, stowageplan_mt, loading_rate_kontrak)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
     if (!$stmtIns) {
       fclose($fh);
       jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]);
@@ -300,6 +305,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       $laycan_start = toDate($row[$idx['laycan_start']] ?? '');
       $laycan_end   = toDate($row[$idx['laycan_end']] ?? '');
       $ta_vessel    = toDate($row[$idx['ta_vessel']] ?? '');
+      $pkk          = toDate($row[$idx['pkk']] ?? '');
+      $rkbm         = toDate($row[$idx['rkbm']] ?? '');
 
       $single   = toDecimal($row[$idx['single_mt']] ?? '');
       $blending = toDecimal($row[$idx['blending_mt']] ?? '');
@@ -323,9 +330,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       }
 
       $stmtIns->bind_param(
-        "sssssssssdddd",
+        "sssssssssssdddd",
         $no_pk, $no_si_vessel, $buyer, $mothervessel, $anchorage, $term,
-        $laycan_start, $laycan_end, $ta_vessel,
+        $laycan_start, $laycan_end, $ta_vessel, $pkk, $rkbm,
         $single, $blending, $stowage, $loadingRateKontrak
       );
 
@@ -453,6 +460,16 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <div class="col-md-2">
+          <label class="form-label">PKK</label>
+          <input name="pkk" type="date" class="form-control">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">RKBM</label>
+          <input name="rkbm" type="date" class="form-control">
+        </div>
+
+        <div class="col-md-2">
           <label class="form-label">Single (MT)</label>
           <input name="single_mt" class="form-control" placeholder="60500">
         </div>
@@ -498,6 +515,8 @@ include __DIR__ . "/../includes/sidebar.php";
               <th style="min-width:130px;">Laycan Start</th>
               <th style="min-width:130px;">Laycan End</th>
               <th style="min-width:120px;">TA Vessel</th>
+              <th style="min-width:120px;">PKK</th>
+              <th style="min-width:120px;">RKBM</th>
               <th style="min-width:110px;">Single</th>
               <th style="min-width:110px;">Blending</th>
               <th style="min-width:120px;">Stowageplan</th>
@@ -506,7 +525,7 @@ include __DIR__ . "/../includes/sidebar.php";
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="14" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="16" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -564,6 +583,8 @@ function rowTemplate(r){
   const ls = esc(r.laycan_start ?? '');
   const le = esc(r.laycan_end ?? '');
   const ta = esc(r.ta_vessel ?? '');
+  const pkk = esc(r.pkk ?? '');
+  const rkbm = esc(r.rkbm ?? '');
 
   const single = esc(r.single_mt ?? '0');
   const blend  = esc(r.blending_mt ?? '0');
@@ -596,6 +617,8 @@ function rowTemplate(r){
     <td><input class="form-control form-control-sm" type="date" name="laycan_start" value="${ls}"></td>
     <td><input class="form-control form-control-sm" type="date" name="laycan_end" value="${le}"></td>
     <td><input class="form-control form-control-sm" type="date" name="ta_vessel" value="${ta}"></td>
+    <td><input class="form-control form-control-sm" type="date" name="pkk" value="${pkk}"></td>
+    <td><input class="form-control form-control-sm" type="date" name="rkbm" value="${rkbm}"></td>
 
     <td><input class="form-control form-control-sm" name="single_mt" value="${single}"></td>
     <td><input class="form-control form-control-sm" name="blending_mt" value="${blend}"></td>
@@ -613,11 +636,11 @@ async function loadTable(){
   const kw = q.value.trim();
   const res = await api('list', null, `&q=${encodeURIComponent(kw)}`);
   if (!res.ok){
-    tbody.innerHTML = `<tr><td colspan="14" class="text-danger">Error: ${res.msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16" class="text-danger">Error: ${res.msg}</td></tr>`;
     return;
   }
   if (!res.data.length){
-    tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted">No data</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
     return;
   }
   tbody.innerHTML = res.data.map(rowTemplate).join('');
@@ -648,7 +671,7 @@ tbody.addEventListener('click', async (e)=>{
     if (res.ok){
       showAlert('success', res.msg);
       tr.remove();
-      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="14" class="text-center text-muted">No data</td></tr>`;
+      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
     } else {
       showAlert('danger', res.msg);
     }
@@ -666,6 +689,8 @@ tbody.addEventListener('click', async (e)=>{
       laycan_start: getVal('laycan_start'),
       laycan_end: getVal('laycan_end'),
       ta_vessel: getVal('ta_vessel'),
+      pkk: getVal('pkk'),
+      rkbm: getVal('rkbm'),
       single_mt: getVal('single_mt'),
       blending_mt: getVal('blending_mt'),
       stowageplan_mt: getVal('stowageplan_mt'),
