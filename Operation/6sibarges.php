@@ -242,6 +242,53 @@ function renumberNonDiscardedSibarges(mysqli $koneksi, $noPk){
   return $renumbered;
 }
 
+function renumberNonDiscardedSibargesByMotherVessel(mysqli $koneksi, $mothervessel){
+  if (trim((string)$mothervessel) === '') return 0;
+
+  $stmt = $koneksi->prepare("SELECT
+      id, no_si_vessel, si_type, month_num, year_num, barge_seq, si_barges
+    FROM sibarges
+    WHERE mothervessel=? AND record_status <> 'DISCARD'
+    ORDER BY barge_seq ASC, id ASC
+    FOR UPDATE");
+  if (!$stmt) throw new RuntimeException($koneksi->error);
+  $stmt->bind_param("s", $mothervessel);
+  if (!$stmt->execute()) throw new RuntimeException($stmt->error);
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+  $stmtUpdate = $koneksi->prepare("UPDATE sibarges SET barge_seq=?, si_barges=? WHERE id=?");
+  if (!$stmtUpdate) throw new RuntimeException($koneksi->error);
+
+  $renumbered = 0;
+  foreach ($rows as $index => $row) {
+    $newSeq = $index + 1;
+    $siType = cleanCode($row['si_type'] ?? '');
+    $romanMonth = romawiBulan((int)($row['month_num'] ?? 0));
+    $year = (int)($row['year_num'] ?? 0);
+    $noSiVessel = clean($row['no_si_vessel'] ?? '');
+    if ($siType === '' || $romanMonth === '' || $year <= 0 || $noSiVessel === '') {
+      $stmtUpdate->close();
+      throw new RuntimeException('Data SI Barges tidak lengkap saat merapikan nomor urut.');
+    }
+
+    $newSiBarges = "SI-{$siType}/{$romanMonth}/{$year}/{$noSiVessel}/{$newSeq}";
+    if ((int)$row['barge_seq'] === $newSeq && (string)$row['si_barges'] === $newSiBarges) continue;
+
+    $id = (int)$row['id'];
+    $stmtUpdate->bind_param("isi", $newSeq, $newSiBarges, $id);
+    if (!$stmtUpdate->execute()) {
+      $error = $stmtUpdate->error;
+      $stmtUpdate->close();
+      throw new RuntimeException($error);
+    }
+    $renumbered++;
+  }
+  $stmtUpdate->close();
+
+  return $renumbered;
+}
+
 function pdfText($text){
   $text = (string)$text;
   $text = str_replace(['\\', '(', ')'], ['\\\\', '\\(', '\\)'], $text);
@@ -1262,14 +1309,31 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $id = (int)($_POST['id'] ?? 0);
     if ($id <= 0) jsonOut(["ok"=>false,"msg"=>"ID tidak valid."]);
 
-    $stmt = $koneksi->prepare("DELETE FROM sibarges WHERE id=?");
+    $stmt = $koneksi->prepare("SELECT mothervessel FROM sibarges WHERE id=? LIMIT 1");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
     $stmt->bind_param("i", $id);
-    $ok = $stmt->execute();
-    $err = $stmt->error;
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
+    if (!$row) jsonOut(["ok"=>false,"msg"=>"Data SI Barges tidak ditemukan."]);
+    $mothervessel = (string)($row['mothervessel'] ?? '');
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data SI Barges berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    $koneksi->begin_transaction();
+    try {
+      $stmt = $koneksi->prepare("DELETE FROM sibarges WHERE id=?");
+      if (!$stmt) throw new RuntimeException($koneksi->error);
+      $stmt->bind_param("i", $id);
+      if (!$stmt->execute()) throw new RuntimeException($stmt->error);
+      $stmt->close();
+
+      renumberNonDiscardedSibargesByMotherVessel($koneksi, $mothervessel);
+
+      $koneksi->commit();
+      jsonOut(["ok"=>true,"msg"=>"Data SI Barges berhasil dihapus."]);
+    } catch (Throwable $e) {
+      $koneksi->rollback();
+      jsonOut(["ok"=>false,"msg"=>"Gagal hapus data: ".$e->getMessage()]);
+    }
   }
 
   // ===== IMPORT CSV =====
@@ -1550,11 +1614,24 @@ include __DIR__ . "/../includes/sidebar.php";
   }
 
   .si-input-width{
-    min-width: 1280px;
+    width: 100%;
+    max-width: 100%;
   }
 
   #tbl{
     min-width: 1800px;
+  }
+
+  .si-vertical-scroll{
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .si-vertical-scroll thead th{
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background-color: #f8f9fa;
   }
 </style>
 
@@ -1616,17 +1693,22 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <!-- FORM INPUT -->
     <div class="card mb-3">
-      <div class="si-horizontal-scroll">
         <div class="card-body si-input-width">
-          <h6 class="mb-3">Input SI Barges</h6>
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="m-0">Input SI Barges</h6>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputSiBargesBody">
+              <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
+            </button>
+          </div>
 
+          <div id="inputSiBargesBody">
           <form id="formCreate" class="row g-2">
 
           <!-- Row 1 -->
           <div class="col-lg-2">
             <label class="form-label mb-1">Cari Vessel (no_pk / nama)</label>
-            <input id="vesselSearch" class="form-control form-control-sm" placeholder="contoh: M.25-283 / SAKURA" autocomplete="off">
-            <div class="form-text small">Ketik → dropdown “Vessel (No PK)” terfilter. Enter → auto pilih hasil pertama.</div>
+            <input id="vesselSearch" class="form-control form-control-sm" placeholder="Ex: M.25-283 / SAKURA" autocomplete="off">
+            <!-- <div class="form-text small">Ketik → dropdown “Vessel (No PK)” terfilter. Enter → auto pilih hasil pertama.</div> -->
           </div>
 
           <div class="col-lg-3">
@@ -1673,7 +1755,6 @@ include __DIR__ . "/../includes/sidebar.php";
             <input name="tugboat" id="tugboat" class="form-control form-control-sm" required placeholder="TB. ..."
                    list="dlTugboat" autocomplete="off">
             <datalist id="dlTugboat"></datalist>
-            <div class="form-text small">Bisa pilih dari saran, tapi tetap bebas edit (TB bisa gandeng BG mana pun).</div>
           </div>
 
           <div class="col-lg-4">
@@ -1694,6 +1775,10 @@ include __DIR__ . "/../includes/sidebar.php";
               <option value="ACT">ACT</option>
               <option value="CANCEL">CANCEL</option>
             </select>
+          </div>
+
+          <div class="col-12">
+            <div class="form-text small col-lg-8">Bisa pilih dari saran, tapi tetap bebas edit (TB bisa gandeng BG mana pun).</div>
           </div>
 
           <!-- Row 3 -->
@@ -1741,8 +1826,8 @@ include __DIR__ . "/../includes/sidebar.php";
           </div>
 
           </form>
+          </div>
         </div>
-      </div>
     </div>
 
     <!-- TABLE -->
@@ -1770,7 +1855,7 @@ include __DIR__ . "/../includes/sidebar.php";
           </div>
         </div>
 
-        <div class="table-responsive si-horizontal-scroll">
+        <div class="table-responsive si-horizontal-scroll si-vertical-scroll">
           <table class="table table-sm table-bordered align-middle" id="tbl" style="font-size:12px;">
             <thead class="table-light">
               <tr>
@@ -1859,6 +1944,31 @@ const btnSaveChangeVessel = document.getElementById('btnSaveChangeVessel');
 const changeVesselModalEl = document.getElementById('changeVesselModal');
 let changeVesselModal = null;
 let changeVesselRowId = "";
+
+const inputSiBargesBody = document.getElementById('inputSiBargesBody');
+const btnToggleInputForm = document.getElementById('btnToggleInputForm');
+const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
+const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
+const INPUT_FORM_COLLAPSE_KEY = 'sibarges_input_form_collapsed';
+
+function setInputFormCollapsed(collapsed){
+  if (!inputSiBargesBody || !btnToggleInputForm) return;
+  inputSiBargesBody.style.display = collapsed ? 'none' : '';
+  btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+  if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
+  try { localStorage.setItem(INPUT_FORM_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+}
+
+if (btnToggleInputForm) {
+  let startCollapsed = false;
+  try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
+  setInputFormCollapsed(startCollapsed);
+  btnToggleInputForm.addEventListener('click', () => {
+    const collapsed = inputSiBargesBody.style.display !== 'none';
+    setInputFormCollapsed(collapsed);
+  });
+}
 
 const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');

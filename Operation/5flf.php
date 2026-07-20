@@ -272,8 +272,14 @@ include __DIR__ . "/../includes/sidebar.php";
   <!-- FORM INPUT -->
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="mb-3">Input FLF</h6>
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="m-0">Input FLF</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputFlfBody">
+          <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
+        </button>
+      </div>
 
+      <div id="inputFlfBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-4">
           <label class="form-label">Floating Crane</label>
@@ -299,6 +305,7 @@ include __DIR__ . "/../includes/sidebar.php";
           <button class="btn btn-success" type="submit">Save</button>
         </div>
       </form>
+      </div>
     </div>
   </div>
 
@@ -348,6 +355,30 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
+const inputFlfBody = document.getElementById('inputFlfBody');
+const btnToggleInputForm = document.getElementById('btnToggleInputForm');
+const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
+const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
+const INPUT_FORM_COLLAPSE_KEY = 'flf_input_form_collapsed';
+
+function setInputFormCollapsed(collapsed){
+  if (!inputFlfBody || !btnToggleInputForm) return;
+  inputFlfBody.style.display = collapsed ? 'none' : '';
+  btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+  if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
+  try { localStorage.setItem(INPUT_FORM_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+}
+
+if (btnToggleInputForm) {
+  let startCollapsed = false;
+  try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
+  setInputFormCollapsed(startCollapsed);
+  btnToggleInputForm.addEventListener('click', () => {
+    const collapsed = inputFlfBody.style.display !== 'none';
+    setInputFormCollapsed(collapsed);
+  });
+}
 
 function showAlert(type, msg){
   alertBox.className = 'alert alert-' + type;

@@ -49,6 +49,23 @@ function toDate($s){
   return null;
 }
 
+function toDateTime($s){
+  $s = clean($s);
+  if ($s === "") return null;
+
+  // accept: YYYY-MM-DDTHH:MM (datetime-local input) or YYYY-MM-DD HH:MM(:SS)
+  if (preg_match('/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/', $s)) {
+    $s = str_replace('T', ' ', $s);
+    return strlen($s) === 16 ? $s . ':00' : $s;
+  }
+
+  // accept plain date, or other parseable formats (dd/mmm/yy hh:mm, etc.)
+  $ts = strtotime($s);
+  if ($ts) return date("Y-m-d H:i:s", $ts);
+
+  return null;
+}
+
 function toDecimal($s){
   $s = clean($s);
   if ($s === "" || $s === "-") return 0;
@@ -77,8 +94,8 @@ if (isset($_GET['download']) && $_GET['download'] === 'vessel_template') {
   ]);
 
   // contoh baris (optional)
-  fputcsv($out, ['G.25-052','060','BCPCL','MV. KENZEN','MUARA BERAU','FOB','2025-11-05','2025-11-14','2025-11-07','2025-11-08','2025-11-09','60500','0','60500','10000']);
-  fputcsv($out, ['M.25-178','160','JAWA POWER','MV. MURSYID','MUARA JAWA','CIF','05/Nov/25','09/Nov/25','04/Nov/25','05/Nov/25','06/Nov/25','55000','0','55000','10000']);
+  fputcsv($out, ['G.25-052','060','BCPCL','MV. KENZEN','MUARA BERAU','FOB','2025-11-05','2025-11-14','2025-11-07 08:00','2025-11-08 09:00','2025-11-09 10:00','60500','0','60500','10000']);
+  fputcsv($out, ['M.25-178','160','JAWA POWER','MV. MURSYID','MUARA JAWA','CIF','05/Nov/25','09/Nov/25','04/Nov/25 14:30','05/Nov/25 15:00','06/Nov/25 16:00','55000','0','55000','10000']);
   fclose($out);
   exit;
 }
@@ -128,9 +145,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $laycan_start = toDate($_POST['laycan_start'] ?? '');
     $laycan_end   = toDate($_POST['laycan_end'] ?? '');
-    $ta_vessel    = toDate($_POST['ta_vessel'] ?? '');
-    $pkk          = toDate($_POST['pkk'] ?? '');
-    $rkbm         = toDate($_POST['rkbm'] ?? '');
+    $ta_vessel    = toDateTime($_POST['ta_vessel'] ?? '');
+    $pkk          = toDateTime($_POST['pkk'] ?? '');
+    $rkbm         = toDateTime($_POST['rkbm'] ?? '');
 
     $single   = toDecimal($_POST['single_mt'] ?? '');
     $blending = toDecimal($_POST['blending_mt'] ?? '');
@@ -183,9 +200,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $laycan_start = toDate($_POST['laycan_start'] ?? '');
     $laycan_end   = toDate($_POST['laycan_end'] ?? '');
-    $ta_vessel    = toDate($_POST['ta_vessel'] ?? '');
-    $pkk          = toDate($_POST['pkk'] ?? '');
-    $rkbm         = toDate($_POST['rkbm'] ?? '');
+    $ta_vessel    = toDateTime($_POST['ta_vessel'] ?? '');
+    $pkk          = toDateTime($_POST['pkk'] ?? '');
+    $rkbm         = toDateTime($_POST['rkbm'] ?? '');
 
     $single   = toDecimal($_POST['single_mt'] ?? '');
     $blending = toDecimal($_POST['blending_mt'] ?? '');
@@ -304,9 +321,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
       $laycan_start = toDate($row[$idx['laycan_start']] ?? '');
       $laycan_end   = toDate($row[$idx['laycan_end']] ?? '');
-      $ta_vessel    = toDate($row[$idx['ta_vessel']] ?? '');
-      $pkk          = toDate($row[$idx['pkk']] ?? '');
-      $rkbm         = toDate($row[$idx['rkbm']] ?? '');
+      $ta_vessel    = toDateTime($row[$idx['ta_vessel']] ?? '');
+      $pkk          = toDateTime($row[$idx['pkk']] ?? '');
+      $rkbm         = toDateTime($row[$idx['rkbm']] ?? '');
 
       $single   = toDecimal($row[$idx['single_mt']] ?? '');
       $blending = toDecimal($row[$idx['blending_mt']] ?? '');
@@ -414,8 +431,14 @@ include __DIR__ . "/../includes/sidebar.php";
   <!-- FORM INPUT -->
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="mb-3">Input Vessel</h6>
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="m-0">Input Vessel</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputVesselBody">
+          <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
+        </button>
+      </div>
 
+      <div id="inputVesselBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-2">
           <label class="form-label">No. PK</label>
@@ -469,17 +492,17 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="col-md-2">
           <label class="form-label">TA Vessel</label>
-          <input name="ta_vessel" type="date" class="form-control">
+          <input name="ta_vessel" type="datetime-local" class="form-control">
         </div>
 
         <div class="col-md-2">
           <label class="form-label">PKK</label>
-          <input name="pkk" type="date" class="form-control">
+          <input name="pkk" type="datetime-local" class="form-control">
         </div>
 
         <div class="col-md-2">
           <label class="form-label">RKBM</label>
-          <input name="rkbm" type="date" class="form-control">
+          <input name="rkbm" type="datetime-local" class="form-control">
         </div>
 
         <div class="col-md-2">
@@ -507,6 +530,7 @@ include __DIR__ . "/../includes/sidebar.php";
           <button class="btn btn-success" type="submit">Save</button>
         </div>
       </form>
+      </div>
     </div>
   </div>
 
@@ -567,6 +591,30 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
+const inputVesselBody = document.getElementById('inputVesselBody');
+const btnToggleInputForm = document.getElementById('btnToggleInputForm');
+const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
+const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
+const INPUT_FORM_COLLAPSE_KEY = 'vessel_input_form_collapsed';
+
+function setInputFormCollapsed(collapsed){
+  if (!inputVesselBody || !btnToggleInputForm) return;
+  inputVesselBody.style.display = collapsed ? 'none' : '';
+  btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+  if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
+  if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
+  try { localStorage.setItem(INPUT_FORM_COLLAPSE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+}
+
+if (btnToggleInputForm) {
+  let startCollapsed = false;
+  try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
+  setInputFormCollapsed(startCollapsed);
+  btnToggleInputForm.addEventListener('click', () => {
+    const collapsed = inputVesselBody.style.display !== 'none';
+    setInputFormCollapsed(collapsed);
+  });
+}
 
 function showAlert(type, msg){
   alertBox.className = 'alert alert-' + type;
@@ -600,11 +648,13 @@ function rowTemplate(r){
   const anchorage = esc(r.anchorage);
   const term = esc(r.term);
 
+  const toDatetimeLocal = (v)=> (v ?? '').toString().trim().replace(' ', 'T').slice(0, 16);
+
   const ls = esc(r.laycan_start ?? '');
   const le = esc(r.laycan_end ?? '');
-  const ta = esc(r.ta_vessel ?? '');
-  const pkk = esc(r.pkk ?? '');
-  const rkbm = esc(r.rkbm ?? '');
+  const ta = esc(toDatetimeLocal(r.ta_vessel));
+  const pkk = esc(toDatetimeLocal(r.pkk));
+  const rkbm = esc(toDatetimeLocal(r.rkbm));
 
   const single = esc(r.single_mt ?? '0');
   const blend  = esc(r.blending_mt ?? '0');
@@ -636,9 +686,9 @@ function rowTemplate(r){
 
     <td><input class="form-control form-control-sm" type="date" name="laycan_start" value="${ls}"></td>
     <td><input class="form-control form-control-sm" type="date" name="laycan_end" value="${le}"></td>
-    <td><input class="form-control form-control-sm" type="date" name="ta_vessel" value="${ta}"></td>
-    <td><input class="form-control form-control-sm" type="date" name="pkk" value="${pkk}"></td>
-    <td><input class="form-control form-control-sm" type="date" name="rkbm" value="${rkbm}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="ta_vessel" value="${ta}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="pkk" value="${pkk}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="rkbm" value="${rkbm}"></td>
 
     <td><input class="form-control form-control-sm" name="single_mt" value="${single}"></td>
     <td><input class="form-control form-control-sm" name="blending_mt" value="${blend}"></td>

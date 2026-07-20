@@ -57,26 +57,33 @@ function ensure_vessel_schedule_columns(mysqli $connection): void
 
     try {
         $statement = $connection->prepare(
-            "SELECT COLUMN_NAME
+            "SELECT COLUMN_NAME, DATA_TYPE
              FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = ?
                AND TABLE_NAME = 'vessel'
-               AND COLUMN_NAME IN ('pkk', 'rkbm')"
+               AND COLUMN_NAME IN ('ta_vessel', 'pkk', 'rkbm')"
         );
         $statement->bind_param('s', $database);
         $statement->execute();
-        $existing = array_column(
-            $statement->get_result()->fetch_all(MYSQLI_ASSOC),
-            'COLUMN_NAME'
-        );
+        $columns = $statement->get_result()->fetch_all(MYSQLI_ASSOC);
         $statement->close();
+
+        $existing = array_column($columns, 'COLUMN_NAME');
+        $dataTypes = array_column($columns, 'DATA_TYPE', 'COLUMN_NAME');
 
         $alterParts = [];
         if (!in_array('pkk', $existing, true)) {
-            $alterParts[] = 'ADD COLUMN pkk date DEFAULT NULL AFTER ta_vessel';
+            $alterParts[] = 'ADD COLUMN pkk datetime DEFAULT NULL AFTER ta_vessel';
+        } elseif (($dataTypes['pkk'] ?? '') === 'date') {
+            $alterParts[] = 'MODIFY COLUMN pkk datetime DEFAULT NULL';
         }
         if (!in_array('rkbm', $existing, true)) {
-            $alterParts[] = 'ADD COLUMN rkbm date DEFAULT NULL AFTER pkk';
+            $alterParts[] = 'ADD COLUMN rkbm datetime DEFAULT NULL AFTER pkk';
+        } elseif (($dataTypes['rkbm'] ?? '') === 'date') {
+            $alterParts[] = 'MODIFY COLUMN rkbm datetime DEFAULT NULL';
+        }
+        if (in_array('ta_vessel', $existing, true) && ($dataTypes['ta_vessel'] ?? '') === 'date') {
+            $alterParts[] = 'MODIFY COLUMN ta_vessel datetime DEFAULT NULL';
         }
 
         if ($alterParts) {
@@ -86,7 +93,7 @@ function ensure_vessel_schedule_columns(mysqli $connection): void
         $checkedDatabases[$database] = true;
     } catch (Throwable $exception) {
         throw new RuntimeException(
-            'Gagal menyiapkan kolom PKK/RKBM pada data Vessel.',
+            'Gagal menyiapkan kolom TA Vessel/PKK/RKBM pada data Vessel.',
             0,
             $exception
         );
