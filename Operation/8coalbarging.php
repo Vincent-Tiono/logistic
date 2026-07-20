@@ -160,9 +160,9 @@ const TLU_OPERATION_FIELDS = [
 ];
 
 const TLU_DATETIME_FIELDS = [
-  'arrival_jetty' => 'Arrival jetty',
-  'start_loading' => 'Start loading',
-  'completed_loading' => 'Completed loading',
+  'arrival_jetty' => 'Arrival Jetty',
+  'start_loading' => 'Start Loading',
+  'completed_loading' => 'Completed Loading',
   'lhv' => 'LHV',
   'spog_zona_2' => 'SPOG ZONA 2',
   'pkk' => 'PKK',
@@ -225,7 +225,7 @@ const TLU_CSV_COLUMNS = [
 ];
 
 const TLU_TABLE_EXPORT_HEADERS = [
-  'NO.REFF',
+  'No. Reff',
   'Buyer',
   'POD MV',
   'Jetty',
@@ -239,9 +239,9 @@ const TLU_TABLE_EXPORT_HEADERS = [
   'Floating Crane',
   'Laycan Start',
   'Laycan End',
-  'Arrival jetty',
-  'Start loading',
-  'Completed loading',
+  'Arrival Jetty',
+  'Start Loading',
+  'Completed Loading',
   'LHV',
   'SPOG ZONA 2',
   'PKK',
@@ -1744,22 +1744,22 @@ include __DIR__ . "/../includes/sidebar.php";
                     <th>Insert</th>
                     <th>No.</th>
                     <th data-calculated="true">Month Vessel</th>
-                    <th data-edit-field="status_act_rc" data-input-type="status-act-rc">STATUS ACT/RC</th>
-                    <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">STATUS ACT/ACT&RC</th>
+                    <th data-edit-field="status_act_rc" data-input-type="status-act-rc">Status ACT/RC</th>
+                    <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">Status ACT/ACT&RC</th>
                     <th data-field="laycan_start">Laycan Start</th>
                     <th data-field="laycan_end">Laycan End</th>
-                    <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
+                    <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival Jetty</th>
                     <th data-edit-field="date_jetty" data-input-type="date">Date Jetty</th>
-                    <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
-                    <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
+                    <th data-edit-field="start_loading" data-input-type="datetime-local">Start Loading</th>
+                    <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed Loading</th>
                     <th data-field="jetty_code">Jetty</th>
                     <th data-field="tugboat">Tugboat</th>
                     <th data-field="barge">Barge</th>
                     <th data-edit-field="qty">QTY Jetty</th>
                     <th data-edit-field="qty_disc">QTY DISC</th>
                     <th data-edit-field="qty_actual">QTY Laut</th>
-                    <th data-calculated="true">DSR VS REDRAFT</th>
-                    <th data-field="no_pk">NO.REFF</th>
+                    <th data-calculated="true">DSR VS Redraft</th>
+                    <th data-field="no_pk">No. Reff</th>
                     <th data-field="buyer">Buyer</th>
                     <th data-field="mothervessel">POD MV</th>
                     <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
@@ -1796,18 +1796,18 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">Status ACT/ACT&RC</th>
                 <th data-field="laycan_start">Laycan Start</th>
                 <th data-field="laycan_end">Laycan End</th>
-                <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
+                <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival Jetty</th>
                 <th data-edit-field="date_jetty" data-input-type="date">Date Jetty</th>
-                <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
-                <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
+                <th data-edit-field="start_loading" data-input-type="datetime-local">Start Loading</th>
+                <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed Loading</th>
                 <th data-field="jetty_code">Jetty</th>
                 <th data-field="tugboat">Tugboat</th>
                 <th data-field="barge">Barge</th>
                 <th data-edit-field="qty">QTY Jetty</th>
                 <th data-edit-field="qty_disc">QTY DISC</th>
                 <th data-edit-field="qty_actual">QTY Laut</th>
-                <th data-calculated="true">DSR VS REDRAFT</th>
-                <th data-field="no_pk">NO.REFF</th>
+                <th data-calculated="true">DSR VS Redraft</th>
+                <th data-field="no_pk">No. Reff</th>
                 <th data-field="buyer">Buyer</th>
                 <th data-field="mothervessel">POD MV</th>
                 <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
@@ -2337,7 +2337,7 @@ const siBargesDetailFields = [
   ['Month Vessel', null],
   ['Status ACT/RC', null],
   ['Status ACT/ACT&RC', null],
-  ['NO.REFF', 'no_pk'],
+  ['No. Reff', 'no_pk'],
   ['Buyer', 'buyer'],
   ['POD MV', 'mothervessel'],
   ['Jetty', 'jetty_code'],
@@ -2346,7 +2346,7 @@ const siBargesDetailFields = [
   ['QTY Jetty', null],
   ['QTY DISC', null],
   ['QTY Laut', null],
-  ['DSR VS REDRAFT', null],
+  ['DSR VS Redraft', null],
   ['PBM Vendor', null],
   ['Floating Crane', null],
   ['Month', 'month_num'],
@@ -2354,9 +2354,9 @@ const siBargesDetailFields = [
   ['Barge Sequence', 'barge_seq'],
   ['Laycan Start', 'laycan_start'],
   ['Laycan End', 'laycan_end'],
-  ['Arrival jetty', null],
-  ['Start loading', null],
-  ['Completed loading', null],
+  ['Arrival Jetty', null],
+  ['Start Loading', null],
+  ['Completed Loading', null],
   ['Start Disch', null],
   ['Completed Disch', null],
   ['Anchorage', 'anchorage'],
@@ -3137,12 +3137,12 @@ function openSiBargesDetail(rowIndex, source = 'main') {
 	    const isCalculated = header.dataset.calculated === 'true';
 	    const inputType = header.dataset.inputType;
 	    const rcVesselFields = {
-	      'NO.REFF': 'no_pk',
+	      'No. Reff': 'no_pk',
 	      'Buyer': 'buyer',
 	      'POD MV': 'mothervessel'
 	    };
 	    const isRcVesselField = (source === 'unused' || row.row_type === 'rc') && rcVesselFields[label];
-	    const calculatedHelp = label === 'DSR VS REDRAFT'
+	    const calculatedHelp = label === 'DSR VS Redraft'
 	      ? 'Dihitung otomatis: QTY DISC - QTY Laut'
 	      : 'Dihitung otomatis';
 	    const valueMarkup = isRcVesselField
@@ -3185,7 +3185,7 @@ function openSiBargesDetail(rowIndex, source = 'main') {
   const qtyDiscInput = siBargesDetailBody.querySelector('[data-operation-field="qty_disc"]');
   const qtyActualInput = siBargesDetailBody.querySelector('[data-operation-field="qty_actual"]');
   const dsrVsRedraftRow = [...siBargesDetailBody.querySelectorAll('.si-detail-row')]
-    .find(row => row.querySelector('label')?.textContent.trim() === 'DSR VS REDRAFT');
+    .find(row => row.querySelector('label')?.textContent.trim() === 'DSR VS Redraft');
   const dsrVsRedraftValue = dsrVsRedraftRow?.querySelector('.si-detail-value');
   const updateDsrVsRedraft = () => {
     if (dsrVsRedraftValue) {

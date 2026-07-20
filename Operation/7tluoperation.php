@@ -121,7 +121,7 @@ const TLU_CSV_COLUMNS = [
 ];
 
 const TLU_TABLE_EXPORT_HEADERS = [
-  'NO.REFF',
+  'No. Reff',
   'Buyer',
   'Mother Vessel',
   'Jetty',
@@ -1123,7 +1123,7 @@ include __DIR__ . "/../includes/sidebar.php";
             <thead class="table-light">
               <tr>
                 <th>No.</th>
-                <th data-field="no_pk">NO.REFF</th>
+                <th data-field="no_pk">No. Reff</th>
                 <th data-field="buyer">Buyer</th>
                 <th data-field="mothervessel">Mother Vessel</th>
                 <th data-field="jetty_code">Jetty</th>
@@ -1668,7 +1668,7 @@ function updateHiddenFieldsSummary() {
 }
 
 const siBargesDetailFields = [
-  ['NO.REFF', 'no_pk'],
+  ['No. Reff', 'no_pk'],
   ['Buyer', 'buyer'],
   ['Mother Vessel', 'mothervessel'],
   ['Jetty', 'jetty_code'],
