@@ -1883,12 +1883,12 @@ include __DIR__ . "/../includes/sidebar.php";
           Tips: Search langsung ketik. Sort pakai dropdown. Update/Delete tanpa reload.
         </div>
 
-        <?php if ($isIT): ?>
         <div class="d-flex justify-content-end gap-2 mt-3">
-          <button class="btn btn-sm btn-outline-primary" id="btnDownloadAllSI" type="button">Download all SI</button>
+          <button class="btn btn-sm btn-outline-primary" id="btnDownloadAllSI" type="button">Download All SI</button>
+          <?php if ($isIT): ?>
           <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+          <?php endif; ?>
         </div>
-        <?php endif; ?>
       </div>
     </div>
 
