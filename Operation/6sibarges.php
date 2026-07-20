@@ -331,7 +331,7 @@ function pdfLogoJpegData($pngPath, $targetWidth = 210){
   return [$jpeg ?: '', $targetWidth, $targetHeight];
 }
 
-function outputSimplePdf($title, array $fields, $filename){
+function outputSimplePdf($title, array $fields, $filename, $returnBytes = false){
   $pageWidth = 595;
   $pageHeight = 842;
   $pageMargin = 60;
@@ -510,6 +510,10 @@ function outputSimplePdf($title, array $fields, $filename){
   }
   $pdf .= "trailer\n<< /Size " . (count($objects) + 1) . " /Root 1 0 R >>\nstartxref\n" . $xrefPos . "\n%%EOF";
 
+  if ($returnBytes) {
+    return $pdf;
+  }
+
   if (function_exists('ini_set')) {
     @ini_set('display_errors', '0');
   }
@@ -571,6 +575,23 @@ function formatPdfDocumentDate($ymd){
   return strtoupper($dt->format('d M Y'));
 }
 
+function buildSibargesPdfFilename($row){
+  $siBarges = trim($row['si_barges'] ?? '');
+  $segments = explode('/', $siBarges);
+  $n = trim(end($segments));
+  if ($n === '') $n = (string)($row['id'] ?? '');
+
+  $tugboat = trim($row['tugboat'] ?? '');
+  $barge = trim($row['barge'] ?? '');
+  $mothervessel = trim($row['mothervessel'] ?? '');
+
+  $name = "{$n}. SI {$tugboat} {$barge} - {$mothervessel}";
+  $name = preg_replace('/[\\\\\/:*?"<>|]+/', '_', $name);
+  $name = preg_replace('/\s+/', ' ', $name);
+
+  return trim($name) . '.pdf';
+}
+
 function getSibargesPdfFields($row){
   $anchorage = trim($row['anchorage'] ?? '');
   $mothervessel = trim($row['mothervessel'] ?? '');
@@ -602,7 +623,7 @@ function getSibargesPdfFields($row){
     'Port of Discharge' => $portOfDischarge,
     'Barge Nomination' => $bargeNomination,
     'Laycan' => $laycan,
-    'Shipper' => preg_replace('/\s+/', ' ', trim(($row['shipper_code'] ?? '') . ' - ' . ($row['shipper_name'] ?? ''))),
+    'Shipper' => preg_replace('/\s+/', ' ', trim(($row['shipper_name'] ?? ''))),
     'Laycan Start' => $row['laycan_start'] ?? '',
     'Laycan End' => $row['laycan_end'] ?? '',
     'Status' => $row['record_status'] ?? '',
@@ -675,8 +696,95 @@ if (isset($_GET['download']) && $_GET['download'] === 'si_pdf') {
     exit('Data SI Barges tidak ditemukan.');
   }
 
-  $filename = preg_replace('/[^A-Za-z0-9._-]+/', '_', ($row['si_barges'] ?? ('si_barges_' . $id))) . '.pdf';
+  $filename = buildSibargesPdfFilename($row);
   outputSimplePdf('SI Barges Detail', getSibargesPdfFields($row), $filename);
+}
+
+if (isset($_GET['download']) && $_GET['download'] === 'si_pdf_all') {
+  if (!class_exists('ZipArchive')) {
+    http_response_code(500);
+    exit('ZipArchive extension tidak tersedia di server ini.');
+  }
+
+  $ids = array_filter(array_map('intval', explode(',', (string)($_GET['ids'] ?? ''))), fn($v) => $v > 0);
+  if (!$ids) {
+    http_response_code(400);
+    exit('Tidak ada data SI Barges yang dipilih untuk diunduh.');
+  }
+
+  $placeholders = implode(',', array_fill(0, count($ids), '?'));
+  $types = str_repeat('i', count($ids));
+
+  $stmt = $koneksi->prepare("SELECT
+      id, no_pk, no_si_vessel, buyer, mothervessel,
+      si_type, month_num, year_num, barge_seq, si_barges,
+      tugboat, barge,
+      COALESCE(
+        NULLIF(anchorage, ''),
+        (
+          SELECT s2.anchorage
+          FROM sibarges s2
+          WHERE s2.no_pk = sibarges.no_pk
+            AND NULLIF(s2.anchorage, '') IS NOT NULL
+          ORDER BY s2.id DESC
+          LIMIT 1
+        )
+      ) AS anchorage,
+      qty_plan,
+      jetty_code, jetty_name,
+      shipper_code, shipper_name,
+      laycan_start, laycan_end,
+      record_status, remarks,
+      created_by, created_at, updated_at
+    FROM sibarges WHERE id IN ($placeholders) ORDER BY id ASC");
+  if (!$stmt) {
+    http_response_code(500);
+    exit('DB error: ' . $koneksi->error);
+  }
+  $stmt->bind_param($types, ...$ids);
+  $stmt->execute();
+  $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+  $stmt->close();
+
+  if (!$rows) {
+    http_response_code(404);
+    exit('Tidak ada data SI Barges untuk diunduh.');
+  }
+
+  $tmpZip = tempnam(sys_get_temp_dir(), 'sibarges_zip_');
+  $zip = new ZipArchive();
+  if ($zip->open($tmpZip, ZipArchive::OVERWRITE) !== true) {
+    http_response_code(500);
+    exit('Gagal membuat file ZIP.');
+  }
+
+  $usedNames = [];
+  foreach ($rows as $row) {
+    $pdfBytes = outputSimplePdf('SI Barges Detail', getSibargesPdfFields($row), null, true);
+    $name = buildSibargesPdfFilename($row);
+    if (isset($usedNames[$name])) {
+      $usedNames[$name]++;
+      $name = preg_replace('/\.pdf$/', '', $name) . '_' . $usedNames[$name] . '.pdf';
+    } else {
+      $usedNames[$name] = 1;
+    }
+    $zip->addFromString('All SI/' . $name, $pdfBytes);
+  }
+  $zip->close();
+
+  if (function_exists('ini_set')) {
+    @ini_set('display_errors', '0');
+  }
+  while (ob_get_level() > 0) {
+    ob_end_clean();
+  }
+
+  header('Content-Type: application/zip');
+  header('Content-Disposition: attachment; filename="All SI.zip"');
+  header('Content-Length: ' . filesize($tmpZip));
+  readfile($tmpZip);
+  unlink($tmpZip);
+  exit;
 }
 
 /* ========= AJAX API ========= */
@@ -1691,7 +1799,8 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <?php if ($isIT): ?>
-        <div class="d-flex justify-content-end mt-3">
+        <div class="d-flex justify-content-end gap-2 mt-3">
+          <button class="btn btn-sm btn-outline-primary" id="btnDownloadAllSI" type="button">Download all SI</button>
           <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
         </div>
         <?php endif; ?>
@@ -1755,6 +1864,7 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
+const btnDownloadAllSI = document.getElementById('btnDownloadAllSI');
 const importAlertBox = document.getElementById('importAlertBox');
 
 const no_pk = document.getElementById('no_pk');
@@ -2249,6 +2359,17 @@ formImport.addEventListener('submit', async (e)=>{
     showImportAlert('danger', res.msg);
   }
 });
+
+if (btnDownloadAllSI){
+  btnDownloadAllSI.addEventListener('click', ()=>{
+    const ids = Array.from(tbody.querySelectorAll('tr[data-id]')).map(tr => tr.getAttribute('data-id'));
+    if (!ids.length){
+      showAlert('danger', 'Tidak ada data SI Barges yang tampil untuk diunduh.');
+      return;
+    }
+    window.location.href = `${SELF}?download=si_pdf_all&ids=${encodeURIComponent(ids.join(','))}`;
+  });
+}
 
 if (btnDeleteAll){
   btnDeleteAll.addEventListener('click', async ()=>{
