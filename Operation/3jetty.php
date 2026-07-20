@@ -203,6 +203,19 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     jsonOut(["ok"=>true,"msg"=>"Import selesai. Inserted: {$inserted}, Skipped (duplicate): {$skipped}, Error: {$errors}"]);
   }
 
+  // ===== DELETE ALL (IT only) =====
+  if ($action === 'delete_all') {
+    $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
+    if (strtoupper(trim((string)$divisi)) !== 'IT') {
+      jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh menghapus semua data."]);
+    }
+
+    $ok = $koneksi->query("DELETE FROM jetty");
+    $err = $koneksi->error;
+
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data jetty berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+  }
+
   jsonOut(["ok"=>false,"msg"=>"Unknown action"]);
 }
 
@@ -297,6 +310,12 @@ include __DIR__ . "/../includes/sidebar.php";
       <div class="small text-muted mt-2">
         Tips: Search langsung ketik di box atas. Update/Delete tanpa reload.
       </div>
+
+      <?php if ($isIT): ?>
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+      </div>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -311,6 +330,7 @@ const btnReset = document.getElementById('btnReset');
 const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
+const btnDeleteAll = document.getElementById('btnDeleteAll');
 
 function showAlert(type, msg){
   alertBox.className = 'alert alert-' + type;
@@ -441,6 +461,19 @@ formImport.addEventListener('submit', async (e)=>{
     showAlert('danger', res.msg);
   }
 });
+
+if (btnDeleteAll){
+  btnDeleteAll.addEventListener('click', async ()=>{
+    if (!confirm('Hapus SEMUA data jetty? Tindakan ini tidak bisa dibatalkan.')) return;
+    const res = await api('delete_all');
+    if (res.ok){
+      showAlert('success', res.msg);
+      await loadTable();
+    } else {
+      showAlert('danger', res.msg);
+    }
+  });
+}
 
 loadTable();
 </script>
