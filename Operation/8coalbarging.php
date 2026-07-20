@@ -134,6 +134,7 @@ const TLU_OPERATION_FIELDS = [
   'pbm_vendor',
   'floating_crane',
   'arrival_jetty',
+  'date_jetty',
   'start_loading',
   'completed_loading',
   'lhv',
@@ -227,9 +228,9 @@ const TLU_TABLE_EXPORT_HEADERS = [
   'NO.REFF',
   'Buyer',
   'POD MV',
-  'JETTY',
-  'TB',
-  'BG',
+  'Jetty',
+  'Tugboat',
+  'Barge',
   'QTY',
   'QTY DISC',
   'RC',
@@ -332,7 +333,8 @@ function parseOperationDateTimeValue($value) {
     '!j/n/Y H:i',
     '!d/m/Y G:i',
     '!j/n/Y G:i',
-    '!m/d/Y H:i'
+    '!m/d/Y H:i',
+    '!d/M/y H:i'
   ];
   foreach ($formats as $format) {
     $date = DateTime::createFromFormat($format, $value);
@@ -343,6 +345,22 @@ function parseOperationDateTimeValue($value) {
   }
 
   return null;
+}
+
+/* ===== display format dd/Mon/yy [HH:MM] for tables & CSV export ===== */
+function formatDisplayDateTime($value, $withTime = true) {
+  $value = trim((string)$value);
+  if ($value === '') return '';
+
+  $formats = ['!Y-m-d H:i:s', '!Y-m-d H:i', '!Y-m-d\TH:i', '!Y-m-d'];
+  $date = null;
+  foreach ($formats as $format) {
+    $date = DateTime::createFromFormat($format, $value);
+    if ($date) break;
+  }
+  if (!$date) return $value;
+
+  return $withTime ? $date->format('d/M/y H:i') : $date->format('d/M/y');
 }
 
 function normalizeOperationDateTime($value, $label) {
@@ -378,10 +396,6 @@ function tableExportRow($row) {
   $rc = trim((string)($data['rc'] ?? ''));
   $qtyActual = trim((string)($data['qty_actual'] ?? ''));
 
-  $laycanDateTime = fn($value) => trim((string)$value) === ''
-    ? ''
-    : trim((string)$value) . ' 00:00';
-
   return [
     $row['no_pk'] ?? '',
     $row['buyer'] ?? '',
@@ -395,35 +409,35 @@ function tableExportRow($row) {
     formatOperationDisplayNumber($qtyActual),
     $data['pbm_vendor'] ?? '',
     $data['floating_crane'] ?? '',
-    $laycanDateTime($row['laycan_start'] ?? ''),
-    $laycanDateTime($row['laycan_end'] ?? ''),
-    $data['arrival_jetty'] ?? '',
-    $data['start_loading'] ?? '',
-    $data['completed_loading'] ?? '',
-    $data['lhv'] ?? '',
-    $data['spog_zona_2'] ?? '',
-    $data['pkk'] ?? '',
-    $data['rkbm'] ?? '',
-    $data['sts_spb'] ?? '',
-    $data['start_mooring'] ?? '',
-    $data['end_mooring'] ?? '',
+    formatDisplayDateTime($row['laycan_start'] ?? '', false),
+    formatDisplayDateTime($row['laycan_end'] ?? '', false),
+    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
+    formatDisplayDateTime($data['start_loading'] ?? ''),
+    formatDisplayDateTime($data['completed_loading'] ?? ''),
+    formatDisplayDateTime($data['lhv'] ?? ''),
+    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
+    formatDisplayDateTime($data['pkk'] ?? ''),
+    formatDisplayDateTime($data['rkbm'] ?? ''),
+    formatDisplayDateTime($data['sts_spb'] ?? ''),
+    formatDisplayDateTime($data['start_mooring'] ?? ''),
+    formatDisplayDateTime($data['end_mooring'] ?? ''),
     $data['mooring_place_1'] ?? '',
-    $data['clear_pass'] ?? '',
-    $data['start_mooring_clear_pass'] ?? '',
-    $data['cast_off_mooring_clear_pass'] ?? '',
+    formatDisplayDateTime($data['clear_pass'] ?? ''),
+    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
+    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
     $data['mooring_place_2'] ?? '',
-    $data['ta_barges_actual'] ?? '',
-    $data['ta_mv'] ?? '',
-    $data['ta_flf'] ?? '',
-    $data['cargo_readiness_actual'] ?? '',
-    $data['start_disch'] ?? '',
-    $data['completed_disch'] ?? '',
+    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
+    formatDisplayDateTime($data['ta_mv'] ?? ''),
+    formatDisplayDateTime($data['ta_flf'] ?? ''),
+    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
+    formatDisplayDateTime($data['start_disch'] ?? ''),
+    formatDisplayDateTime($data['completed_disch'] ?? ''),
     $data['discharge_sequence'] ?? '',
-    $data['back_to_jetty'] ?? '',
+    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
     $row['operation_remarks'] ?? '',
     $row['created_by'] ?? '',
-    $row['created_at'] ?? '',
-    $row['updated_at'] ?? ''
+    formatDisplayDateTime($row['created_at'] ?? ''),
+    formatDisplayDateTime($row['updated_at'] ?? '')
   ];
 }
 
@@ -623,12 +637,12 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
       'qty_actual' => formatOperationDisplayNumber($qtyActual),
       'pbm_vendor' => $data['pbm_vendor'] ?? '',
       'floating_crane' => $data['floating_crane'] ?? '',
-      'laycan_start' => ($row['laycan_start'] ?? '') . ' 00:00',
-      'laycan_end' => ($row['laycan_end'] ?? '') . ' 00:00',
+      'laycan_start' => formatDisplayDateTime($row['laycan_start'] ?? '', false),
+      'laycan_end' => formatDisplayDateTime($row['laycan_end'] ?? '', false),
       'remarks' => $row['operation_remarks'] ?? ''
     ];
     foreach (TLU_DATETIME_FIELDS as $field => $label) {
-      $csvRow[$field] = $data[$field] ?? '';
+      $csvRow[$field] = formatDisplayDateTime($data[$field] ?? '');
     }
     $csvRow['discharge_sequence'] = $data['discharge_sequence'] ?? '';
     $csvRow['mooring_place_1'] = $data['mooring_place_1'] ?? '';
@@ -1729,17 +1743,18 @@ include __DIR__ . "/../includes/sidebar.php";
                   <tr>
                     <th>Insert</th>
                     <th>No.</th>
-                    <th data-calculated="true">MONTH VESSEL</th>
+                    <th data-calculated="true">Month Vessel</th>
                     <th data-edit-field="status_act_rc" data-input-type="status-act-rc">STATUS ACT/RC</th>
                     <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">STATUS ACT/ACT&RC</th>
                     <th data-field="laycan_start">Laycan Start</th>
                     <th data-field="laycan_end">Laycan End</th>
                     <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
+                    <th data-edit-field="date_jetty" data-input-type="date">Date Jetty</th>
                     <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
                     <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
-                    <th data-field="jetty_code">JETTY</th>
-                    <th data-field="tugboat">TB</th>
-                    <th data-field="barge">BG</th>
+                    <th data-field="jetty_code">Jetty</th>
+                    <th data-field="tugboat">Tugboat</th>
+                    <th data-field="barge">Barge</th>
                     <th data-edit-field="qty">QTY Jetty</th>
                     <th data-edit-field="qty_disc">QTY DISC</th>
                     <th data-edit-field="qty_actual">QTY Laut</th>
@@ -1776,17 +1791,18 @@ include __DIR__ . "/../includes/sidebar.php";
             <thead class="table-light">
               <tr>
                 <th>No.</th>
-                <th data-calculated="true">MONTH VESSEL</th>
-                <th data-edit-field="status_act_rc" data-input-type="status-act-rc">STATUS ACT/RC</th>
-                <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">STATUS ACT/ACT&RC</th>
+                <th data-calculated="true">Month Vessel</th>
+                <th data-edit-field="status_act_rc" data-input-type="status-act-rc">Status ACT/RC</th>
+                <th data-edit-field="status_act_act_rc" data-input-type="status-act-act-rc">Status ACT/ACT&RC</th>
                 <th data-field="laycan_start">Laycan Start</th>
                 <th data-field="laycan_end">Laycan End</th>
                 <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
+                <th data-edit-field="date_jetty" data-input-type="date">Date Jetty</th>
                 <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
                 <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
-                <th data-field="jetty_code">JETTY</th>
-                <th data-field="tugboat">TB</th>
-                <th data-field="barge">BG</th>
+                <th data-field="jetty_code">Jetty</th>
+                <th data-field="tugboat">Tugboat</th>
+                <th data-field="barge">Barge</th>
                 <th data-edit-field="qty">QTY Jetty</th>
                 <th data-edit-field="qty_disc">QTY DISC</th>
                 <th data-edit-field="qty_actual">QTY Laut</th>
@@ -2318,15 +2334,15 @@ function updateHiddenFieldsSummary() {
 }
 
 const siBargesDetailFields = [
-  ['MONTH VESSEL', null],
-  ['STATUS ACT/RC', null],
-  ['STATUS ACT/ACT&RC', null],
+  ['Month Vessel', null],
+  ['Status ACT/RC', null],
+  ['Status ACT/ACT&RC', null],
   ['NO.REFF', 'no_pk'],
   ['Buyer', 'buyer'],
   ['POD MV', 'mothervessel'],
-  ['JETTY', 'jetty_code'],
-  ['TB', 'tugboat'],
-  ['BG', 'barge'],
+  ['Jetty', 'jetty_code'],
+  ['Tugboat', 'tugboat'],
+  ['Barge', 'barge'],
   ['QTY Jetty', null],
   ['QTY DISC', null],
   ['QTY Laut', null],
@@ -2400,13 +2416,50 @@ function formatDisplayNumber(value) {
   }).format(Number(normalized));
 }
 
+/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/6sibarges.php convention) ===== */
+const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDDMonYY(val, withTime = false) {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const yy = m[1].slice(-2);
+  const mon = DDMONYY_MONTHS[parseInt(m[2], 10) - 1] || '';
+  const dd = m[3];
+  let out = `${dd}/${mon}/${yy}`;
+  if (withTime && m[4]) out += ` ${m[4]}:${m[5]}`;
+  return out;
+}
+
+/* ===== parse dd/Mon/yy [HH:MM] back to YYYY-MM-DDTHH:MM (for datetime-local inputs) ===== */
+function parseDDMonYYToISO(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!m) return '';
+  const monIdx = DDMONYY_MONTHS.findIndex(x => x.toLowerCase() === m[2].toLowerCase());
+  if (monIdx < 0) return '';
+  const dd = m[1].padStart(2, '0');
+  const mm = String(monIdx + 1).padStart(2, '0');
+  const yyyy = 2000 + parseInt(m[3], 10);
+  const hh = m[4] || '00';
+  const mi = m[5] || '00';
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
 function displayLaycanDateTime(value) {
-  const date = String(value ?? '').trim();
-  return date === '' ? '-' : `${esc(date)} 00:00`;
+  const formatted = fmtDDMonYY(value, false);
+  return formatted === '' ? '-' : esc(formatted);
 }
 
 function formatOperationDateTimeDisplay(value) {
-  return String(value ?? '').trim().replace(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?$/, '$1 $2');
+  return fmtDDMonYY(value, true);
+}
+
+function displayDateTime(value) {
+  const formatted = fmtDDMonYY(value, true);
+  return formatted === '' ? '-' : esc(formatted);
 }
 
 function parseOperationData(value) {
@@ -2484,6 +2537,28 @@ function parseOperationNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function dateJettyEffectiveValue(operationData) {
+  const stored = String(operationData.date_jetty ?? '').trim();
+  if (stored) return stored;
+
+  return String(operationData.completed_loading ?? '').trim();
+}
+
+function dateJettyDisplayValue(operationData) {
+  return fmtDDMonYY(dateJettyEffectiveValue(operationData), false);
+}
+
+function dateInputValue(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  const isoMatch = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+
+  const parsed = parseDDMonYYToISO(text);
+  return parsed ? parsed.slice(0, 10) : '';
+}
+
 function calculateDsrVsRedraft(data) {
   const qtyDisc = parseOperationNumber(data.qty_disc);
   const qtyLaut = parseOperationNumber(data.qty_actual);
@@ -2518,7 +2593,9 @@ function datetimeLocalValue(value) {
   if (!text) return '';
 
   const match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
-  return match ? `${match[1]}T${match[2]}` : '';
+  if (match) return `${match[1]}T${match[2]}`;
+
+  return parseDDMonYYToISO(text);
 }
 
 function csvCell(value) {
@@ -2643,6 +2720,7 @@ function renderSiBargesRows(rows) {
     const operationData = parseOperationData(row.operation_data);
     const dsrVsRedraft = calculateDsrVsRedraft(operationData);
     const monthVessel = monthVesselFromCompletedDisch(operationData.completed_disch);
+    const dateJetty = dateJettyDisplayValue(operationData);
     const statusActRc = statusActRcValue(operationData);
     const statusActActRc = statusActActRcValue(operationData);
 
@@ -2655,6 +2733,7 @@ function renderSiBargesRows(rows) {
         <td>${displayLaycanDateTime(row.laycan_start)}</td>
         <td>${displayLaycanDateTime(row.laycan_end)}</td>
         ${operationCell(operationData, 'arrival_jetty')}
+        <td>${displayValue(dateJetty)}</td>
         ${operationCell(operationData, 'start_loading')}
         ${operationCell(operationData, 'completed_loading')}
         <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
@@ -2674,8 +2753,8 @@ function renderSiBargesRows(rows) {
         <td>${displayValue(row.anchorage)}</td>
         <td>${displayValue(row.operation_remarks)}</td>
         <td>${displayValue(row.created_by)}</td>
-        <td>${displayValue(row.created_at)}</td>
-        <td>${displayValue(row.updated_at)}</td>
+        <td>${displayDateTime(row.created_at)}</td>
+        <td>${displayDateTime(row.updated_at)}</td>
       </tr>
     `;
   }).join('');
@@ -2696,6 +2775,7 @@ function renderUnusedRcRows(rows) {
     const operationData = parseOperationData(row.operation_data);
     const dsrVsRedraft = calculateDsrVsRedraft(operationData);
     const monthVessel = monthVesselFromCompletedDisch(operationData.completed_disch);
+    const dateJetty = dateJettyDisplayValue(operationData);
     const statusActRc = statusActRcValue(operationData);
     const statusActActRc = statusActActRcValue(operationData);
 
@@ -2718,6 +2798,7 @@ function renderUnusedRcRows(rows) {
         <td>${displayLaycanDateTime(row.laycan_start)}</td>
         <td>${displayLaycanDateTime(row.laycan_end)}</td>
         ${operationCell(operationData, 'arrival_jetty')}
+        <td>${displayValue(dateJetty)}</td>
         ${operationCell(operationData, 'start_loading')}
         ${operationCell(operationData, 'completed_loading')}
         <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
@@ -2737,8 +2818,8 @@ function renderUnusedRcRows(rows) {
         <td>${displayValue(row.anchorage)}</td>
         <td>${displayValue(row.operation_remarks)}</td>
         <td>${displayValue(row.created_by)}</td>
-        <td>${displayValue(row.created_at)}</td>
-        <td>${displayValue(row.updated_at)}</td>
+        <td>${displayDateTime(row.created_at)}</td>
+        <td>${displayDateTime(row.updated_at)}</td>
       </tr>
     `;
   }).join('');
@@ -3085,6 +3166,8 @@ function openSiBargesDetail(rowIndex, source = 'main') {
       ? dischargeSequenceMarkup(editField, value)
       : inputType === 'datetime-local'
       ? `<input type="datetime-local" class="form-control" data-operation-field="${esc(editField)}" value="${esc(datetimeLocalValue(value))}">`
+      : inputType === 'date'
+      ? `<input type="date" class="form-control" data-operation-field="${esc(editField)}" value="${esc(dateInputValue(value))}">`
       : inputType === 'textarea'
       ? `<textarea class="form-control" data-operation-field="${esc(editField)}" rows="3">${esc(value)}</textarea>`
       : editField

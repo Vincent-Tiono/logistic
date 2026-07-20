@@ -56,26 +56,26 @@ const TLU_OPERATION_FIELDS = [
 ];
 
 const TLU_DATETIME_FIELDS = [
-  'arrival_jetty' => 'Arrival jetty',
-  'start_loading' => 'Start loading',
-  'completed_loading' => 'Completed loading',
+  'arrival_jetty' => 'Arrival Jetty',
+  'start_loading' => 'Start Loading',
+  'completed_loading' => 'Completed Loading',
   'lhv' => 'LHV',
   'spog_zona_2' => 'SPOG ZONA 2',
   'pkk' => 'PKK',
   'rkbm' => 'RKBM',
-  'sts_spb' => 'STS/ SPB',
-  'start_mooring' => 'Start mooring',
-  'end_mooring' => 'End mooring',
-  'clear_pass' => 'Clear pass',
-  'start_mooring_clear_pass' => 'Start Mooring clear pass',
-  'cast_off_mooring_clear_pass' => 'Cast off mooring clear pass',
+  'sts_spb' => 'STS/SPB',
+  'start_mooring' => 'Start Mooring',
+  'end_mooring' => 'End Mooring',
+  'clear_pass' => 'Clear Pass',
+  'start_mooring_clear_pass' => 'Start Mooring Clear Pass',
+  'cast_off_mooring_clear_pass' => 'Cast Off Mooring Clear Pass',
   'ta_barges_actual' => 'TA Barges Actual',
   'ta_mv' => 'TA MV',
   'ta_flf' => 'TA FLF',
   'cargo_readiness_actual' => 'Cargo Readiness Actual',
   'start_disch' => 'Start Disch',
   'completed_disch' => 'Completed Disch',
-  'back_to_jetty' => 'Back to jetty'
+  'back_to_jetty' => 'Back to Jetty'
 ];
 
 const TLU_CSV_COLUMNS = [
@@ -123,10 +123,10 @@ const TLU_CSV_COLUMNS = [
 const TLU_TABLE_EXPORT_HEADERS = [
   'NO.REFF',
   'Buyer',
-  'POD MV',
-  'JETTY',
-  'TB',
-  'BG',
+  'Mother Vessel',
+  'Jetty',
+  'Tugboat',
+  'Barge',
   'QTY',
   'QTY DISC',
   'RC',
@@ -135,20 +135,20 @@ const TLU_TABLE_EXPORT_HEADERS = [
   'Floating Crane',
   'Laycan Start',
   'Laycan End',
-  'Arrival jetty',
-  'Start loading',
-  'Completed loading',
+  'Arrival Jetty',
+  'Start Loading',
+  'Completed Loading',
   'LHV',
   'SPOG ZONA 2',
   'PKK',
   'RKBM',
-  'STS/ SPB',
-  'Start mooring',
-  'End mooring',
+  'STS/SPB',
+  'Start Mooring',
+  'End Mooring',
   'Mooring Place 1',
-  'Clear pass',
-  'Start Mooring clear pass',
-  'Cast off mooring clear pass',
+  'Clear Pass',
+  'Start Mooring Clear Pass',
+  'Cast Off Mooring Clear Pass',
   'Mooring Place 2',
   'TA Barges Actual',
   'TA MV',
@@ -157,7 +157,7 @@ const TLU_TABLE_EXPORT_HEADERS = [
   'Start Disch',
   'Completed Disch',
   'Discharge Sequence',
-  'Back to jetty',
+  'Back to Jetty',
   'Remarks',
   'Created By',
   'Created At',
@@ -224,7 +224,8 @@ function parseOperationDateTimeValue($value) {
     '!j/n/Y H:i',
     '!d/m/Y G:i',
     '!j/n/Y G:i',
-    '!m/d/Y H:i'
+    '!m/d/Y H:i',
+    '!d/M/y H:i'
   ];
   foreach ($formats as $format) {
     $date = DateTime::createFromFormat($format, $value);
@@ -235,6 +236,22 @@ function parseOperationDateTimeValue($value) {
   }
 
   return null;
+}
+
+/* ===== display format dd/Mon/yy [HH:MM] for tables & CSV export ===== */
+function formatDisplayDateTime($value, $withTime = true) {
+  $value = trim((string)$value);
+  if ($value === '') return '';
+
+  $formats = ['!Y-m-d H:i:s', '!Y-m-d H:i', '!Y-m-d\TH:i', '!Y-m-d'];
+  $date = null;
+  foreach ($formats as $format) {
+    $date = DateTime::createFromFormat($format, $value);
+    if ($date) break;
+  }
+  if (!$date) return $value;
+
+  return $withTime ? $date->format('d/M/y H:i') : $date->format('d/M/y');
 }
 
 function normalizeOperationDateTime($value, $label) {
@@ -256,13 +273,13 @@ function operationTimelineErrors(array $operationData) {
   $errors = [];
 
   if ($arrivalJetty !== '' && $startLoading !== '' && strcmp($startLoading, $arrivalJetty) < 0) {
-    $errors[] = 'Start loading harus sama dengan atau setelah Arrival jetty';
+    $errors[] = 'Start Loading harus sama dengan atau setelah Arrival Jetty';
   }
   if ($startLoading !== '' && $completedLoading !== '' && strcmp($completedLoading, $startLoading) < 0) {
-    $errors[] = 'Completed loading harus sama dengan atau setelah Start loading';
+    $errors[] = 'Completed Loading harus sama dengan atau setelah Start Loading';
   }
   if ($startLoading === '' && $arrivalJetty !== '' && $completedLoading !== '' && strcmp($completedLoading, $arrivalJetty) < 0) {
-    $errors[] = 'Completed loading harus sama dengan atau setelah Arrival jetty';
+    $errors[] = 'Completed Loading harus sama dengan atau setelah Arrival Jetty';
   }
   if ($startMooring !== '' && $endMooring !== '' && strcmp($endMooring, $startMooring) < 0) {
     $errors[] = 'End Mooring harus sama dengan atau setelah Start Mooring';
@@ -318,10 +335,6 @@ function tableExportRow($row) {
     );
   }
 
-  $laycanDateTime = fn($value) => trim((string)$value) === ''
-    ? ''
-    : trim((string)$value) . ' 00:00';
-
   return [
     $row['no_pk'] ?? '',
     $row['buyer'] ?? '',
@@ -335,35 +348,35 @@ function tableExportRow($row) {
     formatOperationDisplayNumber($qtyActual),
     $data['pbm_vendor'] ?? '',
     $data['floating_crane'] ?? '',
-    $laycanDateTime($row['laycan_start'] ?? ''),
-    $laycanDateTime($row['laycan_end'] ?? ''),
-    $data['arrival_jetty'] ?? '',
-    $data['start_loading'] ?? '',
-    $data['completed_loading'] ?? '',
-    $data['lhv'] ?? '',
-    $data['spog_zona_2'] ?? '',
-    $data['pkk'] ?? '',
-    $data['rkbm'] ?? '',
-    $data['sts_spb'] ?? '',
-    $data['start_mooring'] ?? '',
-    $data['end_mooring'] ?? '',
+    formatDisplayDateTime($row['laycan_start'] ?? '', false),
+    formatDisplayDateTime($row['laycan_end'] ?? '', false),
+    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
+    formatDisplayDateTime($data['start_loading'] ?? ''),
+    formatDisplayDateTime($data['completed_loading'] ?? ''),
+    formatDisplayDateTime($data['lhv'] ?? ''),
+    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
+    formatDisplayDateTime($data['pkk'] ?? ''),
+    formatDisplayDateTime($data['rkbm'] ?? ''),
+    formatDisplayDateTime($data['sts_spb'] ?? ''),
+    formatDisplayDateTime($data['start_mooring'] ?? ''),
+    formatDisplayDateTime($data['end_mooring'] ?? ''),
     $data['mooring_place_1'] ?? '',
-    $data['clear_pass'] ?? '',
-    $data['start_mooring_clear_pass'] ?? '',
-    $data['cast_off_mooring_clear_pass'] ?? '',
+    formatDisplayDateTime($data['clear_pass'] ?? ''),
+    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
+    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
     $data['mooring_place_2'] ?? '',
-    $data['ta_barges_actual'] ?? '',
-    $data['ta_mv'] ?? '',
-    $data['ta_flf'] ?? '',
-    $data['cargo_readiness_actual'] ?? '',
-    $data['start_disch'] ?? '',
-    $data['completed_disch'] ?? '',
+    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
+    formatDisplayDateTime($data['ta_mv'] ?? ''),
+    formatDisplayDateTime($data['ta_flf'] ?? ''),
+    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
+    formatDisplayDateTime($data['start_disch'] ?? ''),
+    formatDisplayDateTime($data['completed_disch'] ?? ''),
     $data['discharge_sequence'] ?? '',
-    $data['back_to_jetty'] ?? '',
+    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
     $row['operation_remarks'] ?? '',
     $row['created_by'] ?? '',
-    $row['created_at'] ?? '',
-    $row['updated_at'] ?? ''
+    formatDisplayDateTime($row['created_at'] ?? ''),
+    formatDisplayDateTime($row['updated_at'] ?? '')
   ];
 }
 
@@ -566,12 +579,12 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
       'qty_actual' => formatOperationDisplayNumber($qtyActual),
       'pbm_vendor' => $data['pbm_vendor'] ?? '',
       'floating_crane' => $data['floating_crane'] ?? '',
-      'laycan_start' => ($row['laycan_start'] ?? '') . ' 00:00',
-      'laycan_end' => ($row['laycan_end'] ?? '') . ' 00:00',
+      'laycan_start' => formatDisplayDateTime($row['laycan_start'] ?? '', false),
+      'laycan_end' => formatDisplayDateTime($row['laycan_end'] ?? '', false),
       'remarks' => $row['operation_remarks'] ?? ''
     ];
     foreach (TLU_DATETIME_FIELDS as $field => $label) {
-      $csvRow[$field] = $data[$field] ?? '';
+      $csvRow[$field] = formatDisplayDateTime($data[$field] ?? '');
     }
     $csvRow['discharge_sequence'] = $data['discharge_sequence'] ?? '';
     $csvRow['mooring_place_1'] = $data['mooring_place_1'] ?? '';
@@ -1112,10 +1125,10 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th>No.</th>
                 <th data-field="no_pk">NO.REFF</th>
                 <th data-field="buyer">Buyer</th>
-                <th data-field="mothervessel">POD MV</th>
-                <th data-field="jetty_code">JETTY</th>
-                <th data-field="tugboat">TB</th>
-                <th data-field="barge">BG</th>
+                <th data-field="mothervessel">Mother Vessel</th>
+                <th data-field="jetty_code">Jetty</th>
+                <th data-field="tugboat">Tugboat</th>
+                <th data-field="barge">Barge</th>
                 <th data-edit-field="qty">QTY</th>
                 <th data-edit-field="qty_disc">QTY DISC</th>
                 <th data-edit-field="rc">RC</th>
@@ -1124,20 +1137,20 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
                 <th data-field="laycan_start">Laycan Start</th>
                 <th data-field="laycan_end">Laycan End</th>
-                <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival jetty</th>
-                <th data-edit-field="start_loading" data-input-type="datetime-local">Start loading</th>
-                <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed loading</th>
+                <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival Jetty</th>
+                <th data-edit-field="start_loading" data-input-type="datetime-local">Start Loading</th>
+                <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed Loading</th>
                 <th data-edit-field="lhv" data-input-type="datetime-local">LHV</th>
                 <th data-edit-field="spog_zona_2" data-input-type="datetime-local">SPOG ZONA 2</th>
                 <th data-edit-field="pkk" data-input-type="datetime-local">PKK</th>
                 <th data-edit-field="rkbm" data-input-type="datetime-local">RKBM</th>
-                <th data-edit-field="sts_spb" data-input-type="datetime-local">STS/ SPB</th>
-                <th data-edit-field="start_mooring" data-input-type="datetime-local">Start mooring</th>
-                <th data-edit-field="end_mooring" data-input-type="datetime-local">End mooring</th>
+                <th data-edit-field="sts_spb" data-input-type="datetime-local">STS/SPB</th>
+                <th data-edit-field="start_mooring" data-input-type="datetime-local">Start Mooring</th>
+                <th data-edit-field="end_mooring" data-input-type="datetime-local">End Mooring</th>
                 <th data-edit-field="mooring_place_1">Mooring Place 1</th>
-                <th data-edit-field="clear_pass" data-input-type="datetime-local">Clear pass</th>
-                <th data-edit-field="start_mooring_clear_pass" data-input-type="datetime-local">Start Mooring clear pass</th>
-                <th data-edit-field="cast_off_mooring_clear_pass" data-input-type="datetime-local">Cast off mooring clear pass</th>
+                <th data-edit-field="clear_pass" data-input-type="datetime-local">Clear Pass</th>
+                <th data-edit-field="start_mooring_clear_pass" data-input-type="datetime-local">Start Mooring Clear Pass</th>
+                <th data-edit-field="cast_off_mooring_clear_pass" data-input-type="datetime-local">Cast Off Mooring Clear Pass</th>
                 <th data-edit-field="mooring_place_2">Mooring Place 2</th>
                 <th data-edit-field="ta_barges_actual" data-input-type="datetime-local">TA Barges Actual</th>
                 <th data-edit-field="ta_mv" data-input-type="datetime-local">TA MV</th>
@@ -1146,7 +1159,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th data-edit-field="start_disch" data-input-type="datetime-local">Start Disch</th>
                 <th data-edit-field="completed_disch" data-input-type="datetime-local">Completed Disch</th>
                 <th data-edit-field="discharge_sequence" data-input-type="discharge-sequence">Discharge Sequence</th>
-                <th data-edit-field="back_to_jetty" data-input-type="datetime-local">Back to jetty</th>
+                <th data-edit-field="back_to_jetty" data-input-type="datetime-local">Back to Jetty</th>
                 <th data-edit-field="operation_remarks" data-input-type="textarea">Remarks</th>
                 <th data-field="created_by">Created By</th>
                 <th data-field="created_at">Created At</th>
@@ -1657,10 +1670,10 @@ function updateHiddenFieldsSummary() {
 const siBargesDetailFields = [
   ['NO.REFF', 'no_pk'],
   ['Buyer', 'buyer'],
-  ['POD MV', 'mothervessel'],
-  ['JETTY', 'jetty_code'],
-  ['TB', 'tugboat'],
-  ['BG', 'barge'],
+  ['Mother Vessel', 'mothervessel'],
+  ['Jetty', 'jetty_code'],
+  ['Tugboat', 'tugboat'],
+  ['Barge', 'barge'],
   ['QTY', null],
   ['QTY DISC', null],
   ['RC', null],
@@ -1672,20 +1685,20 @@ const siBargesDetailFields = [
   ['Barge Sequence', 'barge_seq'],
   ['Laycan Start', 'laycan_start'],
   ['Laycan End', 'laycan_end'],
-  ['Arrival jetty', null],
-  ['Start loading', null],
-  ['Completed loading', null],
+  ['Arrival Jetty', null],
+  ['Start Loading', null],
+  ['Completed Loading', null],
   ['LHV', null],
   ['SPOG ZONA 2', null],
   ['PKK', null],
   ['RKBM', null],
-  ['STS/ SPB', null],
-  ['Start mooring', null],
-  ['End mooring', null],
+  ['STS/SPB', null],
+  ['Start Mooring', null],
+  ['End Mooring', null],
   ['Mooring Place 1', null],
-  ['Clear pass', null],
-  ['Start Mooring clear pass', null],
-  ['Cast off mooring clear pass', null],
+  ['Clear Pass', null],
+  ['Start Mooring Clear Pass', null],
+  ['Cast Off Mooring Clear Pass', null],
   ['Mooring Place 2', null],
   ['TA Barges Actual', null],
   ['TA MV', null],
@@ -1694,7 +1707,7 @@ const siBargesDetailFields = [
   ['Start Disch', null],
   ['Completed Disch', null],
   ['Discharge Sequence', null],
-  ['Back to jetty', null],
+  ['Back to Jetty', null],
   ['Jetty Name', 'jetty_name'],
   ['CARGO', 'shipper_code'],
   ['Shipper Name', 'shipper_name'],
@@ -1737,6 +1750,7 @@ function displayValue(value) {
 }
 
 const formattedNumberFields = new Set(['qty', 'qty_disc', 'rc', 'qty_actual']);
+const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);
 
 function formatDisplayNumber(value) {
   const text = String(value ?? '').trim();
@@ -1750,9 +1764,50 @@ function formatDisplayNumber(value) {
   }).format(Number(normalized));
 }
 
+/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/6sibarges.php convention) ===== */
+const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDDMonYY(val, withTime = false) {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const yy = m[1].slice(-2);
+  const mon = DDMONYY_MONTHS[parseInt(m[2], 10) - 1] || '';
+  const dd = m[3];
+  let out = `${dd}/${mon}/${yy}`;
+  if (withTime && m[4]) out += ` ${m[4]}:${m[5]}`;
+  return out;
+}
+
+/* ===== parse dd/Mon/yy [HH:MM] back to YYYY-MM-DDTHH:MM (for datetime-local inputs) ===== */
+function parseDDMonYYToISO(text) {
+  const s = String(text ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2})(?:\s+(\d{2}):(\d{2}))?$/);
+  if (!m) return '';
+  const monIdx = DDMONYY_MONTHS.findIndex(x => x.toLowerCase() === m[2].toLowerCase());
+  if (monIdx < 0) return '';
+  const dd = m[1].padStart(2, '0');
+  const mm = String(monIdx + 1).padStart(2, '0');
+  const yyyy = 2000 + parseInt(m[3], 10);
+  const hh = m[4] || '00';
+  const mi = m[5] || '00';
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
 function displayLaycanDateTime(value) {
-  const date = String(value ?? '').trim();
-  return date === '' ? '-' : `${esc(date)} 00:00`;
+  const formatted = fmtDDMonYY(value, false);
+  return formatted === '' ? '-' : esc(formatted);
+}
+
+function formatOperationDateTimeDisplay(value) {
+  return fmtDDMonYY(value, true);
+}
+
+function displayDateTime(value) {
+  const formatted = fmtDDMonYY(value, true);
+  return formatted === '' ? '-' : esc(formatted);
 }
 
 function parseOperationData(value) {
@@ -1770,6 +1825,8 @@ function parseOperationData(value) {
 function operationCell(operationData, field) {
   const value = formattedNumberFields.has(field)
     ? formatDisplayNumber(operationData[field])
+    : operationDateTimeFields.has(field)
+    ? formatOperationDateTimeDisplay(operationData[field])
     : operationData[field];
 
   return `<td>${displayValue(value)}</td>`;
@@ -1817,7 +1874,9 @@ function datetimeLocalValue(value) {
   if (!text) return '';
 
   const match = text.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
-  return match ? `${match[1]}T${match[2]}` : '';
+  if (match) return `${match[1]}T${match[2]}`;
+
+  return parseDDMonYYToISO(text);
 }
 
 function validateOperationTimelineInputs(reportError = false) {
@@ -1847,13 +1906,13 @@ function validateOperationTimelineInputs(reportError = false) {
   completedDischInput.min = startDischInput.value || '';
 
   if (arrivalJettyInput.value && startLoadingInput.value && startLoadingInput.value < arrivalJettyInput.value) {
-    startLoadingInput.setCustomValidity('Start loading must be equal to or later than Arrival jetty.');
+    startLoadingInput.setCustomValidity('Start Loading must be equal to or later than Arrival Jetty.');
   }
   if (startLoadingInput.value && completedLoadingInput.value && completedLoadingInput.value < startLoadingInput.value) {
-    completedLoadingInput.setCustomValidity('Completed loading must be equal to or later than Start loading.');
+    completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Start Loading.');
   }
   if (!startLoadingInput.value && arrivalJettyInput.value && completedLoadingInput.value && completedLoadingInput.value < arrivalJettyInput.value) {
-    completedLoadingInput.setCustomValidity('Completed loading must be equal to or later than Arrival jetty.');
+    completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Arrival Jetty.');
   }
   if (startMooringInput.value && endMooringInput.value && endMooringInput.value < startMooringInput.value) {
     endMooringInput.setCustomValidity('End Mooring must be equal to or later than Start Mooring.');
@@ -1992,8 +2051,8 @@ function renderSiBargesRows(rows) {
         ${operationCell(operationData, 'back_to_jetty')}
         <td>${displayValue(row.operation_remarks)}</td>
         <td>${displayValue(row.created_by)}</td>
-        <td>${displayValue(row.created_at)}</td>
-        <td>${displayValue(row.updated_at)}</td>
+        <td>${displayDateTime(row.created_at)}</td>
+        <td>${displayDateTime(row.updated_at)}</td>
       </tr>
     `;
   }).join('');
