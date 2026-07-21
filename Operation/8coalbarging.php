@@ -1780,12 +1780,6 @@ include __DIR__ . "/../includes/sidebar.php";
             </div>
           </div>
 
-          <div class="d-flex justify-content-end mb-3">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="sortByDischargeSequence" disabled>
-              Urutkan sesuai dengan “Discharge Sequence”.
-            </button>
-          </div>
-
           <div class="table-responsive data-barges-horizontal-scroll">
             <table class="table table-bordered align-middle mb-0" id="dataBargesTable">
             <thead class="table-light">
@@ -2102,7 +2096,6 @@ const siBargesSaveButton = document.getElementById('siBargesSaveButton');
 const siBargesSaveStatus = document.getElementById('siBargesSaveStatus');
 const downloadOperationCsv = document.getElementById('downloadOperationCsv');
 const exportDataBargesCsv = document.getElementById('exportDataBargesCsv');
-const sortByDischargeSequence = document.getElementById('sortByDischargeSequence');
 const unusedRcBody = document.getElementById('unusedRcBody');
 const unusedRcCount = document.getElementById('unusedRcCount');
 const importOperationForm = document.getElementById('importOperationForm');
@@ -3344,7 +3337,6 @@ async function loadSelectedVessel() {
     siBargesCount.textContent = '';
     currentSiBargesRows = [];
     exportDataBargesCsv.disabled = true;
-    sortByDischargeSequence.disabled = true;
     importFromTluButton.disabled = true;
     setUnusedRcMessage();
     return;
@@ -3355,7 +3347,6 @@ async function loadSelectedVessel() {
   siBargesBox.classList.remove('d-none');
   siBargesCount.textContent = '';
   exportDataBargesCsv.disabled = true;
-  sortByDischargeSequence.disabled = true;
   importFromTluButton.disabled = true;
   setUnusedRcMessage('Loading RC unused...');
   siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
@@ -3380,13 +3371,11 @@ async function loadSelectedVessel() {
 
     renderSiBargesRows(rows);
     exportDataBargesCsv.disabled = false;
-    sortByDischargeSequence.disabled = false;
     importFromTluButton.disabled = false;
     await loadUnusedRcRows(noPk);
   } catch (error) {
     siBargesCount.textContent = '';
     exportDataBargesCsv.disabled = true;
-    sortByDischargeSequence.disabled = true;
     importFromTluButton.disabled = true;
     setUnusedRcMessage();
     siBargesBody.innerHTML = `<tr><td colspan="99" class="text-center text-danger py-3">${esc(error.message)}</td></tr>`;
@@ -3449,11 +3438,6 @@ unusedRcBody.addEventListener('keydown', event => {
   event.preventDefault();
   openSiBargesDetail(Number(row.dataset.unusedRcIndex), 'unused');
 });
-sortByDischargeSequence.addEventListener('click', () => {
-  if (!currentSiBargesRows.length) return;
-  renderSiBargesRows(currentSiBargesRows);
-});
-
 siBargesBody.addEventListener('change', async event => {
   const select = event.target.closest('.statusActRcSelect, .statusActActRcSelect');
   if (!select) return;

@@ -145,6 +145,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   // ===== IMPORT CSV (SKIP DUPLICATE shipper) =====
   if ($action === 'import_csv') {
+    $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
+    if (strtoupper(trim((string)$divisi)) !== 'IT') {
+      jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh import CSV."]);
+    }
+
     if (!isset($_FILES['csv']) || $_FILES['csv']['error'] !== UPLOAD_ERR_OK) {
       jsonOut(["ok"=>false,"msg"=>"File CSV tidak valid / gagal upload."]);
     }
@@ -236,6 +241,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
 
+  <?php if ($isIT): ?>
   <!-- IMPORT CSV -->
   <div class="card mb-3">
     <div class="card-body">
@@ -260,6 +266,7 @@ include __DIR__ . "/../includes/sidebar.php";
       </div>
     </div>
   </div>
+  <?php endif; ?>
 
   <!-- FORM INPUT -->
   <div class="card mb-3">

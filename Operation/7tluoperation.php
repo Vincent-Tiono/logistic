@@ -1090,7 +1090,7 @@ include __DIR__ . "/../includes/sidebar.php";
           <div class="border rounded p-3 mb-3">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
               <div>
-                <h6 class="mb-1">Export / Import CSV</h6>
+                <h6 class="mb-1">Import CSV</h6>
                 <div class="small text-muted">
                   Download data vessel ini, edit di Excel, lalu import kembali. Jangan mengubah kolom si_barges.
                 </div>
@@ -1110,12 +1110,6 @@ include __DIR__ . "/../includes/sidebar.php";
 
           <div class="alert alert-primary py-2 mb-3" role="note">
             Klik salah satu baris untuk melihat dan mengedit data operasi.
-          </div>
-
-          <div class="d-flex justify-content-end mb-3">
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="sortByDischargeSequence" disabled>
-              Urutkan sesuai dengan “Discharge Sequence”.
-            </button>
           </div>
 
           <div class="table-responsive data-barges-horizontal-scroll">
@@ -1437,7 +1431,6 @@ const siBargesSaveButton = document.getElementById('siBargesSaveButton');
 const siBargesSaveStatus = document.getElementById('siBargesSaveStatus');
 const downloadOperationCsv = document.getElementById('downloadOperationCsv');
 const exportDataBargesCsv = document.getElementById('exportDataBargesCsv');
-const sortByDischargeSequence = document.getElementById('sortByDischargeSequence');
 const importOperationForm = document.getElementById('importOperationForm');
 const operationCsvFile = document.getElementById('operationCsvFile');
 const importOperationButton = document.getElementById('importOperationButton');
@@ -2505,7 +2498,6 @@ async function loadSelectedVessel() {
     siBargesCount.textContent = '';
     currentSiBargesRows = [];
     exportDataBargesCsv.disabled = true;
-    sortByDischargeSequence.disabled = true;
     return;
   }
 
@@ -2514,7 +2506,6 @@ async function loadSelectedVessel() {
   siBargesBox.classList.remove('d-none');
   siBargesCount.textContent = '';
   exportDataBargesCsv.disabled = true;
-  sortByDischargeSequence.disabled = true;
   siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
 
   try {
@@ -2537,21 +2528,14 @@ async function loadSelectedVessel() {
     currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(rows);
     renderTable();
     exportDataBargesCsv.disabled = false;
-    sortByDischargeSequence.disabled = false;
   } catch (error) {
     siBargesCount.textContent = '';
     exportDataBargesCsv.disabled = true;
-    sortByDischargeSequence.disabled = true;
     siBargesBody.innerHTML = `<tr><td colspan="99" class="text-center text-danger py-3">${esc(error.message)}</td></tr>`;
   }
 }
 
 exportDataBargesCsv.addEventListener('click', exportVisibleDataBarges);
-sortByDischargeSequence.addEventListener('click', () => {
-  if (!currentSiBargesRows.length) return;
-  currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(currentSiBargesRows);
-  renderTable();
-});
 
 noPkSelect.addEventListener('change', () => {
   operationCsvStatus.classList.add('d-none');

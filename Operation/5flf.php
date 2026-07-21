@@ -147,6 +147,11 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   // ===== IMPORT CSV (SKIP DUPLICATE floating_crane) =====
   if ($action === 'import_csv') {
+    $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
+    if (strtoupper(trim((string)$divisi)) !== 'IT') {
+      jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh import CSV."]);
+    }
+
     if (!isset($_FILES['csv']) || $_FILES['csv']['error'] !== UPLOAD_ERR_OK) {
       jsonOut(["ok"=>false,"msg"=>"File CSV tidak valid / gagal upload."]);
     }
@@ -238,12 +243,13 @@ include __DIR__ . "/../includes/sidebar.php";
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
 
+  <?php if ($isIT): ?>
   <!-- IMPORT CSV -->
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
-          <h6 class="mb-1">Import CSV</h6>
+          <h6 class="mb-1">Export / Import CSV</h6>
           <div class="small text-muted">
             Download template dulu, isi datanya, lalu upload. Duplicate <b>Floating Crane</b> akan <b>di-skip</b>.
           </div>
@@ -262,6 +268,7 @@ include __DIR__ . "/../includes/sidebar.php";
       </div>
     </div>
   </div>
+  <?php endif; ?>
 
   <!-- FORM INPUT -->
   <div class="card mb-3">
