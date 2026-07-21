@@ -1696,12 +1696,8 @@ include __DIR__ . "/../includes/sidebar.php";
 
       <div class="card mt-3 d-none" id="siBargesBox">
         <div class="card-body">
-          <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="d-flex align-items-center mb-3">
             <h6 class="m-0">Data Barges</h6>
-            <div class="small text-muted text-end">
-              <div id="siBargesHiddenFields"></div>
-              <div id="siBargesCount"></div>
-            </div>
           </div>
 
           <div class="border rounded p-3 mb-3">
@@ -1733,9 +1729,8 @@ include __DIR__ . "/../includes/sidebar.php";
           </div>
 
           <div class="border rounded mb-3" id="unusedRcBox">
-            <div class="d-flex align-items-center justify-content-between px-3 py-2 border-bottom">
+            <div class="d-flex align-items-center px-3 py-2 border-bottom">
               <h6 class="m-0">Unused RC</h6>
-              <div class="small text-muted" id="unusedRcCount"></div>
             </div>
             <div class="table-responsive data-barges-horizontal-scroll">
               <table class="table table-sm table-bordered align-middle mb-0" id="unusedRcTable">
@@ -2085,8 +2080,6 @@ const downloadGroupedExport = document.getElementById('downloadGroupedExport');
 const groupedExportStatus = document.getElementById('groupedExportStatus');
 const siBargesBox = document.getElementById('siBargesBox');
 const siBargesBody = document.getElementById('siBargesBody');
-const siBargesCount = document.getElementById('siBargesCount');
-const siBargesHiddenFields = document.getElementById('siBargesHiddenFields');
 const siBargesDetailModal = document.getElementById('siBargesDetailModal');
 const siBargesDetailSubtitle = document.getElementById('siBargesDetailSubtitle');
 const siBargesDetailBody = document.getElementById('siBargesDetailBody');
@@ -2097,7 +2090,6 @@ const siBargesSaveStatus = document.getElementById('siBargesSaveStatus');
 const downloadOperationCsv = document.getElementById('downloadOperationCsv');
 const exportDataBargesCsv = document.getElementById('exportDataBargesCsv');
 const unusedRcBody = document.getElementById('unusedRcBody');
-const unusedRcCount = document.getElementById('unusedRcCount');
 const importOperationForm = document.getElementById('importOperationForm');
 const operationCsvFile = document.getElementById('operationCsvFile');
 const importOperationButton = document.getElementById('importOperationButton');
@@ -2307,43 +2299,6 @@ tluMonthSelect.addEventListener('change', () => {
   noPkSelect.disabled = !selectedMonth;
   resetSelectedVessel();
 });
-
-const siBargesAvailableHiddenFields = [
-  { label: 'No SI Vessel', keys: ['no_si_vessel'] },
-  { label: 'Type', keys: ['si_type'] },
-  { label: 'Month', keys: ['month_num'] },
-  { label: 'Year', keys: ['year_num'] },
-  { label: 'Barge Sequence', keys: ['barge_seq'] },
-  { label: 'SI Barges', keys: ['si_barges'] },
-  { label: 'Term', keys: ['term'] },
-  { label: 'Qty Plan', keys: ['qty_plan'] },
-  { label: 'Jetty Name', keys: ['jetty_name'] },
-  { label: 'Shipper', keys: ['shipper_code'] },
-  { label: 'Shipper Name', keys: ['shipper_name'] },
-  { label: 'Status', keys: ['record_status'] },
-  {
-    label: 'Actual Operation Details',
-    keys: [
-      'operation_id', 'arrival_jetty', 'commence_loading', 'completed_loading',
-      'departure_jetty', 'arrival_anchorage', 'mooring', 'commence_discharging',
-      'completed_discharging', 'clear_pass', 'qty_ds', 'flf', 'operation_status',
-      'operation_remarks', 'operation_created_by', 'operation_created_at',
-      'operation_updated_at'
-    ]
-  }
-];
-
-function updateHiddenFieldsSummary() {
-  const visibleFields = new Set(
-    [...document.querySelectorAll('#siBargesBox thead [data-field]')]
-      .map(header => header.dataset.field)
-  );
-  const hiddenLabels = siBargesAvailableHiddenFields
-    .filter(field => field.keys.every(key => !visibleFields.has(key)))
-    .map(field => field.label);
-
-  siBargesHiddenFields.textContent = `Hidden: ${hiddenLabels.join(' / ')}`;
-}
 
 const siBargesDetailFields = [
   ['Month Vessel', null],
@@ -3230,11 +3185,8 @@ function renderSiBargesRows(rows) {
   renderMainTable();
 }
 
-updateHiddenFieldsSummary();
-
 function setUnusedRcMessage(message = 'Tidak ada RC unused untuk TB vessel ini') {
   unusedRcBody.innerHTML = `<tr><td colspan="99" class="text-muted text-center py-2">${esc(message)}</td></tr>`;
-  unusedRcCount.textContent = '';
   currentUnusedRcRows = [];
 }
 
@@ -3301,7 +3253,6 @@ function renderUnusedRcTable() {
 
 function renderUnusedRcRows(rows) {
   currentUnusedRcRows = rows;
-  unusedRcCount.textContent = `${rows.length} data`;
   renderUnusedRcTable();
 }
 
@@ -3334,7 +3285,6 @@ async function loadSelectedVessel() {
   if (!noPk) {
     siBargesBox.classList.add('d-none');
     siBargesBody.innerHTML = '';
-    siBargesCount.textContent = '';
     currentSiBargesRows = [];
     exportDataBargesCsv.disabled = true;
     importFromTluButton.disabled = true;
@@ -3345,7 +3295,6 @@ async function loadSelectedVessel() {
   downloadOperationCsv.href =
     `8coalbarging.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
   siBargesBox.classList.remove('d-none');
-  siBargesCount.textContent = '';
   exportDataBargesCsv.disabled = true;
   importFromTluButton.disabled = true;
   setUnusedRcMessage('Loading RC unused...');
@@ -3361,7 +3310,6 @@ async function loadSelectedVessel() {
     if (!result.ok) throw new Error(result.msg || 'Gagal mengambil Data Barges.');
 
     const rows = result.data || [];
-    siBargesCount.textContent = `${rows.length} data`;
 
     if (!rows.length) {
       siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
@@ -3374,7 +3322,6 @@ async function loadSelectedVessel() {
     importFromTluButton.disabled = false;
     await loadUnusedRcRows(noPk);
   } catch (error) {
-    siBargesCount.textContent = '';
     exportDataBargesCsv.disabled = true;
     importFromTluButton.disabled = true;
     setUnusedRcMessage();

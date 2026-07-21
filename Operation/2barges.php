@@ -294,12 +294,12 @@ include __DIR__ . "/../includes/sidebar.php";
 
       <div id="inputBargesBody">
       <form id="formCreate" class="row g-2">
-        <div class="col-md-3">
+        <div class="col-md-2">
           <label class="form-label">Tugboat</label>
           <input name="tugboat" class="form-control" placeholder="TB. MARINA 2201" required>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-md-2">
           <label class="form-label">Barge</label>
           <input name="barge" class="form-control" placeholder="BG. MARINE POWER 3037" required>
         </div>
@@ -314,12 +314,12 @@ include __DIR__ . "/../includes/sidebar.php";
           <input name="kontrak" class="form-control" placeholder="DEDICATED">
         </div>
 
-        <div class="col-md-1">
+        <div class="col-md-2">
           <label class="form-label">Muatan</label>
           <input name="muatan" class="form-control" placeholder="8,200">
         </div>
 
-        <div class="col-md-1">
+        <div class="col-md-2">
           <label class="form-label">Penalty</label>
           <input name="penalty" class="form-control" placeholder="Deadfreight">
         </div>
@@ -383,9 +383,9 @@ include __DIR__ . "/../includes/sidebar.php";
         </table>
       </div>
 
-      <div class="small text-muted mt-2">
+      <!-- <div class="small text-muted mt-2">
         Tips: Search langsung ketik di box atas. Update/Delete tanpa reload.
-      </div>
+      </div> -->
 
       <?php if ($isIT): ?>
       <div class="d-flex justify-content-end mt-3">

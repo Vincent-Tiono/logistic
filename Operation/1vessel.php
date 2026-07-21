@@ -447,7 +447,7 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <div class="col-md-2">
-          <label class="form-label">No. SI Vessel</label>
+          <label class="form-label">No. SI</label>
           <input name="no_si_vessel" class="form-control" placeholder="060" required>
         </div>
 
@@ -457,7 +457,7 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <div class="col-md-3">
-          <label class="form-label">MotherVessel</label>
+          <label class="form-label">Mother Vessel</label>
           <input name="mothervessel" class="form-control" placeholder="MV. KENZEN" required>
         </div>
 
@@ -518,8 +518,8 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="col-md-2">
           <label class="form-label">Stowageplan (MT)</label>
-          <input name="stowageplan_mt" class="form-control" placeholder="(auto)">
-          <div class="small text-muted">Kalau kosong, auto = Single + Blending</div>
+          <input name="stowageplan_mt" class="form-control" placeholder="auto=Single+Blending">
+          <!-- <div class="small text-muted">Kalau kosong, auto=Single+Blending</div> -->
         </div>
 
         <div class="col-md-2">
@@ -576,7 +576,7 @@ include __DIR__ . "/../includes/sidebar.php";
               <th style="min-width:120px;" class="sortable" data-key="no_pk" data-type="text" data-label="No. PK"></th>
               <th style="min-width:90px;" class="sortable" data-key="no_si_vessel" data-type="number" data-label="No. SI"></th>
               <th style="min-width:140px;" class="sortable" data-key="buyer" data-type="text" data-label="Buyer"></th>
-              <th style="min-width:180px;" class="sortable" data-key="mothervessel" data-type="text" data-label="MotherVessel"></th>
+              <th style="min-width:180px;" class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel"></th>
               <th style="min-width:170px;" class="sortable" data-key="anchorage" data-type="text" data-label="Anchorage"></th>
               <th style="min-width:100px;" class="sortable" data-key="term" data-type="text" data-label="Term"></th>
               <th style="min-width:130px;" class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start"></th>

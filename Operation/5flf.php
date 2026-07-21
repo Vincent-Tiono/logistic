@@ -359,9 +359,9 @@ include __DIR__ . "/../includes/sidebar.php";
         </table>
       </div>
 
-      <div class="small text-muted mt-2">
+      <!-- <div class="small text-muted mt-2">
         Tips: Search langsung ketik di box atas. Update/Delete tanpa reload.
-      </div>
+      </div> -->
 
       <?php if ($isIT): ?>
       <div class="d-flex justify-content-end mt-3">
