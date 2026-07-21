@@ -1019,9 +1019,9 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h4 class="m-0">TLU Operation</h4>
-      <div class="small text-muted">
+      <!-- <div class="small text-muted">
         Source: SI Barges → Actual Operation (timestamps, movement, ds, flf, dll)
-      </div>
+      </div> -->
     </div>
 
     <div class="card" id="tluModeSelector">
@@ -1122,48 +1122,48 @@ include __DIR__ . "/../includes/sidebar.php";
             <table class="table table-bordered align-middle mb-0" id="dataBargesTable">
             <thead class="table-light">
               <tr>
-                <th>No.</th>
-                <th data-field="no_pk">No. Reff</th>
-                <th data-field="buyer">Buyer</th>
-                <th data-field="mothervessel">Mother Vessel</th>
-                <th data-field="jetty_code">Jetty</th>
-                <th data-field="tugboat">Tugboat</th>
-                <th data-field="barge">Barge</th>
-                <th data-edit-field="qty">QTY</th>
-                <th data-edit-field="qty_disc">QTY DISC</th>
-                <th data-edit-field="rc">RC</th>
-                <th data-edit-field="qty_actual" data-calculated="true">QTY Actual</th>
-                <th data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
-                <th data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
-                <th data-field="laycan_start">Laycan Start</th>
-                <th data-field="laycan_end">Laycan End</th>
-                <th data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival Jetty</th>
-                <th data-edit-field="start_loading" data-input-type="datetime-local">Start Loading</th>
-                <th data-edit-field="completed_loading" data-input-type="datetime-local">Completed Loading</th>
-                <th data-edit-field="lhv" data-input-type="datetime-local">LHV</th>
-                <th data-edit-field="spog_zona_2" data-input-type="datetime-local">SPOG ZONA 2</th>
-                <th data-edit-field="pkk" data-input-type="datetime-local">PKK</th>
-                <th data-edit-field="rkbm" data-input-type="datetime-local">RKBM</th>
-                <th data-edit-field="sts_spb" data-input-type="datetime-local">STS/SPB</th>
-                <th data-edit-field="start_mooring" data-input-type="datetime-local">Start Mooring</th>
-                <th data-edit-field="end_mooring" data-input-type="datetime-local">End Mooring</th>
-                <th data-edit-field="mooring_place_1">Mooring Place 1</th>
-                <th data-edit-field="clear_pass" data-input-type="datetime-local">Clear Pass</th>
-                <th data-edit-field="start_mooring_clear_pass" data-input-type="datetime-local">Start Mooring Clear Pass</th>
-                <th data-edit-field="cast_off_mooring_clear_pass" data-input-type="datetime-local">Cast Off Mooring Clear Pass</th>
-                <th data-edit-field="mooring_place_2">Mooring Place 2</th>
-                <th data-edit-field="ta_barges_actual" data-input-type="datetime-local">TA Barges Actual</th>
-                <th data-edit-field="ta_mv" data-input-type="datetime-local">TA MV</th>
-                <th data-edit-field="ta_flf" data-input-type="datetime-local">TA FLF</th>
-                <th data-edit-field="cargo_readiness_actual" data-input-type="datetime-local">Cargo Readiness Actual</th>
-                <th data-edit-field="start_disch" data-input-type="datetime-local">Start Disch</th>
-                <th data-edit-field="completed_disch" data-input-type="datetime-local">Completed Disch</th>
-                <th data-edit-field="discharge_sequence" data-input-type="discharge-sequence">Discharge Sequence</th>
-                <th data-edit-field="back_to_jetty" data-input-type="datetime-local">Back to Jetty</th>
-                <th data-edit-field="operation_remarks" data-input-type="textarea">Remarks</th>
-                <th data-field="created_by">Created By</th>
-                <th data-field="created_at">Created At</th>
-                <th data-field="updated_at">Updated At</th>
+                <th data-label="No.">No.</th>
+                <th class="sortable" data-key="no_pk" data-type="text" data-label="No. Reff" data-field="no_pk">No. Reff</th>
+                <th class="sortable" data-key="buyer" data-type="text" data-label="Buyer" data-field="buyer">Buyer</th>
+                <th class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel" data-field="mothervessel">Mother Vessel</th>
+                <th class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty" data-field="jetty_code">Jetty</th>
+                <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
+                <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
+                <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-edit-field="qty">QTY</th>
+                <th class="sortable" data-key="qty_disc" data-type="number" data-label="QTY DISC" data-edit-field="qty_disc">QTY DISC</th>
+                <th class="sortable" data-key="rc" data-type="number" data-label="RC" data-edit-field="rc">RC</th>
+                <th class="sortable" data-key="qty_actual" data-type="number" data-label="QTY Actual" data-edit-field="qty_actual" data-calculated="true">QTY Actual</th>
+                <th class="sortable" data-key="pbm_vendor" data-type="text" data-label="PBM Vendor" data-edit-field="pbm_vendor" data-input-type="pbm-vendor">PBM Vendor</th>
+                <th class="sortable" data-key="floating_crane" data-type="text" data-label="Floating Crane" data-edit-field="floating_crane" data-input-type="floating-crane">Floating Crane</th>
+                <th class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start" data-field="laycan_start">Laycan Start</th>
+                <th class="sortable" data-key="laycan_end" data-type="date" data-label="Laycan End" data-field="laycan_end">Laycan End</th>
+                <th class="sortable" data-key="arrival_jetty" data-type="date" data-label="Arrival Jetty" data-edit-field="arrival_jetty" data-input-type="datetime-local">Arrival Jetty</th>
+                <th class="sortable" data-key="start_loading" data-type="date" data-label="Start Loading" data-edit-field="start_loading" data-input-type="datetime-local">Start Loading</th>
+                <th class="sortable" data-key="completed_loading" data-type="date" data-label="Completed Loading" data-edit-field="completed_loading" data-input-type="datetime-local">Completed Loading</th>
+                <th class="sortable" data-key="lhv" data-type="date" data-label="LHV" data-edit-field="lhv" data-input-type="datetime-local">LHV</th>
+                <th class="sortable" data-key="spog_zona_2" data-type="date" data-label="SPOG ZONA 2" data-edit-field="spog_zona_2" data-input-type="datetime-local">SPOG ZONA 2</th>
+                <th class="sortable" data-key="pkk" data-type="date" data-label="PKK" data-edit-field="pkk" data-input-type="datetime-local">PKK</th>
+                <th class="sortable" data-key="rkbm" data-type="date" data-label="RKBM" data-edit-field="rkbm" data-input-type="datetime-local">RKBM</th>
+                <th class="sortable" data-key="sts_spb" data-type="date" data-label="STS/SPB" data-edit-field="sts_spb" data-input-type="datetime-local">STS/SPB</th>
+                <th class="sortable" data-key="start_mooring" data-type="date" data-label="Start Mooring" data-edit-field="start_mooring" data-input-type="datetime-local">Start Mooring</th>
+                <th class="sortable" data-key="end_mooring" data-type="date" data-label="End Mooring" data-edit-field="end_mooring" data-input-type="datetime-local">End Mooring</th>
+                <th class="sortable" data-key="mooring_place_1" data-type="text" data-label="Mooring Place 1" data-edit-field="mooring_place_1">Mooring Place 1</th>
+                <th class="sortable" data-key="clear_pass" data-type="date" data-label="Clear Pass" data-edit-field="clear_pass" data-input-type="datetime-local">Clear Pass</th>
+                <th class="sortable" data-key="start_mooring_clear_pass" data-type="date" data-label="Start Mooring Clear Pass" data-edit-field="start_mooring_clear_pass" data-input-type="datetime-local">Start Mooring Clear Pass</th>
+                <th class="sortable" data-key="cast_off_mooring_clear_pass" data-type="date" data-label="Cast Off Mooring Clear Pass" data-edit-field="cast_off_mooring_clear_pass" data-input-type="datetime-local">Cast Off Mooring Clear Pass</th>
+                <th class="sortable" data-key="mooring_place_2" data-type="text" data-label="Mooring Place 2" data-edit-field="mooring_place_2">Mooring Place 2</th>
+                <th class="sortable" data-key="ta_barges_actual" data-type="date" data-label="TA Barges Actual" data-edit-field="ta_barges_actual" data-input-type="datetime-local">TA Barges Actual</th>
+                <th class="sortable" data-key="ta_mv" data-type="date" data-label="TA MV" data-edit-field="ta_mv" data-input-type="datetime-local">TA MV</th>
+                <th class="sortable" data-key="ta_flf" data-type="date" data-label="TA FLF" data-edit-field="ta_flf" data-input-type="datetime-local">TA FLF</th>
+                <th class="sortable" data-key="cargo_readiness_actual" data-type="date" data-label="Cargo Readiness Actual" data-edit-field="cargo_readiness_actual" data-input-type="datetime-local">Cargo Readiness Actual</th>
+                <th class="sortable" data-key="start_disch" data-type="date" data-label="Start Disch" data-edit-field="start_disch" data-input-type="datetime-local">Start Disch</th>
+                <th class="sortable" data-key="completed_disch" data-type="date" data-label="Completed Disch" data-edit-field="completed_disch" data-input-type="datetime-local">Completed Disch</th>
+                <th class="sortable" data-key="discharge_sequence" data-type="number" data-label="Discharge Sequence" data-edit-field="discharge_sequence" data-input-type="discharge-sequence">Discharge Sequence</th>
+                <th class="sortable" data-key="back_to_jetty" data-type="date" data-label="Back to Jetty" data-edit-field="back_to_jetty" data-input-type="datetime-local">Back to Jetty</th>
+                <th class="sortable" data-key="operation_remarks" data-type="text" data-label="Remarks" data-edit-field="operation_remarks" data-input-type="textarea">Remarks</th>
+                <th class="sortable" data-key="created_by" data-type="text" data-label="Created By" data-field="created_by">Created By</th>
+                <th class="sortable" data-key="created_at" data-type="date" data-label="Created At" data-field="created_at">Created At</th>
+                <th class="sortable" data-key="updated_at" data-type="date" data-label="Updated At" data-field="updated_at">Updated At</th>
               </tr>
             </thead>
               <tbody id="siBargesBody"></tbody>
@@ -1366,11 +1366,27 @@ include __DIR__ . "/../includes/sidebar.php";
     background-color: var(--bs-table-bg, #f8f9fa);
   }
 
-  #siBargesBody tr[data-row-index] {
+  #dataBargesTable th.sortable { white-space: nowrap; }
+  #dataBargesTable .th-sort-wrap { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+  #dataBargesTable .sort-toggle { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; }
+  #dataBargesTable th.sortable.sort-active .sort-toggle { opacity:1; font-weight:bold; }
+  #dataBargesTable .filter-menu { min-width: 260px; max-height: 80vh; overflow-y: auto; white-space: normal; z-index: 2000; }
+  #dataBargesTable .filter-menu .dropdown-header-label { font-weight:bold; font-size:.9rem; color:#212529; padding: .35rem 1rem .15rem; margin:0; }
+  #dataBargesTable .filter-menu .sort-option { font-size:.8rem; }
+  #dataBargesTable .filter-menu .sort-option.active-sort { font-weight:bold; background-color:#e7f1ff; border-color:#0d6efd; color:#0d6efd; }
+  #dataBargesTable .filter-values-list { max-height: 160px; overflow-y: auto; }
+  #dataBargesTable .filter-value-item label { cursor:pointer; }
+  #dataBargesTable th.sortable.filter-active .sort-toggle { opacity:1; font-weight:bold; }
+  #dataBargesTable .freeze-toggle.active { background-color:#0d6efd; border-color:#0d6efd; color:#fff; }
+  #dataBargesTable th.frozen-col, #dataBargesTable td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
+  #dataBargesTable thead th.frozen-col { background-color: var(--bs-table-bg, #f8f9fa); z-index: 3; }
+  #dataBargesTable th.frozen-col-last, #dataBargesTable td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+
+  #siBargesBody tr[data-row-id] {
     cursor: pointer;
   }
 
-  #siBargesBody tr[data-row-index]:hover > td {
+  #siBargesBody tr[data-row-id]:hover > td {
     background-color: #eaf2f8;
   }
 
@@ -1434,7 +1450,10 @@ const restrictedFloatingCranes = {
   MLS: 'STV MAESTRO'
 };
 let currentSiBargesRows = [];
-let currentDetailRowIndex = null;
+let currentDetailRowId = null;
+let sortState = { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
+let filters = {}; // key -> { condition, value, excluded:Set(display values), autoApply }
+let frozenKey = null; // data-key of the rightmost frozen column (that column + all to its left are frozen), or null
 
 const monthNames = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -1934,10 +1953,10 @@ function csvCell(value) {
 function exportVisibleDataBarges() {
   const headers = [...document.querySelectorAll('#dataBargesTable thead th')]
     .slice(1)
-    .map(header => header.textContent.trim());
+    .map(header => header.dataset.label || header.textContent.trim());
   const dischargeSequenceIndex = headers.indexOf('Discharge Sequence');
 
-  const rows = [...siBargesBody.querySelectorAll('tr[data-row-index]')]
+  const rows = [...siBargesBody.querySelectorAll('tr[data-row-id]')]
     .map((row, originalIndex) => ({
       originalIndex,
       values: [...row.cells].slice(1).map(cell => {
@@ -2002,61 +2021,478 @@ function urutkanSesuaiDenganDischargeSequence(rows) {
   });
 }
 
-function renderSiBargesRows(rows) {
-  currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(rows);
+/* ===== Sort / Filter / Freeze (same behavior as Operation/1vessel.php Data Vessel table) ===== */
 
-  siBargesBody.innerHTML = currentSiBargesRows.map((row, index) => {
-    const operationData = parseOperationData(row.operation_data);
-    operationData.qty_actual = calculateQtyActual(operationData);
+// fields stored directly on the sibarges row (everything else lives inside operation_data)
+const DIRECT_ROW_FIELDS = new Set([
+  'no_pk', 'buyer', 'mothervessel', 'jetty_code', 'tugboat', 'barge',
+  'laycan_start', 'laycan_end', 'operation_remarks',
+  'created_by', 'created_at', 'updated_at'
+]);
 
-    return `
-      <tr data-row-index="${index}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
-        <td>${index + 1}</td>
-        <td>${displayValue(row.no_pk)}</td>
-        <td>${displayValue(row.buyer)}</td>
-        <td>${displayValue(row.mothervessel)}</td>
-        <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
-        <td>${displayValue(row.tugboat)}</td>
-        <td>${displayValue(row.barge)}</td>
-        ${operationCell(operationData, 'qty')}
-        ${operationCell(operationData, 'qty_disc')}
-        ${operationCell(operationData, 'rc')}
-        ${operationCell(operationData, 'qty_actual')}
-        ${operationCell(operationData, 'pbm_vendor')}
-        ${operationCell(operationData, 'floating_crane')}
-        <td>${displayLaycanDateTime(row.laycan_start)}</td>
-        <td>${displayLaycanDateTime(row.laycan_end)}</td>
-        ${operationCell(operationData, 'arrival_jetty')}
-        ${operationCell(operationData, 'start_loading')}
-        ${operationCell(operationData, 'completed_loading')}
-        ${operationCell(operationData, 'lhv')}
-        ${operationCell(operationData, 'spog_zona_2')}
-        ${operationCell(operationData, 'pkk')}
-        ${operationCell(operationData, 'rkbm')}
-        ${operationCell(operationData, 'sts_spb')}
-        ${operationCell(operationData, 'start_mooring')}
-        ${operationCell(operationData, 'end_mooring')}
-        ${operationCell(operationData, 'mooring_place_1')}
-        ${operationCell(operationData, 'clear_pass')}
-        ${operationCell(operationData, 'start_mooring_clear_pass')}
-        ${operationCell(operationData, 'cast_off_mooring_clear_pass')}
-        ${operationCell(operationData, 'mooring_place_2')}
-        ${operationCell(operationData, 'ta_barges_actual')}
-        ${operationCell(operationData, 'ta_mv')}
-        ${operationCell(operationData, 'ta_flf')}
-        ${operationCell(operationData, 'cargo_readiness_actual')}
-        ${operationCell(operationData, 'start_disch')}
-        ${operationCell(operationData, 'completed_disch')}
-        ${operationCell(operationData, 'discharge_sequence')}
-        ${operationCell(operationData, 'back_to_jetty')}
-        <td>${displayValue(row.operation_remarks)}</td>
-        <td>${displayValue(row.created_by)}</td>
-        <td>${displayDateTime(row.created_at)}</td>
-        <td>${displayDateTime(row.updated_at)}</td>
-      </tr>
-    `;
-  }).join('');
+function getFieldValue(row, key) {
+  if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
+  const operationData = parseOperationData(row.operation_data);
+  if (key === 'qty_actual') return calculateQtyActual(operationData);
+  return operationData[key] ?? '';
 }
+
+// display value shown in the table cell for a given column (matches rowMarkup)
+function columnDisplayValue(row, key) {
+  const raw = getFieldValue(row, key);
+  if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(raw, false);
+  if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
+  if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
+  if (formattedNumberFields.has(key)) return formatDisplayNumber(raw);
+  return (raw ?? '').toString();
+}
+
+function getSortValue(row, key, type) {
+  const value = getFieldValue(row, key);
+  if (type === 'number') {
+    const n = parseFloat(String(value).replaceAll(',', '').replaceAll(' ', ''));
+    return isNaN(n) ? -Infinity : n;
+  }
+  if (type === 'date') {
+    const t = value ? Date.parse(String(value).replace(' ', 'T')) : NaN;
+    return isNaN(t) ? -Infinity : t;
+  }
+  return (value ?? '').toString().toLowerCase();
+}
+
+function getFilterState(key) {
+  if (!filters[key]) filters[key] = { condition: 'none', value: '', excluded: new Set(), autoApply: true };
+  return filters[key];
+}
+
+function isFilterActive(key) {
+  const f = filters[key];
+  if (!f) return false;
+  return (f.condition && f.condition !== 'none') || (f.excluded && f.excluded.size > 0);
+}
+
+const FILTER_CONDITIONS = {
+  equals:            (v, f)=> v === f,
+  not_equals:        (v, f)=> v !== f,
+  begins_with:       (v, f)=> v.startsWith(f),
+  not_begins_with:   (v, f)=> !v.startsWith(f),
+  ends_with:         (v, f)=> v.endsWith(f),
+  not_ends_with:     (v, f)=> !v.endsWith(f),
+  contains:          (v, f)=> v.includes(f),
+  not_contains:      (v, f)=> !v.includes(f),
+};
+
+function getUniqueColumnValues(key) {
+  const seen = new Set();
+  const values = [];
+  currentSiBargesRows.forEach(row => {
+    const v = columnDisplayValue(row, key);
+    if (!seen.has(v)) { seen.add(v); values.push(v); }
+  });
+  return values;
+}
+
+function rowPassesFilters(row) {
+  for (const key in filters) {
+    const f = filters[key];
+    if (!f || !isFilterActive(key)) continue;
+    const display = columnDisplayValue(row, key);
+
+    if (f.condition && f.condition !== 'none') {
+      const fn = FILTER_CONDITIONS[f.condition];
+      if (fn && !fn(display.toLowerCase(), (f.value || '').toLowerCase())) return false;
+    }
+
+    if (f.excluded && f.excluded.has(display)) return false;
+  }
+  return true;
+}
+
+function computeDisplayData() {
+  const filtered = currentSiBargesRows.filter(rowPassesFilters);
+  if (!sortState.key || sortState.dir === 0) return filtered;
+  const th = document.querySelector(`#dataBargesTable th[data-key="${sortState.key}"]`);
+  const type = th ? th.getAttribute('data-type') : 'text';
+  const dir = sortState.dir;
+  return filtered.sort((a, b)=>{
+    const va = getSortValue(a, sortState.key, type);
+    const vb = getSortValue(b, sortState.key, type);
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return 0;
+  });
+}
+
+function rowMarkup(row, displayIndex) {
+  const operationData = parseOperationData(row.operation_data);
+  operationData.qty_actual = calculateQtyActual(operationData);
+
+  return `
+    <tr data-row-id="${row.id}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
+      <td>${displayIndex + 1}</td>
+      <td>${displayValue(row.no_pk)}</td>
+      <td>${displayValue(row.buyer)}</td>
+      <td>${displayValue(row.mothervessel)}</td>
+      <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
+      <td>${displayValue(row.tugboat)}</td>
+      <td>${displayValue(row.barge)}</td>
+      ${operationCell(operationData, 'qty')}
+      ${operationCell(operationData, 'qty_disc')}
+      ${operationCell(operationData, 'rc')}
+      ${operationCell(operationData, 'qty_actual')}
+      ${operationCell(operationData, 'pbm_vendor')}
+      ${operationCell(operationData, 'floating_crane')}
+      <td>${displayLaycanDateTime(row.laycan_start)}</td>
+      <td>${displayLaycanDateTime(row.laycan_end)}</td>
+      ${operationCell(operationData, 'arrival_jetty')}
+      ${operationCell(operationData, 'start_loading')}
+      ${operationCell(operationData, 'completed_loading')}
+      ${operationCell(operationData, 'lhv')}
+      ${operationCell(operationData, 'spog_zona_2')}
+      ${operationCell(operationData, 'pkk')}
+      ${operationCell(operationData, 'rkbm')}
+      ${operationCell(operationData, 'sts_spb')}
+      ${operationCell(operationData, 'start_mooring')}
+      ${operationCell(operationData, 'end_mooring')}
+      ${operationCell(operationData, 'mooring_place_1')}
+      ${operationCell(operationData, 'clear_pass')}
+      ${operationCell(operationData, 'start_mooring_clear_pass')}
+      ${operationCell(operationData, 'cast_off_mooring_clear_pass')}
+      ${operationCell(operationData, 'mooring_place_2')}
+      ${operationCell(operationData, 'ta_barges_actual')}
+      ${operationCell(operationData, 'ta_mv')}
+      ${operationCell(operationData, 'ta_flf')}
+      ${operationCell(operationData, 'cargo_readiness_actual')}
+      ${operationCell(operationData, 'start_disch')}
+      ${operationCell(operationData, 'completed_disch')}
+      ${operationCell(operationData, 'discharge_sequence')}
+      ${operationCell(operationData, 'back_to_jetty')}
+      <td>${displayValue(row.operation_remarks)}</td>
+      <td>${displayValue(row.created_by)}</td>
+      <td>${displayDateTime(row.created_at)}</td>
+      <td>${displayDateTime(row.updated_at)}</td>
+    </tr>
+  `;
+}
+
+function renderTable() {
+  const displayData = computeDisplayData();
+  siBargesBody.innerHTML = displayData.length
+    ? displayData.map((row, index) => rowMarkup(row, index)).join('')
+    : '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
+  applyFreezeStyling();
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
+    const key = th.getAttribute('data-key');
+    const active = key === sortState.key && sortState.dir !== 0;
+    const filterActive = isFilterActive(key);
+    th.classList.toggle('sort-active', active);
+    th.classList.toggle('filter-active', filterActive);
+    const toggleBtn = th.querySelector('.sort-toggle');
+    if (toggleBtn) {
+      toggleBtn.innerHTML = active ? (sortState.dir === 1 ? '&#9650;' : '&#9660;') : '&#8645;';
+      toggleBtn.classList.toggle('text-primary', filterActive);
+    }
+    th.querySelectorAll('.sort-option').forEach(opt=>{
+      const dir = parseInt(opt.getAttribute('data-dir'), 10);
+      opt.classList.toggle('active-sort', active ? dir === sortState.dir : dir === 0);
+    });
+  });
+}
+
+function closeDropdown(th) {
+  const toggleBtn = th.querySelector('.sort-toggle');
+  if (!toggleBtn) return;
+  const dd = bootstrap.Dropdown.getOrCreateInstance(toggleBtn);
+  dd.hide();
+}
+
+function updateFreezeButtons() {
+  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
+    const key = th.getAttribute('data-key');
+    const btn = th.querySelector('.freeze-toggle');
+    if (!btn) return;
+    const isBoundary = key === frozenKey;
+    btn.textContent = isBoundary ? 'Unfreeze Column' : 'Freeze Column';
+    btn.classList.toggle('active', isBoundary);
+  });
+}
+
+// pins the frozen column + all columns to its left in place while the table
+// scrolls horizontally (sticky offsets are computed from actual rendered widths,
+// since column widths aren't fixed)
+function applyFreezeStyling() {
+  const headerRow = document.querySelector('#dataBargesTable thead tr');
+  if (!headerRow) return;
+  const headerCells = Array.from(headerRow.children);
+
+  headerCells.forEach(th=>{
+    th.classList.remove('frozen-col', 'frozen-col-last');
+    th.style.left = '';
+  });
+  document.querySelectorAll('#dataBargesTable tbody tr').forEach(tr=>{
+    Array.from(tr.children).forEach(td=>{
+      td.classList.remove('frozen-col', 'frozen-col-last');
+      td.style.position = '';
+      td.style.left = '';
+    });
+  });
+
+  if (!frozenKey) return;
+
+  const frozenIndex = headerCells.findIndex(th=> th.getAttribute('data-key') === frozenKey);
+  if (frozenIndex === -1) return;
+
+  let left = 0;
+  for (let i = 0; i <= frozenIndex; i++){
+    const th = headerCells[i];
+    th.classList.add('frozen-col');
+    if (i === frozenIndex) th.classList.add('frozen-col-last');
+    th.style.left = `${left}px`;
+
+    document.querySelectorAll('#dataBargesTable tbody tr').forEach(tr=>{
+      const td = tr.children[i];
+      if (!td) return;
+      td.classList.add('frozen-col');
+      if (i === frozenIndex) td.classList.add('frozen-col-last');
+      td.style.left = `${left}px`;
+    });
+
+    left += th.getBoundingClientRect().width;
+  }
+}
+window.addEventListener('resize', ()=> applyFreezeStyling());
+
+function updateSelectAllState(th) {
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const selectAllEl = th.querySelector('.filter-select-all');
+  if (!selectAllEl) return;
+  const uniqueValues = getUniqueColumnValues(key);
+  const excludedCount = uniqueValues.filter(v=> f.excluded.has(v)).length;
+  if (excludedCount === 0){ selectAllEl.checked = true; selectAllEl.indeterminate = false; }
+  else if (excludedCount === uniqueValues.length){ selectAllEl.checked = false; selectAllEl.indeterminate = false; }
+  else { selectAllEl.checked = false; selectAllEl.indeterminate = true; }
+}
+
+function buildFilterValuesList(th) {
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const listEl = th.querySelector('.filter-values-list');
+  const uniqueValues = getUniqueColumnValues(key);
+
+  listEl.innerHTML = uniqueValues.map(v=>{
+    const checked = f.excluded.has(v) ? '' : 'checked';
+    const escaped = esc(v);
+    const labelHtml = v === '' ? '<i>(blank)</i>' : escaped;
+    return `<div class="form-check filter-value-item" data-value="${escaped}">
+      <input class="form-check-input filter-value-checkbox" type="checkbox" ${checked}>
+      <label class="form-check-label">${labelHtml}</label>
+    </div>`;
+  }).join('');
+
+  updateSelectAllState(th);
+}
+
+function syncFilterControls(th) {
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const conditionEl = th.querySelector('.filter-condition');
+  const valueEl = th.querySelector('.filter-value');
+  const searchEl = th.querySelector('.filter-search');
+  const autoApplyEl = th.querySelector('.filter-auto-apply');
+  if (conditionEl) conditionEl.value = f.condition;
+  if (valueEl) valueEl.value = f.value;
+  if (searchEl) searchEl.value = '';
+  if (autoApplyEl) autoApplyEl.checked = f.autoApply;
+  th.querySelectorAll('.filter-value-item').forEach(item=> item.classList.remove('d-none'));
+}
+
+function initSortableHeaders() {
+  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
+    const label = th.getAttribute('data-label');
+    const key = th.getAttribute('data-key');
+
+    th.innerHTML = `
+      <div class="th-sort-wrap">
+        <span>${label}</span>
+        <div class="dropdown">
+          <button type="button" class="btn btn-sm p-0 sort-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort / Filter ${label}">&#8645;</button>
+          <div class="dropdown-menu dropdown-menu-end filter-menu">
+            <p class="dropdown-header-label">Freeze</p>
+            <div class="px-3 pb-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary w-100 freeze-toggle">Freeze</button>
+            </div>
+
+            <hr class="dropdown-divider">
+
+            <p class="dropdown-header-label">Sort</p>
+            <div class="px-3 pb-2">
+              <div class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="0">Default</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="1">Ascending</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="-1">Descending</button>
+              </div>
+            </div>
+
+            <hr class="dropdown-divider">
+
+            <p class="dropdown-header-label">Filter</p>
+            <div class="px-3 pb-2">
+              <div class="d-flex gap-1 mb-2">
+                <select class="form-select form-select-sm filter-condition">
+                  <option value="none">Choose One</option>
+                  <option value="equals">Equals</option>
+                  <option value="not_equals">Does Not Equal</option>
+                  <option value="begins_with">Begins With</option>
+                  <option value="not_begins_with">Does Not Begin With</option>
+                  <option value="ends_with">Ends With</option>
+                  <option value="not_ends_with">Does Not End With</option>
+                  <option value="contains">Contains</option>
+                  <option value="not_contains">Does Not Contain</option>
+                </select>
+                <input type="text" class="form-control form-control-sm filter-value" placeholder="Value">
+              </div>
+
+              <div class="input-group input-group-sm mb-2">
+                <span class="input-group-text">&#128269;</span>
+                <input type="text" class="form-control filter-search" placeholder="Search">
+              </div>
+
+              <div class="form-check mb-1">
+                <input class="form-check-input filter-select-all" type="checkbox" checked>
+                <label class="form-check-label fw-semibold">(Select All)</label>
+              </div>
+
+              <div class="filter-values-list border rounded p-1 mb-2"></div>
+
+              <div class="form-check mb-2">
+                <input class="form-check-input filter-auto-apply" type="checkbox" checked>
+                <label class="form-check-label">Auto Apply</label>
+              </div>
+
+              <div class="d-flex justify-content-between gap-2">
+                <button type="button" class="btn btn-sm btn-primary flex-fill filter-apply">Apply Filter</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill filter-clear">Clear Filter</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // popper strategy "fixed" escapes the .table-responsive/.data-barges-horizontal-scroll overflow-x:auto
+    // clipping (and lets flip-to-top work against the real viewport, not the clipped box)
+    const toggleBtn = th.querySelector('.sort-toggle');
+    new bootstrap.Dropdown(toggleBtn, {
+      popperConfig: (defaultConfig) => ({ ...defaultConfig, strategy: 'fixed' })
+    });
+
+    // ----- Freeze -----
+    const freezeBtn = th.querySelector('.freeze-toggle');
+    freezeBtn.addEventListener('click', ()=>{
+      frozenKey = (frozenKey === key) ? null : key;
+      updateFreezeButtons();
+      applyFreezeStyling();
+      closeDropdown(th);
+    });
+
+    // ----- Sort -----
+    th.querySelectorAll('.sort-option').forEach(opt=>{
+      opt.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const dir = parseInt(opt.getAttribute('data-dir'), 10);
+        sortState = dir === 0 ? { key: null, dir: 0 } : { key, dir };
+        updateSortIndicators();
+        renderTable();
+        closeDropdown(th);
+      });
+    });
+
+    // ----- Filter -----
+    const f = getFilterState(key);
+    const conditionEl = th.querySelector('.filter-condition');
+    const valueEl = th.querySelector('.filter-value');
+    const searchEl = th.querySelector('.filter-search');
+    const selectAllEl = th.querySelector('.filter-select-all');
+    const listEl = th.querySelector('.filter-values-list');
+    const autoApplyEl = th.querySelector('.filter-auto-apply');
+    const applyBtn = th.querySelector('.filter-apply');
+    const clearBtn = th.querySelector('.filter-clear');
+    const dropdownWrap = th.querySelector('.dropdown');
+
+    dropdownWrap.addEventListener('show.bs.dropdown', ()=>{
+      syncFilterControls(th);
+      buildFilterValuesList(th);
+    });
+
+    conditionEl.addEventListener('change', ()=>{
+      f.condition = conditionEl.value;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    valueEl.addEventListener('input', ()=>{
+      f.value = valueEl.value;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    searchEl.addEventListener('input', ()=>{
+      const term = searchEl.value.trim().toLowerCase();
+      listEl.querySelectorAll('.filter-value-item').forEach(item=>{
+        const val = (item.getAttribute('data-value') || '').toLowerCase();
+        item.classList.toggle('d-none', term !== '' && !val.includes(term));
+      });
+    });
+
+    selectAllEl.addEventListener('change', ()=>{
+      const checked = selectAllEl.checked;
+      const uniqueValues = getUniqueColumnValues(key);
+      uniqueValues.forEach(v=> checked ? f.excluded.delete(v) : f.excluded.add(v));
+      listEl.querySelectorAll('.filter-value-checkbox').forEach(cb=> cb.checked = checked);
+      selectAllEl.indeterminate = false;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    listEl.addEventListener('change', (e)=>{
+      if (!e.target.classList.contains('filter-value-checkbox')) return;
+      const item = e.target.closest('.filter-value-item');
+      const val = item.getAttribute('data-value');
+      if (e.target.checked) f.excluded.delete(val); else f.excluded.add(val);
+      updateSelectAllState(th);
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    autoApplyEl.addEventListener('change', ()=>{
+      f.autoApply = autoApplyEl.checked;
+    });
+
+    applyBtn.addEventListener('click', ()=>{
+      renderTable();
+      updateSortIndicators();
+      closeDropdown(th);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      f.condition = 'none';
+      f.value = '';
+      f.excluded.clear();
+      syncFilterControls(th);
+      buildFilterValuesList(th);
+      updateSortIndicators();
+      renderTable();
+      closeDropdown(th);
+    });
+  });
+  updateSortIndicators();
+  updateFreezeButtons();
+}
+// deferred: bootstrap.bundle.min.js is loaded later, in includes/footer.php
+document.addEventListener('DOMContentLoaded', initSortableHeaders);
 
 updateHiddenFieldsSummary();
 
@@ -2098,7 +2534,8 @@ async function loadSelectedVessel() {
       return;
     }
 
-    renderSiBargesRows(rows);
+    currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(rows);
+    renderTable();
     exportDataBargesCsv.disabled = false;
     sortByDischargeSequence.disabled = false;
   } catch (error) {
@@ -2112,7 +2549,8 @@ async function loadSelectedVessel() {
 exportDataBargesCsv.addEventListener('click', exportVisibleDataBarges);
 sortByDischargeSequence.addEventListener('click', () => {
   if (!currentSiBargesRows.length) return;
-  renderSiBargesRows(currentSiBargesRows);
+  currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(currentSiBargesRows);
+  renderTable();
 });
 
 noPkSelect.addEventListener('change', () => {
@@ -2158,23 +2596,23 @@ importOperationForm.addEventListener('submit', async event => {
   }
 });
 
-function openSiBargesDetail(rowIndex) {
-  const row = currentSiBargesRows[rowIndex];
+function openSiBargesDetail(rowId) {
+  const row = currentSiBargesRows.find(item => item.id === rowId);
   if (!row) return;
 
-  const tableRow = siBargesBody.querySelector(`tr[data-row-index="${rowIndex}"]`);
+  const tableRow = siBargesBody.querySelector(`tr[data-row-id="${rowId}"]`);
   if (!tableRow) return;
 
   const headers = [...document.querySelectorAll('#dataBargesTable thead th')];
   const cells = [...tableRow.cells]
     .map(cell => cell.textContent.trim());
 
-  currentDetailRowIndex = rowIndex;
+  currentDetailRowId = rowId;
   siBargesSaveStatus.textContent = '';
   siBargesSaveStatus.className = 'me-auto small';
   siBargesDetailSubtitle.textContent = `${row.si_barges || '-'} — ${row.mothervessel || '-'}`;
   siBargesDetailBody.innerHTML = headers.map((header, index) => {
-    const label = header.textContent.trim();
+    const label = header.dataset.label || header.textContent.trim();
     const editField = header.dataset.editField;
     const value = cells[index] === '-' ? '' : (cells[index] ?? '');
     const isCalculated = header.dataset.calculated === 'true';
@@ -2272,7 +2710,7 @@ function openSiBargesDetail(rowIndex) {
 }
 
 siBargesSaveButton.addEventListener('click', async () => {
-  const row = currentSiBargesRows[currentDetailRowIndex];
+  const row = currentSiBargesRows.find(item => item.id === currentDetailRowId);
   if (!row) return;
 
   if (!validateOperationTimelineInputs(true)) {
@@ -2304,11 +2742,10 @@ siBargesSaveButton.addEventListener('click', async () => {
     const result = await response.json();
     if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan data operasi.');
 
-    const savedRowId = row.id;
     row.operation_data = result.data;
     row.operation_remarks = result.data.operation_remarks || '';
-    renderSiBargesRows(currentSiBargesRows);
-    currentDetailRowIndex = currentSiBargesRows.findIndex(item => item.id === savedRowId);
+    currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(currentSiBargesRows);
+    renderTable();
 
     siBargesSaveStatus.textContent = result.msg;
     siBargesSaveStatus.className = 'me-auto small text-success';
@@ -2322,19 +2759,19 @@ siBargesSaveButton.addEventListener('click', async () => {
 });
 
 siBargesBody.addEventListener('click', event => {
-  const row = event.target.closest('tr[data-row-index]');
+  const row = event.target.closest('tr[data-row-id]');
   if (!row) return;
-  openSiBargesDetail(Number(row.dataset.rowIndex));
+  openSiBargesDetail(Number(row.dataset.rowId));
 });
 
 siBargesBody.addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
 
-  const row = event.target.closest('tr[data-row-index]');
+  const row = event.target.closest('tr[data-row-id]');
   if (!row) return;
 
   event.preventDefault();
-  openSiBargesDetail(Number(row.dataset.rowIndex));
+  openSiBargesDetail(Number(row.dataset.rowId));
 });
 </script>
 

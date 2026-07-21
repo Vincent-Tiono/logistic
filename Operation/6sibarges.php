@@ -1633,6 +1633,24 @@ include __DIR__ . "/../includes/sidebar.php";
     z-index: 2;
     background-color: #f8f9fa;
   }
+
+  #tbl th.sortable { white-space: nowrap; }
+  #tbl .th-sort-wrap { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+  #tbl .sort-toggle { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; }
+  #tbl th.sortable.sort-active .sort-toggle { opacity:1; font-weight:bold; }
+  #tbl .filter-menu { min-width: 260px; max-height: 80vh; overflow-y: auto; white-space: normal; z-index: 2000; }
+  #tbl .filter-menu .dropdown-header-label { font-weight:bold; font-size:.9rem; color:#212529; padding: .35rem 1rem .15rem; margin:0; }
+  #tbl .filter-menu .sort-option { font-size:.8rem; }
+  #tbl .filter-menu .sort-option.active-sort { font-weight:bold; background-color:#e7f1ff; border-color:#0d6efd; color:#0d6efd; }
+  #tbl .filter-values-list { max-height: 160px; overflow-y: auto; }
+  #tbl .filter-value-item label { cursor:pointer; }
+  #tbl th.sortable.filter-active .sort-toggle { opacity:1; font-weight:bold; }
+  #tbl .freeze-toggle.active { background-color:#0d6efd; border-color:#0d6efd; color:#fff; }
+  #tbl th.frozen-col, #tbl td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
+  #tbl .action-btns { display:grid; grid-template-columns: auto auto; gap:.5rem; }
+  #tbl .action-btns .btn { width:100%; white-space:nowrap; font-size:inherit; }
+  #tbl thead th.frozen-col { background-color: #f8f9fa; z-index: 3; }
+  #tbl th.frozen-col-last, #tbl td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
 </style>
 
 <main class="main">
@@ -1640,29 +1658,6 @@ include __DIR__ . "/../includes/sidebar.php";
 
     <div class="d-flex align-items-center justify-content-between mb-3">
       <h4 class="m-0">SI Barges</h4>
-
-      <div class="d-flex gap-2 align-items-center flex-wrap">
-        <select id="sortBy" class="form-select form-select-sm" style="width:180px;">
-          <option value="created_at">Sort: Created</option>
-          <option value="si_barges">Sort: SI Barges</option>
-          <option value="mothervessel">Sort: Vessel</option>
-          <option value="tugboat">Sort: Tugboat</option>
-          <option value="barge">Sort: Barge</option>
-          <option value="jetty_code">Sort: Jetty</option>
-          <option value="shipper_code">Sort: Shipper</option>
-          <option value="record_status">Sort: Status</option>
-          <option value="laycan_start">Sort: Laycan Start</option>
-        </select>
-
-        <select id="sortDir" class="form-select form-select-sm" style="width:110px;">
-          <option value="DESC">DESC</option>
-          <option value="ASC">ASC</option>
-        </select>
-
-        <input id="q" type="text" class="form-control form-control-sm" style="width:320px;"
-              placeholder="Search (SI / Vessel / TB / BG / Jetty / Shipper / Status)..." />
-        <button class="btn btn-sm btn-outline-secondary" id="btnReset" type="button">Reset</button>
-      </div>
     </div>
 
     <div id="alertBox" class="alert d-none" role="alert"></div>
@@ -1831,27 +1826,24 @@ include __DIR__ . "/../includes/sidebar.php";
     </div>
 
     <!-- TABLE -->
+     
     <div class="card">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
           <h6 class="m-0">Data SI Barges</h6>
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <input id="filterMonth" type="month" class="form-control form-control-sm" style="width:150px;" aria-label="Filter month">
-            <select id="filterMotherVessel" class="form-select form-select-sm" style="width:280px;" aria-label="Filter mother vessel">
-              <option value="">All Mother Vessel</option>
-              <?php foreach ($vesselRows as $v): ?>
-                <option value="<?= htmlspecialchars($v['no_pk']) ?>">
-                  <?= htmlspecialchars($v['no_pk']) ?> — <?= htmlspecialchars($v['mothervessel']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
-            <select id="filterDiscardedSI" class="form-select form-select-sm" style="width:150px;" aria-label="Filter discarded SI">
+            <select id="filterDiscardedSI" class="form-select form-select-sm" style="width:auto; min-width:180px;" aria-label="Filter discarded SI">
               <option value="hide">ACT+CANCEL SI</option>
               <option value="only">DISCARD SI</option>
               <option value="all">All SI</option>
             </select>
-            <button class="btn btn-sm btn-outline-secondary" id="btnFilterReset" type="button">Reset Filters</button>
-            <div class="small text-muted">Hidden: No PK / No SI Vessel / Buyer / Type / Remarks</div>
+            <div class="position-relative" style="width:280px;">
+              <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
+                    placeholder="Search (SI Barges / Mother Vessel)..." />
+              <button type="button" id="btnClearQ" title="Clear search"
+                      style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
+            </div>
+            <!-- <div class="small text-muted">Hidden: No PK / No SI Vessel / Buyer / Type / Remarks</div> -->
           </div>
         </div>
 
@@ -1859,17 +1851,17 @@ include __DIR__ . "/../includes/sidebar.php";
           <table class="table table-sm table-bordered align-middle" id="tbl" style="font-size:12px;">
             <thead class="table-light">
               <tr>
-                <th style="min-width:210px;">SI Barges</th>
-                <th style="min-width:190px;">Mother Vessel</th>
-                <th style="min-width:170px;">Tugboat</th>
-                <th style="min-width:210px;">Barge</th>
-                <th style="min-width:150px;">Anchorage</th>
-                <th style="min-width:90px;">Qty</th>
-                <th style="min-width:95px;">Jetty</th>
-                <th style="min-width:80px;">Shipper</th>
-                <th style="min-width:120px;">Laycan Start</th>
-                <th style="min-width:120px;">Laycan End</th>
-                <th style="min-width:90px;">Status</th>
+                <th style="min-width:210px;" class="sortable" data-key="si_barges" data-type="text" data-label="SI Barges"></th>
+                <th style="min-width:190px;" class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel"></th>
+                <th style="min-width:170px;" class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat"></th>
+                <th style="min-width:210px;" class="sortable" data-key="barge" data-type="text" data-label="Barge"></th>
+                <th style="min-width:150px;" class="sortable" data-key="anchorage" data-type="text" data-label="Anchorage"></th>
+                <th style="min-width:90px;" class="sortable" data-key="qty_plan" data-type="number" data-label="Qty"></th>
+                <th style="min-width:95px;" class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty"></th>
+                <th style="min-width:80px;" class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper"></th>
+                <th style="min-width:120px;" class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start"></th>
+                <th style="min-width:120px;" class="sortable" data-key="laycan_end" data-type="date" data-label="Laycan End"></th>
+                <th style="min-width:90px;" class="sortable" data-key="record_status" data-type="text" data-label="Status"></th>
                 <th style="width:280px;">Action</th>
               </tr>
             </thead>
@@ -1879,9 +1871,9 @@ include __DIR__ . "/../includes/sidebar.php";
           </table>
         </div>
 
-        <div class="small text-muted mt-2">
+        <!-- <div class="small text-muted mt-2">
           Tips: Search langsung ketik. Sort pakai dropdown. Update/Delete tanpa reload.
-        </div>
+        </div> -->
 
         <div class="d-flex justify-content-end gap-2 mt-3">
           <button class="btn btn-sm btn-outline-primary" id="btnDownloadAllSI" type="button">Download All SI</button>
@@ -1930,13 +1922,8 @@ const VESSEL_OPTIONS = <?= json_encode($vesselRows, JSON_UNESCAPED_UNICODE); ?>;
 const alertBox = document.getElementById('alertBox');
 const tbody = document.getElementById('tbody');
 const q = document.getElementById('q');
-const btnReset = document.getElementById('btnReset');
-const sortBy = document.getElementById('sortBy');
-const sortDir = document.getElementById('sortDir');
-const filterMonth = document.getElementById('filterMonth');
-const filterMotherVessel = document.getElementById('filterMotherVessel');
+const btnClearQ = document.getElementById('btnClearQ');
 const filterDiscardedSI = document.getElementById('filterDiscardedSI');
-const btnFilterReset = document.getElementById('btnFilterReset');
 const changeVesselSearch = document.getElementById('changeVesselSearch');
 const changeVesselNoPk = document.getElementById('changeVesselNoPk');
 const changeVesselCurrent = document.getElementById('changeVesselCurrent');
@@ -1944,6 +1931,11 @@ const btnSaveChangeVessel = document.getElementById('btnSaveChangeVessel');
 const changeVesselModalEl = document.getElementById('changeVesselModal');
 let changeVesselModal = null;
 let changeVesselRowId = "";
+
+let originalData = []; // as-loaded (server order) data, per current search/sort/filter query
+let sortState = { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
+let filters = {}; // key -> { condition, value, excluded:Set(display values), autoApply }
+let frozenKey = null; // data-key of the rightmost frozen column (that column + all to its left are frozen), or null
 
 const inputSiBargesBody = document.getElementById('inputSiBargesBody');
 const btnToggleInputForm = document.getElementById('btnToggleInputForm');
@@ -2106,7 +2098,7 @@ function rowTemplate(r){
         <option value="CANCEL" ${r.record_status==='CANCEL'?'selected':''}>CANCEL</option>
       </select>`;
   const changeVesselButton = isDiscard
-    ? ''
+    ? `<span></span>`
     : `<button class="btn btn-sm btn-outline-primary btnChangeVessel" type="button">Change Vessel</button>`;
 
   return `
@@ -2141,14 +2133,419 @@ function rowTemplate(r){
       ${statusControl}
     </td>
 
-    <td class="d-flex gap-2 flex-wrap">
-      <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
-      ${changeVesselButton}
-      <a class="btn btn-sm btn-outline-secondary btnDownload" href="${SELF}?download=si_pdf&id=${id}" download>Download SI</a>
-      <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
+    <td>
+      <div class="action-btns">
+        <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
+        ${changeVesselButton}
+        <a class="btn btn-sm btn-outline-secondary btnDownload" href="${SELF}?download=si_pdf&id=${id}" download>Download SI</a>
+        <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
+      </div>
     </td>
   </tr>`;
 }
+
+function getSortValue(r, key, type){
+  const v = r[key];
+  if (type === 'number'){
+    const n = parseFloat(v);
+    return isNaN(n) ? -Infinity : n;
+  }
+  if (type === 'date'){
+    const t = v ? Date.parse((v + '').replace(' ', 'T')) : NaN;
+    return isNaN(t) ? -Infinity : t;
+  }
+  return (v ?? '').toString().toLowerCase();
+}
+
+// display value shown in the table cell for a given column (matches rowTemplate)
+function columnDisplayValue(r, key){
+  if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(r[key]);
+  if (key === 'qty_plan') return (r.qty_plan ?? '0').toString();
+  return (r[key] ?? '').toString();
+}
+
+function getFilterState(key){
+  if (!filters[key]) filters[key] = { condition: 'none', value: '', excluded: new Set(), autoApply: true };
+  return filters[key];
+}
+
+function isFilterActive(key){
+  const f = filters[key];
+  if (!f) return false;
+  return (f.condition && f.condition !== 'none') || (f.excluded && f.excluded.size > 0);
+}
+
+const FILTER_CONDITIONS = {
+  equals:            (v, f)=> v === f,
+  not_equals:        (v, f)=> v !== f,
+  begins_with:       (v, f)=> v.startsWith(f),
+  not_begins_with:   (v, f)=> !v.startsWith(f),
+  ends_with:         (v, f)=> v.endsWith(f),
+  not_ends_with:     (v, f)=> !v.endsWith(f),
+  contains:          (v, f)=> v.includes(f),
+  not_contains:      (v, f)=> !v.includes(f),
+};
+
+function getUniqueColumnValues(key){
+  const seen = new Set();
+  const values = [];
+  originalData.forEach(r=>{
+    const v = columnDisplayValue(r, key);
+    if (!seen.has(v)){ seen.add(v); values.push(v); }
+  });
+  return values;
+}
+
+function rowPassesFilters(r){
+  for (const key in filters){
+    const f = filters[key];
+    if (!f || !isFilterActive(key)) continue;
+    const display = columnDisplayValue(r, key);
+
+    if (f.condition && f.condition !== 'none'){
+      const fn = FILTER_CONDITIONS[f.condition];
+      if (fn && !fn(display.toLowerCase(), (f.value || '').toLowerCase())) return false;
+    }
+
+    if (f.excluded && f.excluded.has(display)) return false;
+  }
+  return true;
+}
+
+function computeDisplayData(){
+  const filtered = originalData.filter(rowPassesFilters);
+  if (!sortState.key || sortState.dir === 0) return filtered;
+  const th = document.querySelector(`#tbl th[data-key="${sortState.key}"]`);
+  const type = th ? th.getAttribute('data-type') : 'text';
+  const dir = sortState.dir;
+  return filtered.sort((a, b)=>{
+    const va = getSortValue(a, sortState.key, type);
+    const vb = getSortValue(b, sortState.key, type);
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return 0;
+  });
+}
+
+function renderTable(){
+  const data = computeDisplayData();
+  tbody.innerHTML = data.length
+    ? data.map(rowTemplate).join('')
+    : `<tr><td colspan="12" class="text-center text-muted">No data</td></tr>`;
+  applyFreezeStyling();
+}
+
+function updateSortIndicators(){
+  document.querySelectorAll('#tbl th.sortable').forEach(th=>{
+    const key = th.getAttribute('data-key');
+    const active = key === sortState.key && sortState.dir !== 0;
+    const filterActive = isFilterActive(key);
+    th.classList.toggle('sort-active', active);
+    th.classList.toggle('filter-active', filterActive);
+    const toggleBtn = th.querySelector('.sort-toggle');
+    if (toggleBtn) {
+      toggleBtn.innerHTML = active ? (sortState.dir === 1 ? '&#9650;' : '&#9660;') : '&#8645;';
+      toggleBtn.classList.toggle('text-primary', filterActive);
+    }
+    th.querySelectorAll('.sort-option').forEach(opt=>{
+      const dir = parseInt(opt.getAttribute('data-dir'), 10);
+      opt.classList.toggle('active-sort', active ? dir === sortState.dir : dir === 0);
+    });
+  });
+}
+
+function closeDropdown(th){
+  const toggleBtn = th.querySelector('.sort-toggle');
+  if (!toggleBtn) return;
+  const dd = bootstrap.Dropdown.getOrCreateInstance(toggleBtn);
+  dd.hide();
+}
+
+function updateFreezeButtons(){
+  document.querySelectorAll('#tbl th.sortable').forEach(th=>{
+    const key = th.getAttribute('data-key');
+    const btn = th.querySelector('.freeze-toggle');
+    if (!btn) return;
+    const isBoundary = key === frozenKey;
+    btn.textContent = isBoundary ? 'Unfreeze Column' : 'Freeze Column';
+    btn.classList.toggle('active', isBoundary);
+  });
+}
+
+// pins the frozen column + all columns to its left in place while the table
+// scrolls horizontally (sticky offsets are computed from actual rendered widths,
+// since column widths aren't fixed)
+function applyFreezeStyling(){
+  const headerRow = document.querySelector('#tbl thead tr');
+  if (!headerRow) return;
+  const headerCells = Array.from(headerRow.children);
+
+  headerCells.forEach(th=>{
+    th.classList.remove('frozen-col', 'frozen-col-last');
+    th.style.position = '';
+    th.style.left = '';
+  });
+  document.querySelectorAll('#tbody tr').forEach(tr=>{
+    Array.from(tr.children).forEach(td=>{
+      td.classList.remove('frozen-col', 'frozen-col-last');
+      td.style.position = '';
+      td.style.left = '';
+    });
+  });
+
+  if (!frozenKey) return;
+
+  const frozenIndex = headerCells.findIndex(th=> th.getAttribute('data-key') === frozenKey);
+  if (frozenIndex === -1) return;
+
+  let left = 0;
+  for (let i = 0; i <= frozenIndex; i++){
+    const th = headerCells[i];
+    th.classList.add('frozen-col');
+    if (i === frozenIndex) th.classList.add('frozen-col-last');
+    th.style.left = `${left}px`;
+
+    document.querySelectorAll('#tbody tr').forEach(tr=>{
+      const td = tr.children[i];
+      if (!td) return;
+      td.classList.add('frozen-col');
+      if (i === frozenIndex) td.classList.add('frozen-col-last');
+      td.style.left = `${left}px`;
+    });
+
+    left += th.getBoundingClientRect().width;
+  }
+}
+window.addEventListener('resize', ()=> applyFreezeStyling());
+
+function updateSelectAllState(th){
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const selectAllEl = th.querySelector('.filter-select-all');
+  if (!selectAllEl) return;
+  const uniqueValues = getUniqueColumnValues(key);
+  const excludedCount = uniqueValues.filter(v=> f.excluded.has(v)).length;
+  if (excludedCount === 0){ selectAllEl.checked = true; selectAllEl.indeterminate = false; }
+  else if (excludedCount === uniqueValues.length){ selectAllEl.checked = false; selectAllEl.indeterminate = false; }
+  else { selectAllEl.checked = false; selectAllEl.indeterminate = true; }
+}
+
+function buildFilterValuesList(th){
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const listEl = th.querySelector('.filter-values-list');
+  const uniqueValues = getUniqueColumnValues(key);
+
+  listEl.innerHTML = uniqueValues.map(v=>{
+    const checked = f.excluded.has(v) ? '' : 'checked';
+    const escVal = esc(v);
+    const labelHtml = v === '' ? '<i>(blank)</i>' : escVal;
+    return `<div class="form-check filter-value-item" data-value="${escVal}">
+      <input class="form-check-input filter-value-checkbox" type="checkbox" ${checked}>
+      <label class="form-check-label">${labelHtml}</label>
+    </div>`;
+  }).join('');
+
+  updateSelectAllState(th);
+}
+
+function syncFilterControls(th){
+  const key = th.getAttribute('data-key');
+  const f = getFilterState(key);
+  const conditionEl = th.querySelector('.filter-condition');
+  const valueEl = th.querySelector('.filter-value');
+  const searchEl = th.querySelector('.filter-search');
+  const autoApplyEl = th.querySelector('.filter-auto-apply');
+  if (conditionEl) conditionEl.value = f.condition;
+  if (valueEl) valueEl.value = f.value;
+  if (searchEl) searchEl.value = '';
+  if (autoApplyEl) autoApplyEl.checked = f.autoApply;
+  th.querySelectorAll('.filter-value-item').forEach(item=> item.classList.remove('d-none'));
+}
+
+function initSortableHeaders(){
+  document.querySelectorAll('#tbl th.sortable').forEach(th=>{
+    const label = th.getAttribute('data-label');
+    const key = th.getAttribute('data-key');
+
+    th.innerHTML = `
+      <div class="th-sort-wrap">
+        <span>${label}</span>
+        <div class="dropdown">
+          <button type="button" class="btn btn-sm p-0 sort-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort / Filter ${label}">&#8645;</button>
+          <div class="dropdown-menu dropdown-menu-end filter-menu">
+            <p class="dropdown-header-label">Freeze</p>
+            <div class="px-3 pb-2">
+              <button type="button" class="btn btn-sm btn-outline-secondary w-100 freeze-toggle">Freeze</button>
+            </div>
+
+            <hr class="dropdown-divider">
+
+            <p class="dropdown-header-label">Sort</p>
+            <div class="px-3 pb-2">
+              <div class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="0">Default</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="1">Ascending</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="-1">Descending</button>
+              </div>
+            </div>
+
+            <hr class="dropdown-divider">
+
+            <p class="dropdown-header-label">Filter</p>
+            <div class="px-3 pb-2">
+              <div class="d-flex gap-1 mb-2">
+                <select class="form-select form-select-sm filter-condition">
+                  <option value="none">Choose One</option>
+                  <option value="equals">Equals</option>
+                  <option value="not_equals">Does Not Equal</option>
+                  <option value="begins_with">Begins With</option>
+                  <option value="not_begins_with">Does Not Begin With</option>
+                  <option value="ends_with">Ends With</option>
+                  <option value="not_ends_with">Does Not End With</option>
+                  <option value="contains">Contains</option>
+                  <option value="not_contains">Does Not Contain</option>
+                </select>
+                <input type="text" class="form-control form-control-sm filter-value" placeholder="Value">
+              </div>
+
+              <div class="input-group input-group-sm mb-2">
+                <span class="input-group-text">&#128269;</span>
+                <input type="text" class="form-control filter-search" placeholder="Search">
+              </div>
+
+              <div class="form-check mb-1">
+                <input class="form-check-input filter-select-all" type="checkbox" checked>
+                <label class="form-check-label fw-semibold">(Select All)</label>
+              </div>
+
+              <div class="filter-values-list border rounded p-1 mb-2"></div>
+
+              <div class="form-check mb-2">
+                <input class="form-check-input filter-auto-apply" type="checkbox" checked>
+                <label class="form-check-label">Auto Apply</label>
+              </div>
+
+              <div class="d-flex justify-content-between gap-2">
+                <button type="button" class="btn btn-sm btn-primary flex-fill filter-apply">Apply Filter</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill filter-clear">Clear Filter</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+
+    // popper strategy "fixed" escapes the .table-responsive/.content overflow-x:auto
+    // clipping (and lets flip-to-top work against the real viewport, not the clipped box)
+    const toggleBtn = th.querySelector('.sort-toggle');
+    new bootstrap.Dropdown(toggleBtn, {
+      popperConfig: (defaultConfig) => ({ ...defaultConfig, strategy: 'fixed' })
+    });
+
+    // ----- Freeze -----
+    const freezeBtn = th.querySelector('.freeze-toggle');
+    freezeBtn.addEventListener('click', ()=>{
+      frozenKey = (frozenKey === key) ? null : key;
+      updateFreezeButtons();
+      applyFreezeStyling();
+      closeDropdown(th);
+    });
+
+    // ----- Sort -----
+    th.querySelectorAll('.sort-option').forEach(opt=>{
+      opt.addEventListener('click', (e)=>{
+        e.preventDefault();
+        const dir = parseInt(opt.getAttribute('data-dir'), 10);
+        sortState = dir === 0 ? { key: null, dir: 0 } : { key, dir };
+        updateSortIndicators();
+        renderTable();
+        closeDropdown(th);
+      });
+    });
+
+    // ----- Filter -----
+    const f = getFilterState(key);
+    const conditionEl = th.querySelector('.filter-condition');
+    const valueEl = th.querySelector('.filter-value');
+    const searchEl = th.querySelector('.filter-search');
+    const selectAllEl = th.querySelector('.filter-select-all');
+    const listEl = th.querySelector('.filter-values-list');
+    const autoApplyEl = th.querySelector('.filter-auto-apply');
+    const applyBtn = th.querySelector('.filter-apply');
+    const clearBtn = th.querySelector('.filter-clear');
+    const dropdownWrap = th.querySelector('.dropdown');
+
+    dropdownWrap.addEventListener('show.bs.dropdown', ()=>{
+      syncFilterControls(th);
+      buildFilterValuesList(th);
+    });
+
+    conditionEl.addEventListener('change', ()=>{
+      f.condition = conditionEl.value;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    valueEl.addEventListener('input', ()=>{
+      f.value = valueEl.value;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    searchEl.addEventListener('input', ()=>{
+      const term = searchEl.value.trim().toLowerCase();
+      listEl.querySelectorAll('.filter-value-item').forEach(item=>{
+        const val = (item.getAttribute('data-value') || '').toLowerCase();
+        item.classList.toggle('d-none', term !== '' && !val.includes(term));
+      });
+    });
+
+    selectAllEl.addEventListener('change', ()=>{
+      const checked = selectAllEl.checked;
+      const uniqueValues = getUniqueColumnValues(key);
+      uniqueValues.forEach(v=> checked ? f.excluded.delete(v) : f.excluded.add(v));
+      listEl.querySelectorAll('.filter-value-checkbox').forEach(cb=> cb.checked = checked);
+      selectAllEl.indeterminate = false;
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    listEl.addEventListener('change', (e)=>{
+      if (!e.target.classList.contains('filter-value-checkbox')) return;
+      const item = e.target.closest('.filter-value-item');
+      const val = item.getAttribute('data-value');
+      if (e.target.checked) f.excluded.delete(val); else f.excluded.add(val);
+      updateSelectAllState(th);
+      updateSortIndicators();
+      if (f.autoApply) renderTable();
+    });
+
+    autoApplyEl.addEventListener('change', ()=>{
+      f.autoApply = autoApplyEl.checked;
+    });
+
+    applyBtn.addEventListener('click', ()=>{
+      renderTable();
+      updateSortIndicators();
+      closeDropdown(th);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      f.condition = 'none';
+      f.value = '';
+      f.excluded.clear();
+      syncFilterControls(th);
+      buildFilterValuesList(th);
+      updateSortIndicators();
+      renderTable();
+      closeDropdown(th);
+    });
+  });
+  updateSortIndicators();
+  updateFreezeButtons();
+}
+// deferred: bootstrap.bundle.min.js is loaded later, in includes/footer.php
+document.addEventListener('DOMContentLoaded', initSortableHeaders);
 
 function renderChangeVesselOptions(keyword = "", selectedNoPk = ""){
   const kw = keyword.trim().toLowerCase();
@@ -2204,25 +2601,20 @@ function hideChangeVesselModal(){
 
 async function loadTable(){
   const kw = q.value.trim();
-  const sb = sortBy.value;
-  const sd = sortDir.value;
-  const fm = filterMonth.value;
-  const fv = filterMotherVessel.value;
+  const sb = 'created_at';
+  const sd = 'DESC';
   const fd = filterDiscardedSI.value;
 
   const res = await apiGet(
     'list',
-    `&q=${encodeURIComponent(kw)}&sort_by=${encodeURIComponent(sb)}&sort_dir=${encodeURIComponent(sd)}&filter_month=${encodeURIComponent(fm)}&filter_no_pk=${encodeURIComponent(fv)}&filter_discarded=${encodeURIComponent(fd)}`
+    `&q=${encodeURIComponent(kw)}&sort_by=${encodeURIComponent(sb)}&sort_dir=${encodeURIComponent(sd)}&filter_discarded=${encodeURIComponent(fd)}`
   );
   if (!res.ok){
     tbody.innerHTML = `<tr><td colspan="12" class="text-danger">Error: ${esc(res.msg)}</td></tr>`;
     return;
   }
-  if (!res.data.length){
-    tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted">No data</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = res.data.map(rowTemplate).join('');
+  originalData = res.data;
+  renderTable();
 }
 
 /* ===== Vessel dropdown change → auto fill ===== */
@@ -2381,6 +2773,7 @@ tbody.addEventListener('click', async (e)=>{
     const res = await apiPost('delete', { id });
     if (res.ok){
       showAlert('success', res.msg);
+      originalData = originalData.filter(r => String(r.id) !== String(id));
       tr.remove();
       if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="12" class="text-center text-muted">No data</td></tr>`;
     } else {
@@ -2427,24 +2820,11 @@ q.addEventListener('input', ()=>{
   clearTimeout(t);
   t = setTimeout(loadTable, 200);
 });
-btnReset.addEventListener('click', ()=>{
+btnClearQ.addEventListener('click', ()=>{
   q.value = "";
-  filterMonth.value = "";
-  filterMotherVessel.value = "";
-  filterDiscardedSI.value = "hide";
   loadTable();
 });
-sortBy.addEventListener('change', loadTable);
-sortDir.addEventListener('change', loadTable);
-filterMonth.addEventListener('change', loadTable);
-filterMotherVessel.addEventListener('change', loadTable);
 filterDiscardedSI.addEventListener('change', loadTable);
-btnFilterReset.addEventListener('click', ()=>{
-  filterMonth.value = "";
-  filterMotherVessel.value = "";
-  filterDiscardedSI.value = "hide";
-  loadTable();
-});
 
 /* ===== Import CSV ===== */
 formImport.addEventListener('submit', async (e)=>{
