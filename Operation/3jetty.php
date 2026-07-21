@@ -325,6 +325,9 @@ include __DIR__ . "/../includes/sidebar.php";
         #tbl th.frozen-col, #tbl td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
         #tbl thead th.frozen-col { background-color: #f8f9fa; z-index: 3; }
         #tbl th.frozen-col-last, #tbl td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+        .table-responsive { max-height: 65vh; overflow-y: auto; }
+        #tbl thead th { position: sticky; top: 0; z-index: 2; background-color: #f8f9fa; }
+        #tbl thead th.frozen-col { z-index: 3; }
       </style>
 
       <div class="table-responsive">
