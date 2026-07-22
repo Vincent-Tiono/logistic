@@ -224,44 +224,33 @@ const TLU_CSV_COLUMNS = [
   'remarks'
 ];
 
-const TLU_TABLE_EXPORT_HEADERS = [
-  'No. Reff',
-  'Buyer',
-  'POD MV',
-  'Jetty',
-  'Tugboat',
-  'Barge',
-  'QTY',
-  'QTY DISC',
-  'RC',
-  'QTY Actual',
-  'PBM Vendor',
-  'Floating Crane',
+/* Headers for the Coal Barging "Export CSV" download — matches the on-screen
+   Coal Barging Input table (dataBargesTable), not TLU Operation's own table. */
+const COAL_BARGING_TABLE_EXPORT_HEADERS = [
+  'Month Vessel',
+  'Status ACT/RC',
+  'Status ACT/ACT&RC',
   'Laycan Start',
   'Laycan End',
   'Arrival Jetty',
+  'Date Jetty',
   'Start Loading',
   'Completed Loading',
-  'LHV',
-  'SPOG ZONA 2',
-  'PKK',
-  'RKBM',
-  'STS/ SPB',
-  'Start mooring',
-  'End mooring',
-  'Mooring Place 1',
-  'Clear pass',
-  'Start Mooring clear pass',
-  'Cast off mooring clear pass',
-  'Mooring Place 2',
-  'TA Barges Actual',
-  'TA MV',
-  'TA FLF',
-  'Cargo Readiness Actual',
+  'Jetty',
+  'Tugboat',
+  'Barge',
+  'QTY Jetty',
+  'QTY DISC',
+  'QTY Laut',
+  'DSR VS Redraft',
+  'No. Reff',
+  'Buyer',
+  'POD MV',
+  'PBM Vendor',
+  'Floating Crane',
   'Start Disch',
   'Completed Disch',
-  'Discharge Sequence',
-  'Back to jetty',
+  'Anchorage',
   'Remarks',
   'Created By',
   'Created At',
@@ -390,55 +379,241 @@ function decodeOperationData($value) {
   return is_array($decoded) ? $decoded : [];
 }
 
+const RC_UNUSED_STRIP_FIELDS = [
+  'no_pk',
+  'buyer',
+  'mothervessel',
+  'pbm_vendor',
+  'floating_crane',
+  'start_disch',
+  'completed_disch'
+];
+
+function stripRcUnusedFields(array $operationData): array {
+  foreach (RC_UNUSED_STRIP_FIELDS as $field) {
+    unset($operationData[$field]);
+  }
+  return $operationData;
+}
+
+/* ===== calculated-column helpers — mirror the JS in the Coal Barging Input table ===== */
+function monthVesselFromCompletedDisch($value) {
+  $text = trim((string)$value);
+  if (preg_match('/^\d{4}-(\d{2})-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/', $text, $matches)) {
+    return (string)(int)$matches[1];
+  }
+  return '';
+}
+
+function statusActRcExportValue(array $data): string {
+  $value = strtoupper(trim((string)($data['status_act_rc'] ?? '')));
+  return $value === 'RC' ? 'RC' : 'ACT';
+}
+
+function statusActActRcExportValue(array $data): string {
+  $saved = strtoupper(trim((string)($data['status_act_act_rc'] ?? '')));
+  if ($saved === 'ACT&RC') return 'ACT&RC';
+  if ($saved === 'ACT') return 'ACT';
+  return statusActRcExportValue($data) === 'RC' ? 'ACT&RC' : 'ACT';
+}
+
+function dateJettyEffectiveValue(array $data): string {
+  $stored = trim((string)($data['date_jetty'] ?? ''));
+  return $stored !== '' ? $stored : trim((string)($data['completed_loading'] ?? ''));
+}
+
+function dsrVsRedraftExportValue(array $data): string {
+  $qtyDisc = operationNumberValue($data['qty_disc'] ?? '');
+  $qtyLaut = operationNumberValue($data['qty_actual'] ?? '');
+  if ($qtyDisc === null || $qtyLaut === null) return '';
+  return formatOperationDisplayNumber((string)($qtyDisc - $qtyLaut));
+}
+
+/* Row shape for the Coal Barging "Export CSV" download — mirrors the on-screen
+   Coal Barging Input table (dataBargesTable), not TLU Operation's own table. */
 function tableExportRow($row) {
   $data = decodeOperationData($row['operation_data'] ?? '');
-  $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
-  $rc = trim((string)($data['rc'] ?? ''));
-  $qtyActual = trim((string)($data['qty_actual'] ?? ''));
 
   return [
-    $row['no_pk'] ?? '',
-    $row['buyer'] ?? '',
-    $row['mothervessel'] ?? '',
+    monthVesselFromCompletedDisch($data['completed_disch'] ?? ''),
+    statusActRcExportValue($data),
+    statusActActRcExportValue($data),
+    formatDisplayDateTime($row['laycan_start'] ?? '', false),
+    formatDisplayDateTime($row['laycan_end'] ?? '', false),
+    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
+    formatDisplayDateTime(dateJettyEffectiveValue($data), false),
+    formatDisplayDateTime($data['start_loading'] ?? ''),
+    formatDisplayDateTime($data['completed_loading'] ?? ''),
     $row['jetty_code'] ?? '',
     $row['tugboat'] ?? '',
     $row['barge'] ?? '',
     formatOperationDisplayNumber($data['qty'] ?? ''),
-    formatOperationDisplayNumber($qtyDisc),
-    formatOperationDisplayNumber($rc),
-    formatOperationDisplayNumber($qtyActual),
+    formatOperationDisplayNumber($data['qty_disc'] ?? ''),
+    formatOperationDisplayNumber($data['qty_actual'] ?? ''),
+    dsrVsRedraftExportValue($data),
+    $row['no_pk'] ?? '',
+    $row['buyer'] ?? '',
+    $row['mothervessel'] ?? '',
     $data['pbm_vendor'] ?? '',
     $data['floating_crane'] ?? '',
-    formatDisplayDateTime($row['laycan_start'] ?? '', false),
-    formatDisplayDateTime($row['laycan_end'] ?? '', false),
-    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
-    formatDisplayDateTime($data['start_loading'] ?? ''),
-    formatDisplayDateTime($data['completed_loading'] ?? ''),
-    formatDisplayDateTime($data['lhv'] ?? ''),
-    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
-    formatDisplayDateTime($data['pkk'] ?? ''),
-    formatDisplayDateTime($data['rkbm'] ?? ''),
-    formatDisplayDateTime($data['sts_spb'] ?? ''),
-    formatDisplayDateTime($data['start_mooring'] ?? ''),
-    formatDisplayDateTime($data['end_mooring'] ?? ''),
-    $data['mooring_place_1'] ?? '',
-    formatDisplayDateTime($data['clear_pass'] ?? ''),
-    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
-    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
-    $data['mooring_place_2'] ?? '',
-    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
-    formatDisplayDateTime($data['ta_mv'] ?? ''),
-    formatDisplayDateTime($data['ta_flf'] ?? ''),
-    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
     formatDisplayDateTime($data['start_disch'] ?? ''),
     formatDisplayDateTime($data['completed_disch'] ?? ''),
-    $data['discharge_sequence'] ?? '',
-    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
+    $row['anchorage'] ?? '',
     $row['operation_remarks'] ?? '',
     $row['created_by'] ?? '',
     formatDisplayDateTime($row['created_at'] ?? ''),
     formatDisplayDateTime($row['updated_at'] ?? '')
   ];
+}
+
+/* Groups export rows by source vessel/barge, sorts each vessel by period, then
+   interleaves each barge's RC rows immediately before its base row — matching
+   how the Coal Barging Input table renders on screen. */
+function orderCoalBargingExportRows(array $rows): array {
+  $dischargeSequenceOf = function($row) {
+    $data = decodeOperationData($row['operation_data'] ?? '');
+    $sequence = trim((string)($data['discharge_sequence'] ?? ''));
+    return $sequence !== '' ? (int)$sequence : null;
+  };
+
+  $compareRows = function($left, $right) use ($dischargeSequenceOf) {
+    $leftSequence = $dischargeSequenceOf($left);
+    $rightSequence = $dischargeSequenceOf($right);
+    if ($leftSequence === null && $rightSequence !== null) return 1;
+    if ($leftSequence !== null && $rightSequence === null) return -1;
+    if ($leftSequence !== null && $rightSequence !== null && $leftSequence !== $rightSequence) {
+      return $leftSequence <=> $rightSequence;
+    }
+
+    $bargeSequenceCompare = (int)$left['barge_seq'] <=> (int)$right['barge_seq'];
+    if ($bargeSequenceCompare !== 0) return $bargeSequenceCompare;
+
+    $sourceCompare = (int)$left['source_sibarges_id'] <=> (int)$right['source_sibarges_id'];
+    if ($sourceCompare !== 0) return $sourceCompare;
+
+    $rcCompare = (int)$left['is_rc_clone'] <=> (int)$right['is_rc_clone'];
+    if ($rcCompare !== 0) return $rcCompare;
+
+    return (int)$left['rc_row_id'] <=> (int)$right['rc_row_id'];
+  };
+
+  $vesselGroups = [];
+  $vesselOrder = [];
+  foreach ($rows as $row) {
+    $vesselKey = $row['source_no_pk'] . "\0" . $row['source_mothervessel'];
+    if (!isset($vesselGroups[$vesselKey])) {
+      $vesselGroups[$vesselKey] = ['period' => $row['earliest_laycan_start'], 'rows' => []];
+      $vesselOrder[] = $vesselKey;
+    }
+    $vesselGroups[$vesselKey]['rows'][] = $row;
+  }
+
+  usort($vesselOrder, function($left, $right) use ($vesselGroups) {
+    $periodCompare = strcmp(
+      (string)$vesselGroups[$left]['period'],
+      (string)$vesselGroups[$right]['period']
+    );
+    return $periodCompare !== 0 ? $periodCompare : strcmp($left, $right);
+  });
+
+  $orderedRows = [];
+  foreach ($vesselOrder as $vesselKey) {
+    $groupRows = $vesselGroups[$vesselKey]['rows'];
+    $baseRows = array_values(array_filter($groupRows, fn($row) => $row['row_type'] !== 'rc'));
+    $rcRows = array_values(array_filter($groupRows, fn($row) => $row['row_type'] === 'rc'));
+
+    usort($baseRows, $compareRows);
+
+    $rcBySource = [];
+    foreach ($rcRows as $rcRow) {
+      $rcBySource[$rcRow['source_sibarges_id']][] = $rcRow;
+    }
+    foreach ($rcBySource as $sourceId => $group) {
+      usort($group, $compareRows);
+      $rcBySource[$sourceId] = $group;
+    }
+
+    $attachedSourceIds = [];
+    foreach ($baseRows as $baseRow) {
+      $sourceId = $baseRow['source_sibarges_id'];
+      if (isset($rcBySource[$sourceId])) {
+        foreach ($rcBySource[$sourceId] as $rcRow) {
+          $orderedRows[] = $rcRow;
+        }
+        $attachedSourceIds[$sourceId] = true;
+      }
+      $orderedRows[] = $baseRow;
+    }
+    foreach ($rcBySource as $sourceId => $group) {
+      if (!isset($attachedSourceIds[$sourceId])) {
+        foreach ($group as $rcRow) {
+          $orderedRows[] = $rcRow;
+        }
+      }
+    }
+  }
+
+  return $orderedRows;
+}
+
+/* Base SQL for Coal Barging export rows (base sibarges rows plus any "used" RC
+   rows), matching the on-screen Input table. Pass a scope condition with its own
+   placeholders (bound by the caller) to filter by vessel/month/year, or '' for all rows. */
+function coalBargingExportSql($scopeCondition) {
+  $periodJoin = "
+      INNER JOIN (
+        SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
+        FROM sibarges
+        WHERE no_pk <> ''
+          AND mothervessel <> ''
+          AND record_status = 'ACT'
+        GROUP BY no_pk, mothervessel
+        HAVING MIN(laycan_start) IS NOT NULL
+      ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
+  ";
+
+  return "
+    SELECT
+      s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
+      s.tugboat, s.barge, s.anchorage, s.barge_seq, s.laycan_start, s.laycan_end,
+      s.created_by, s.created_at, s.updated_at,
+      p.earliest_laycan_start,
+      s.no_pk AS source_no_pk, s.mothervessel AS source_mothervessel,
+      s.id AS source_sibarges_id, 'base' AS row_type, 0 AS is_rc_clone, 0 AS rc_row_id,
+      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
+    FROM sibarges s
+    {$periodJoin}
+    LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden ON hidden.sibarges_id = s.id
+    WHERE s.record_status = 'ACT'
+      AND hidden.sibarges_id IS NULL
+      {$scopeCondition}
+
+    UNION ALL
+
+    SELECT
+      s.id,
+      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.no_pk')), ''), s.no_pk) AS no_pk,
+      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.buyer')), ''), s.buyer) AS buyer,
+      COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(rc.operation_data, '$.mothervessel')), ''), s.mothervessel) AS mothervessel,
+      s.jetty_code, s.tugboat, s.barge, s.anchorage, s.barge_seq, s.laycan_start, s.laycan_end,
+      s.created_by, s.created_at, s.updated_at,
+      p.earliest_laycan_start,
+      s.no_pk AS source_no_pk, s.mothervessel AS source_mothervessel,
+      s.id AS source_sibarges_id, 'rc' AS row_type, 1 AS is_rc_clone, rc.id AS rc_row_id,
+      rc.operation_data AS operation_data,
+      rc.remarks AS operation_remarks
+    FROM sibarges s
+    {$periodJoin}
+    INNER JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_RC_TABLE . "` rc
+      ON rc.source_sibarges_id = s.id AND rc.usage_status = 'used'
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden ON hidden.sibarges_id = s.id
+    WHERE s.record_status = 'ACT'
+      AND hidden.sibarges_id IS NULL
+      {$scopeCondition}
+  ";
 }
 
 /* ========= GROUPED DATA BARGES CSV EXPORT ========= */
@@ -465,36 +640,18 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     exit('Mother Vessel wajib dipilih.');
   }
 
-  $sql = "
-    SELECT
-      s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
-      s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
-      s.created_by, s.created_at, s.updated_at,
-      p.earliest_laycan_start,
-      COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
-      COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
-    FROM sibarges s
-    INNER JOIN (
-      SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
-      FROM sibarges
-      WHERE no_pk <> ''
-        AND mothervessel <> ''
-        AND record_status = 'ACT'
-      GROUP BY no_pk, mothervessel
-      HAVING MIN(laycan_start) IS NOT NULL
-    ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
-    LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
-    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
-    WHERE s.record_status = 'ACT'
-  ";
-
+  $scopeCondition = '';
   if ($scope === 'vessel') {
-    $sql .= " AND s.no_pk = ? AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    $scopeCondition = " AND s.no_pk = ? AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
   } elseif ($scope === 'month') {
-    $sql .= " AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    $scopeCondition = " AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
   } elseif ($scope === 'year') {
-    $sql .= " AND YEAR(p.earliest_laycan_start) = ?";
+    $scopeCondition = " AND YEAR(p.earliest_laycan_start) = ?";
   }
+
+  /* Base rows plus any RC rows currently "used" in Coal Barging's own input table
+     (mirrors the si_barges_by_vessel query that feeds the on-screen Input table). */
+  $sql = coalBargingExportSql($scopeCondition);
 
   $stmt = $koneksi->prepare($sql);
   if (!$stmt) {
@@ -502,11 +659,11 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     exit($koneksi->error);
   }
   if ($scope === 'vessel') {
-    $stmt->bind_param('sii', $noPk, $year, $month);
+    $stmt->bind_param('siisii', $noPk, $year, $month, $noPk, $year, $month);
   } elseif ($scope === 'month') {
-    $stmt->bind_param('ii', $year, $month);
+    $stmt->bind_param('iiii', $year, $month, $year, $month);
   } elseif ($scope === 'year') {
-    $stmt->bind_param('i', $year);
+    $stmt->bind_param('ii', $year, $year);
   }
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -517,45 +674,22 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     exit('Data Barges tidak ditemukan untuk pilihan export ini.');
   }
 
-  usort($rows, function($left, $right) {
-    $periodCompare = strcmp(
-      (string)$left['earliest_laycan_start'],
-      (string)$right['earliest_laycan_start']
-    );
-    if ($periodCompare !== 0) return $periodCompare;
-
-    $vesselCompare = strcmp(
-      (string)$left['no_pk'] . "\0" . (string)$left['mothervessel'],
-      (string)$right['no_pk'] . "\0" . (string)$right['mothervessel']
-    );
-    if ($vesselCompare !== 0) return $vesselCompare;
-
-    $leftData = decodeOperationData($left['operation_data'] ?? '');
-    $rightData = decodeOperationData($right['operation_data'] ?? '');
-    $leftSequence = trim((string)($leftData['discharge_sequence'] ?? ''));
-    $rightSequence = trim((string)($rightData['discharge_sequence'] ?? ''));
-    if ($leftSequence === '' && $rightSequence !== '') return 1;
-    if ($leftSequence !== '' && $rightSequence === '') return -1;
-    if ($leftSequence !== '' && $rightSequence !== '') {
-      $sequenceCompare = (int)$leftSequence <=> (int)$rightSequence;
-      if ($sequenceCompare !== 0) return $sequenceCompare;
-    }
-
-    $bargeSequenceCompare = (int)$left['barge_seq'] <=> (int)$right['barge_seq'];
-    return $bargeSequenceCompare !== 0
-      ? $bargeSequenceCompare
-      : (int)$left['id'] <=> (int)$right['id'];
-  });
+  /* Group by the SOURCE vessel/barge (never the RC row's overridden display fields),
+     sort each vessel by period, then interleave each barge's RC rows immediately
+     before its base row — matching how the Input table renders on screen. */
+  $rows = orderCoalBargingExportRows($rows);
 
   if ($scope === 'vessel') {
     $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
-    $filename = "tlu_data_barges_{$safeNoPk}.csv";
+    $motherVessel = $rows[0]['mothervessel'] ?? '';
+    $safeMotherVessel = trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '_', $motherVessel));
+    $filename = "coal_barging_{$safeNoPk}—{$safeMotherVessel}.csv";
   } elseif ($scope === 'month') {
-    $filename = sprintf('tlu_data_barges_%04d-%02d.csv', $year, $month);
+    $filename = sprintf('coal_barging_%04d-%02d.csv', $year, $month);
   } elseif ($scope === 'year') {
-    $filename = "tlu_data_barges_{$year}.csv";
+    $filename = "coal_barging_{$year}.csv";
   } else {
-    $filename = 'tlu_data_barges_all.csv';
+    $filename = 'coal_barging_all.csv';
   }
 
   header('Content-Type: text/csv; charset=utf-8');
@@ -563,10 +697,10 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
   echo "\xEF\xBB\xBF";
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, TLU_TABLE_EXPORT_HEADERS, ',', '"', '');
+  fputcsv($out, COAL_BARGING_TABLE_EXPORT_HEADERS, ',', '"', '');
   $previousVessel = null;
   foreach ($rows as $row) {
-    $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
+    $vesselKey = $row['source_no_pk'] . "\0" . $row['source_mothervessel'];
     if ($previousVessel !== null && $vesselKey !== $previousVessel) {
       fputcsv($out, [], ',', '"', '');
     }
@@ -594,7 +728,9 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
     FROM sibarges s
     LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
     LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_OPERATION_TABLE . "` coal ON coal.sibarges_id = s.id
+    LEFT JOIN `" . COAL_BARGING_DATABASE . "`.`" . COAL_BARGING_DELETED_TABLE . "` hidden ON hidden.sibarges_id = s.id
     WHERE s.no_pk = ? AND s.record_status = 'ACT'
+      AND hidden.sibarges_id IS NULL
     ORDER BY s.barge_seq ASC, s.id ASC
   ");
   if (!$stmt) {
@@ -874,15 +1010,7 @@ if (($_GET['action'] ?? '') === 'create_rc_row' && $_SERVER['REQUEST_METHOD'] ==
   $operationData['qty_actual'] = formatOperationNumber(($sourceQtyJetty ?? 0) - ($sourceQtyLaut ?? 0));
   $operationData['status_act_rc'] = 'RC';
   $operationData['status_act_act_rc'] = 'ACT&RC';
-  unset(
-    $operationData['no_pk'],
-    $operationData['buyer'],
-    $operationData['mothervessel'],
-    $operationData['pbm_vendor'],
-    $operationData['floating_crane'],
-    $operationData['start_disch'],
-    $operationData['completed_disch']
-  );
+  $operationData = stripRcUnusedFields($operationData);
 
   $remarks = trim((string)($payload['operation_remarks'] ?? ''));
   $operationJson = json_encode($operationData, JSON_UNESCAPED_UNICODE);
@@ -966,13 +1094,27 @@ if (($_GET['action'] ?? '') === 'delete_coal_barging_row' && $_SERVER['REQUEST_M
     }
 
     $stmt = $coalKoneksi->prepare("
+      SELECT operation_data FROM `" . COAL_BARGING_RC_TABLE . "` WHERE id = ? LIMIT 1
+    ");
+    if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+    $stmt->bind_param('i', $rcRowId);
+    $stmt->execute();
+    $rcRow = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$rcRow) jsonOut(['ok' => false, 'msg' => 'Data RC tidak ditemukan.']);
+
+    $strippedOperationData = stripRcUnusedFields(decodeOperationData($rcRow['operation_data'] ?? ''));
+    $strippedOperationJson = json_encode($strippedOperationData, JSON_UNESCAPED_UNICODE);
+
+    $stmt = $coalKoneksi->prepare("
       UPDATE `" . COAL_BARGING_RC_TABLE . "`
       SET usage_status = 'unused',
+          operation_data = ?,
           updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     ");
     if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
-    $stmt->bind_param('i', $rcRowId);
+    $stmt->bind_param('si', $strippedOperationJson, $rcRowId);
     $stmt->execute();
     $deleted = $stmt->affected_rows;
     $stmt->close();
@@ -1004,15 +1146,30 @@ if (($_GET['action'] ?? '') === 'delete_coal_barging_row' && $_SERVER['REQUEST_M
   $stmt->close();
 
   $stmt = $coalKoneksi->prepare("
-    UPDATE `" . COAL_BARGING_RC_TABLE . "`
-    SET usage_status = 'unused', updated_at = CURRENT_TIMESTAMP
+    SELECT id, operation_data FROM `" . COAL_BARGING_RC_TABLE . "`
     WHERE source_sibarges_id = ?
       AND usage_status = 'used'
   ");
   if (!$stmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
   $stmt->bind_param('i', $sibargesId);
   $stmt->execute();
+  $usedRcRows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();
+
+  $updateStmt = $coalKoneksi->prepare("
+    UPDATE `" . COAL_BARGING_RC_TABLE . "`
+    SET usage_status = 'unused', operation_data = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  ");
+  if (!$updateStmt) jsonOut(['ok' => false, 'msg' => $coalKoneksi->error]);
+  foreach ($usedRcRows as $usedRcRow) {
+    $strippedOperationData = stripRcUnusedFields(decodeOperationData($usedRcRow['operation_data'] ?? ''));
+    $strippedOperationJson = json_encode($strippedOperationData, JSON_UNESCAPED_UNICODE);
+    $usedRcRowId = (int)$usedRcRow['id'];
+    $updateStmt->bind_param('si', $strippedOperationJson, $usedRcRowId);
+    $updateStmt->execute();
+  }
+  $updateStmt->close();
 
   jsonOut(['ok' => true, 'msg' => 'Data berhasil dihapus dari Coal Barging.']);
 }
@@ -1623,6 +1780,28 @@ if ($res) {
   $res->free();
 }
 
+/* All Coal Barging rows across every year/vessel, in the same row shape and
+   order as the "Export CSV" download, for the default landing page table. */
+$coalBargingTableRows = [];
+$stmt = $koneksi->prepare(coalBargingExportSql(''));
+if ($stmt) {
+  $stmt->execute();
+  $res = $stmt->get_result();
+  $rawRows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+  $stmt->close();
+  if ($rawRows) {
+    $previousVessel = null;
+    foreach (orderCoalBargingExportRows($rawRows) as $row) {
+      $vesselKey = $row['source_no_pk'] . "\0" . $row['source_mothervessel'];
+      if ($previousVessel !== null && $vesselKey !== $previousVessel) {
+        $coalBargingTableRows[] = null;
+      }
+      $coalBargingTableRows[] = tableExportRow($row);
+      $previousVessel = $vesselKey;
+    }
+  }
+}
+
 /* ========= PAGE META ========= */
 $pageTitle = "Coal Barging";
 
@@ -1651,6 +1830,56 @@ include __DIR__ . "/../includes/sidebar.php";
           <button type="button" class="btn btn-outline-primary tlu-mode-button" id="openExportWorkflow">
             Export CSV
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3" id="allVesselsTableCard">
+      <div class="card-body">
+        <h6 class="mb-3">Coal Barging — Semua Tahun &amp; Mother Vessel</h6>
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle mb-0" id="allVesselsTable">
+            <thead class="table-light">
+              <tr>
+                <th>Month Vessel</th>
+                <th>Status ACT/RC</th>
+                <th>Status ACT/ACT&amp;RC</th>
+                <th>Laycan Start</th>
+                <th>Laycan End</th>
+                <th>Arrival Jetty</th>
+                <th>Date Jetty</th>
+                <th>Start Loading</th>
+                <th>Completed Loading</th>
+                <th>Jetty</th>
+                <th>Tugboat</th>
+                <th>Barge</th>
+                <th>QTY Jetty</th>
+                <th>QTY DISC</th>
+                <th>QTY Laut</th>
+                <th>DSR VS Redraft</th>
+                <th>No. Reff</th>
+                <th>Buyer</th>
+                <th>POD MV</th>
+                <th>PBM Vendor</th>
+                <th>Floating Crane</th>
+                <th>Start Disch</th>
+                <th>Completed Disch</th>
+                <th>Anchorage</th>
+                <th>Remarks</th>
+                <th>Created By</th>
+                <th>Created At</th>
+                <th>Updated At</th>
+              </tr>
+            </thead>
+            <tbody id="allVesselsTableBody"></tbody>
+          </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mt-3">
+          <div class="small text-muted" id="allVesselsTableInfo"></div>
+          <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="allVesselsPrevPage">Previous</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="allVesselsNextPage">Next</button>
+          </div>
         </div>
       </div>
     </div>
@@ -2012,6 +2241,8 @@ include __DIR__ . "/../includes/sidebar.php";
     top: 0;
     z-index: 2;
     background-color: var(--bs-table-bg, #f8f9fa);
+    text-align: left;
+    vertical-align: middle;
   }
 
   #dataBargesTable th.sortable, #unusedRcTable th.sortable { white-space: nowrap; }
@@ -2058,10 +2289,24 @@ include __DIR__ . "/../includes/sidebar.php";
     overflow-wrap: anywhere;
     white-space: pre-wrap;
   }
+
+  #allVesselsTable thead th {
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  #allVesselsTable tr.all-vessels-separator td {
+    padding: 0;
+    height: 25px;
+    border-left: 0;
+    border-right: 0;
+    background-color: #f1f3f5;
+  }
 </style>
 
 <script>
 const tluModeSelector = document.getElementById('tluModeSelector');
+const allVesselsTableCard = document.getElementById('allVesselsTableCard');
 const tluInputWorkflow = document.getElementById('tluInputWorkflow');
 const tluExportWorkflow = document.getElementById('tluExportWorkflow');
 const openInputWorkflow = document.getElementById('openInputWorkflow');
@@ -2098,6 +2343,14 @@ const operationCsvStatus = document.getElementById('operationCsvStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const coalBargingTableRows = <?= json_encode($coalBargingTableRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const allVesselsTableBody = document.getElementById('allVesselsTableBody');
+const allVesselsColumnCount = document.querySelectorAll('#allVesselsTable thead th').length;
+const allVesselsTableInfo = document.getElementById('allVesselsTableInfo');
+const allVesselsPrevPage = document.getElementById('allVesselsPrevPage');
+const allVesselsNextPage = document.getElementById('allVesselsNextPage');
+const ALL_VESSELS_PAGE_SIZE = 100;
+let allVesselsCurrentPage = 1;
 const restrictedFloatingCranes = {
   KTM: 'STV KTM',
   MLS: 'STV MAESTRO'
@@ -2198,6 +2451,7 @@ function updateExportVessels() {
 
 function showTluWorkflow(workflow) {
   tluModeSelector.classList.add('d-none');
+  allVesselsTableCard.classList.add('d-none');
   tluInputWorkflow.classList.toggle('d-none', workflow !== 'input');
   tluExportWorkflow.classList.toggle('d-none', workflow !== 'export');
 }
@@ -2212,8 +2466,43 @@ document.querySelectorAll('.backToTluMode').forEach(button => {
     tluInputWorkflow.classList.add('d-none');
     tluExportWorkflow.classList.add('d-none');
     tluModeSelector.classList.remove('d-none');
+    allVesselsTableCard.classList.remove('d-none');
   });
 });
+
+function renderAllVesselsTable() {
+  const totalRows = coalBargingTableRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / ALL_VESSELS_PAGE_SIZE));
+  allVesselsCurrentPage = Math.min(Math.max(1, allVesselsCurrentPage), totalPages);
+
+  const startIndex = (allVesselsCurrentPage - 1) * ALL_VESSELS_PAGE_SIZE;
+  const pageRows = coalBargingTableRows.slice(startIndex, startIndex + ALL_VESSELS_PAGE_SIZE);
+
+  allVesselsTableBody.innerHTML = pageRows.map(row => row === null
+    ? `<tr class="all-vessels-separator"><td colspan="${allVesselsColumnCount}"></td></tr>`
+    : `<tr>${row.map(value => `<td>${displayValue(value)}</td>`).join('')}</tr>`
+  ).join('');
+
+  allVesselsTableInfo.textContent = totalRows === 0
+    ? 'Tidak ada data.'
+    : `Menampilkan ${startIndex + 1}–${Math.min(startIndex + ALL_VESSELS_PAGE_SIZE, totalRows)} dari ${totalRows} baris (Halaman ${allVesselsCurrentPage}/${totalPages})`;
+
+  allVesselsPrevPage.classList.toggle('d-none', totalPages <= 1);
+  allVesselsNextPage.classList.toggle('d-none', totalPages <= 1);
+  allVesselsPrevPage.disabled = allVesselsCurrentPage <= 1;
+  allVesselsNextPage.disabled = allVesselsCurrentPage >= totalPages;
+}
+
+allVesselsPrevPage.addEventListener('click', () => {
+  allVesselsCurrentPage -= 1;
+  renderAllVesselsTable();
+});
+allVesselsNextPage.addEventListener('click', () => {
+  allVesselsCurrentPage += 1;
+  renderAllVesselsTable();
+});
+
+renderAllVesselsTable();
 
 exportScopeInputs.forEach(input => {
   input.addEventListener('change', updateExportScopeFields);

@@ -380,6 +380,36 @@ function tableExportRow($row) {
   ];
 }
 
+function compareTluExportRows($left, $right) {
+  $periodCompare = strcmp(
+    (string)$left['earliest_laycan_start'],
+    (string)$right['earliest_laycan_start']
+  );
+  if ($periodCompare !== 0) return $periodCompare;
+
+  $vesselCompare = strcmp(
+    (string)$left['no_pk'] . "\0" . (string)$left['mothervessel'],
+    (string)$right['no_pk'] . "\0" . (string)$right['mothervessel']
+  );
+  if ($vesselCompare !== 0) return $vesselCompare;
+
+  $leftData = decodeOperationData($left['operation_data'] ?? '');
+  $rightData = decodeOperationData($right['operation_data'] ?? '');
+  $leftSequence = trim((string)($leftData['discharge_sequence'] ?? ''));
+  $rightSequence = trim((string)($rightData['discharge_sequence'] ?? ''));
+  if ($leftSequence === '' && $rightSequence !== '') return 1;
+  if ($leftSequence !== '' && $rightSequence === '') return -1;
+  if ($leftSequence !== '' && $rightSequence !== '') {
+    $sequenceCompare = (int)$leftSequence <=> (int)$rightSequence;
+    if ($sequenceCompare !== 0) return $sequenceCompare;
+  }
+
+  $bargeSequenceCompare = (int)$left['barge_seq'] <=> (int)$right['barge_seq'];
+  return $bargeSequenceCompare !== 0
+    ? $bargeSequenceCompare
+    : (int)$left['id'] <=> (int)$right['id'];
+}
+
 /* ========= GROUPED DATA BARGES CSV EXPORT ========= */
 if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
   $scope = trim((string)($_GET['scope'] ?? ''));
@@ -456,45 +486,19 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     exit('Data Barges tidak ditemukan untuk pilihan export ini.');
   }
 
-  usort($rows, function($left, $right) {
-    $periodCompare = strcmp(
-      (string)$left['earliest_laycan_start'],
-      (string)$right['earliest_laycan_start']
-    );
-    if ($periodCompare !== 0) return $periodCompare;
-
-    $vesselCompare = strcmp(
-      (string)$left['no_pk'] . "\0" . (string)$left['mothervessel'],
-      (string)$right['no_pk'] . "\0" . (string)$right['mothervessel']
-    );
-    if ($vesselCompare !== 0) return $vesselCompare;
-
-    $leftData = decodeOperationData($left['operation_data'] ?? '');
-    $rightData = decodeOperationData($right['operation_data'] ?? '');
-    $leftSequence = trim((string)($leftData['discharge_sequence'] ?? ''));
-    $rightSequence = trim((string)($rightData['discharge_sequence'] ?? ''));
-    if ($leftSequence === '' && $rightSequence !== '') return 1;
-    if ($leftSequence !== '' && $rightSequence === '') return -1;
-    if ($leftSequence !== '' && $rightSequence !== '') {
-      $sequenceCompare = (int)$leftSequence <=> (int)$rightSequence;
-      if ($sequenceCompare !== 0) return $sequenceCompare;
-    }
-
-    $bargeSequenceCompare = (int)$left['barge_seq'] <=> (int)$right['barge_seq'];
-    return $bargeSequenceCompare !== 0
-      ? $bargeSequenceCompare
-      : (int)$left['id'] <=> (int)$right['id'];
-  });
+  usort($rows, 'compareTluExportRows');
 
   if ($scope === 'vessel') {
     $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
-    $filename = "tlu_data_barges_{$safeNoPk}.csv";
+    $motherVessel = $rows[0]['mothervessel'] ?? '';
+    $safeMotherVessel = trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '_', $motherVessel));
+    $filename = "tlu_{$safeNoPk}—{$safeMotherVessel}.csv";
   } elseif ($scope === 'month') {
-    $filename = sprintf('tlu_data_barges_%04d-%02d.csv', $year, $month);
+    $filename = sprintf('tlu_%04d-%02d.csv', $year, $month);
   } elseif ($scope === 'year') {
-    $filename = "tlu_data_barges_{$year}.csv";
+    $filename = "tlu_{$year}.csv";
   } else {
-    $filename = 'tlu_data_barges_all.csv';
+    $filename = 'tlu_all.csv';
   }
 
   header('Content-Type: text/csv; charset=utf-8');
@@ -1006,6 +1010,47 @@ if ($res) {
   $res->free();
 }
 
+/* ========= ALL YEARS / ALL VESSELS TABLE (landing page) ========= */
+$allOperationsRows = [];
+$res = $koneksi->query("
+  SELECT
+    s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
+    s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
+    s.created_by, s.created_at, s.updated_at,
+    v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
+    p.earliest_laycan_start,
+    o.operation_data, o.remarks AS operation_remarks
+  FROM sibarges s
+  INNER JOIN (
+    SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
+    FROM sibarges
+    WHERE no_pk <> ''
+      AND mothervessel <> ''
+      AND record_status = 'ACT'
+    GROUP BY no_pk, mothervessel
+    HAVING MIN(laycan_start) IS NOT NULL
+  ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
+  INNER JOIN vessel v ON v.no_pk = s.no_pk
+  LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+  WHERE s.record_status = 'ACT'
+");
+if ($res) {
+  $allOperationsRawRows = $res->fetch_all(MYSQLI_ASSOC);
+  $res->free();
+
+  usort($allOperationsRawRows, 'compareTluExportRows');
+
+  $previousVessel = null;
+  foreach ($allOperationsRawRows as $row) {
+    $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
+    if ($previousVessel !== null && $vesselKey !== $previousVessel) {
+      $allOperationsRows[] = null;
+    }
+    $allOperationsRows[] = tableExportRow($row);
+    $previousVessel = $vesselKey;
+  }
+}
+
 /* ========= PAGE META ========= */
 $pageTitle = "TLU Operation";
 
@@ -1034,6 +1079,30 @@ include __DIR__ . "/../includes/sidebar.php";
           <button type="button" class="btn btn-outline-primary tlu-mode-button" id="openExportWorkflow">
             Export CSV
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3" id="allOperationsCard">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+          <h6 class="m-0">TLU Operation — Semua Tahun &amp; Mother Vessel</h6>
+          <div class="small text-muted" id="allOperationsSummary"></div>
+        </div>
+        <div class="table-responsive data-barges-horizontal-scroll">
+          <table class="table table-bordered align-middle mb-0" id="allOperationsTable">
+            <thead class="table-light">
+              <tr id="allOperationsHeaderRow"></tr>
+            </thead>
+            <tbody id="allOperationsBody"></tbody>
+          </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mt-3">
+          <div class="small text-muted" id="allOperationsPageInfo"></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="allOperationsPrev">Previous</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" id="allOperationsNext">Next</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1354,6 +1423,8 @@ include __DIR__ . "/../includes/sidebar.php";
     top: 0;
     z-index: 2;
     background-color: var(--bs-table-bg, #f8f9fa);
+    text-align: left;
+    vertical-align: middle;
   }
 
   #dataBargesTable th.sortable { white-space: nowrap; }
@@ -1371,6 +1442,36 @@ include __DIR__ . "/../includes/sidebar.php";
   #dataBargesTable th.frozen-col, #dataBargesTable td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
   #dataBargesTable thead th.frozen-col { background-color: var(--bs-table-bg, #f8f9fa); z-index: 3; }
   #dataBargesTable th.frozen-col-last, #dataBargesTable td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+
+  #allOperationsTable {
+    width: max-content;
+    min-width: 100%;
+    font-size: 15px;
+  }
+
+  #allOperationsTable th,
+  #allOperationsTable td {
+    min-width: 70px;
+    padding: 12px 14px;
+    white-space: nowrap;
+  }
+
+  #allOperationsTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background-color: var(--bs-table-bg, #f8f9fa);
+    text-align: left;
+    vertical-align: middle;
+  }
+
+  #allOperationsTable tr.all-operations-separator td {
+    padding: 0;
+    height: 25px;
+    border-left: 0;
+    border-right: 0;
+    background-color: #f1f3f5;
+  }
 
   #siBargesBody tr[data-row-id] {
     cursor: pointer;
@@ -1400,6 +1501,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
 <script>
 const tluModeSelector = document.getElementById('tluModeSelector');
+const allOperationsCard = document.getElementById('allOperationsCard');
 const tluInputWorkflow = document.getElementById('tluInputWorkflow');
 const tluExportWorkflow = document.getElementById('tluExportWorkflow');
 const openInputWorkflow = document.getElementById('openInputWorkflow');
@@ -1432,6 +1534,10 @@ const operationCsvStatus = document.getElementById('operationCsvStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const allOperationsHeaders = <?= json_encode(TLU_TABLE_EXPORT_HEADERS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const allOperationsData = <?= json_encode($allOperationsRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const ALL_OPERATIONS_PAGE_SIZE = 100;
+let allOperationsCurrentPage = 1;
 const restrictedFloatingCranes = {
   KTM: 'STV KTM',
   MLS: 'STV MAESTRO'
@@ -1533,6 +1639,7 @@ function updateExportVessels() {
 
 function showTluWorkflow(workflow) {
   tluModeSelector.classList.add('d-none');
+  allOperationsCard.classList.add('d-none');
   tluInputWorkflow.classList.toggle('d-none', workflow !== 'input');
   tluExportWorkflow.classList.toggle('d-none', workflow !== 'export');
 }
@@ -1547,6 +1654,7 @@ document.querySelectorAll('.backToTluMode').forEach(button => {
     tluInputWorkflow.classList.add('d-none');
     tluExportWorkflow.classList.add('d-none');
     tluModeSelector.classList.remove('d-none');
+    allOperationsCard.classList.remove('d-none');
   });
 });
 
@@ -1716,6 +1824,45 @@ function displayValue(value) {
   const text = String(value ?? '').trim();
   return text === '' ? '-' : esc(text);
 }
+
+/* ===== All Years / All Vessels table (landing page, client-side paginated) ===== */
+const allOperationsHeaderRow = document.getElementById('allOperationsHeaderRow');
+const allOperationsBody = document.getElementById('allOperationsBody');
+const allOperationsSummary = document.getElementById('allOperationsSummary');
+const allOperationsPageInfo = document.getElementById('allOperationsPageInfo');
+const allOperationsPrev = document.getElementById('allOperationsPrev');
+const allOperationsNext = document.getElementById('allOperationsNext');
+
+allOperationsHeaderRow.innerHTML = allOperationsHeaders.map(label => `<th>${esc(label)}</th>`).join('');
+
+function renderAllOperationsPage(page) {
+  const totalRows = allOperationsData.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / ALL_OPERATIONS_PAGE_SIZE));
+  allOperationsCurrentPage = Math.min(Math.max(page, 1), totalPages);
+
+  const start = (allOperationsCurrentPage - 1) * ALL_OPERATIONS_PAGE_SIZE;
+  const pageRows = allOperationsData.slice(start, start + ALL_OPERATIONS_PAGE_SIZE);
+
+  allOperationsBody.innerHTML = pageRows.length
+    ? pageRows.map(row => row === null
+        ? `<tr class="all-operations-separator"><td colspan="${allOperationsHeaders.length}"></td></tr>`
+        : `<tr>${row.map(value => `<td>${displayValue(value)}</td>`).join('')}</tr>`
+      ).join('')
+    : `<tr><td colspan="${allOperationsHeaders.length}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+
+  allOperationsSummary.textContent = totalRows ? `${totalRows} baris` : '';
+  allOperationsPageInfo.textContent = totalRows
+    ? `Halaman ${allOperationsCurrentPage} dari ${totalPages} (baris ${start + 1}-${Math.min(start + ALL_OPERATIONS_PAGE_SIZE, totalRows)} dari ${totalRows})`
+    : '';
+
+  allOperationsPrev.classList.toggle('d-none', allOperationsCurrentPage <= 1);
+  allOperationsNext.classList.toggle('d-none', allOperationsCurrentPage >= totalPages);
+}
+
+allOperationsPrev.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage - 1));
+allOperationsNext.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage + 1));
+
+renderAllOperationsPage(1);
 
 const formattedNumberFields = new Set(['qty', 'qty_disc', 'rc', 'qty_actual']);
 const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);

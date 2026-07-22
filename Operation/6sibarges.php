@@ -1637,6 +1637,8 @@ include __DIR__ . "/../includes/sidebar.php";
     top: 0;
     z-index: 2;
     background-color: #f8f9fa;
+    text-align: left;
+    vertical-align: middle;
   }
 
   #tbl th.sortable { white-space: nowrap; }
