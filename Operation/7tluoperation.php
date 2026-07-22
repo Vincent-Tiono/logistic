@@ -52,8 +52,45 @@ const TLU_OPERATION_FIELDS = [
   'start_disch',
   'completed_disch',
   'discharge_sequence',
-  'back_to_jetty'
+  'back_to_jetty',
+  'waiting_loading_jetty',
+  'cek_waiting_loading_jetty',
+  'barges_arrival_early',
+  'waiting_plan_loading',
+  'loading_time_jetty',
+  'part_1',
+  'cek_part_1',
+  'lhv_time',
+  'spog_time',
+  'clear_pass_time'
 ];
+
+/* Cycle Time module: editable columns between Floating Crane and Laycan Start. */
+const TLU_CYCLE_TIME_FIELDS = [
+  'waiting_loading_jetty' => 'Waiting Loading Jetty',
+  'cek_waiting_loading_jetty' => 'Cek Waiting Loading Jetty',
+  'barges_arrival_early' => 'Barges Arrival Early',
+  'waiting_plan_loading' => 'Waiting Plan Loading',
+  'loading_time_jetty' => 'Loading Time Jetty',
+  'part_1' => 'Part 1',
+  'cek_part_1' => 'Cek Part 1',
+  'lhv_time' => 'LHV Time',
+  'spog_time' => 'SPOG Time',
+  'clear_pass_time' => 'Clear Pass Time'
+];
+
+const TLU_CYCLE_TIME_NUMBER_FIELDS = [
+  'waiting_loading_jetty',
+  'barges_arrival_early',
+  'waiting_plan_loading',
+  'loading_time_jetty',
+  'part_1',
+  'lhv_time',
+  'spog_time',
+  'clear_pass_time'
+];
+
+const TLU_CYCLE_TIME_YESNO_FIELDS = ['cek_waiting_loading_jetty', 'cek_part_1'];
 
 const TLU_DATETIME_FIELDS = [
   'arrival_jetty' => 'Arrival Jetty',
@@ -613,28 +650,62 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
   $sibargesId = filter_var($payload['sibarges_id'] ?? null, FILTER_VALIDATE_INT);
   if (!$sibargesId) jsonOut(['ok' => false, 'msg' => 'Data barge tidak valid.']);
 
+  /* Baseline from the existing saved record so a partial save (e.g. from the
+     Cycle Time tab, which only submits its own editable columns) doesn't wipe
+     out fields owned by the Input tab, and vice versa. */
+  $baselineStmt = $koneksi->prepare('SELECT operation_data, remarks FROM barge_operations WHERE sibarges_id = ?');
+  if (!$baselineStmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $baselineStmt->bind_param('i', $sibargesId);
+  $baselineStmt->execute();
+  $baselineRow = $baselineStmt->get_result()->fetch_assoc();
+  $baselineStmt->close();
+
   $submittedData = is_array($payload['data'] ?? null) ? $payload['data'] : [];
-  $operationRemarks = trim((string)($submittedData['operation_remarks'] ?? ''));
-  $operationData = [];
+  $operationRemarks = array_key_exists('operation_remarks', $submittedData)
+    ? trim((string)$submittedData['operation_remarks'])
+    : (string)($baselineRow['remarks'] ?? '');
+  $operationData = decodeOperationData($baselineRow['operation_data'] ?? '');
   foreach (TLU_OPERATION_FIELDS as $field) {
-    $value = trim((string)($submittedData[$field] ?? ''));
-    if ($value !== '') $operationData[$field] = $value;
+    if (!array_key_exists($field, $submittedData)) continue;
+    $value = trim((string)$submittedData[$field]);
+    if ($value !== '') {
+      $operationData[$field] = $value;
+    } else {
+      unset($operationData[$field]);
+    }
   }
 
-  $qtyDisc = parseOperationNumber($submittedData['qty_disc'] ?? '', 'QTY DISC');
-  $rc = parseOperationNumber($submittedData['rc'] ?? '', 'RC');
-  if ($qtyDisc === null && $rc === null) {
-    unset($operationData['qty_actual']);
-  } else {
-    $operationData['qty_actual'] = formatOperationNumber(($qtyDisc ?? 0) + ($rc ?? 0));
+  if (array_key_exists('qty_disc', $submittedData) || array_key_exists('rc', $submittedData)) {
+    $qtyDisc = parseOperationNumber($submittedData['qty_disc'] ?? '', 'QTY DISC');
+    $rc = parseOperationNumber($submittedData['rc'] ?? '', 'RC');
+    if ($qtyDisc === null && $rc === null) {
+      unset($operationData['qty_actual']);
+    } else {
+      $operationData['qty_actual'] = formatOperationNumber(($qtyDisc ?? 0) + ($rc ?? 0));
+    }
   }
 
   foreach (TLU_DATETIME_FIELDS as $field => $label) {
+    if (!array_key_exists($field, $submittedData)) continue;
     $normalizedDateTime = normalizeOperationDateTime($submittedData[$field] ?? '', $label);
     if ($normalizedDateTime === '') {
       unset($operationData[$field]);
     } else {
       $operationData[$field] = $normalizedDateTime;
+    }
+  }
+
+  foreach (TLU_CYCLE_TIME_NUMBER_FIELDS as $field) {
+    if (!array_key_exists($field, $submittedData)) continue;
+    $value = trim((string)$submittedData[$field]);
+    if ($value !== '') parseOperationNumber($value, TLU_CYCLE_TIME_FIELDS[$field]);
+  }
+
+  foreach (TLU_CYCLE_TIME_YESNO_FIELDS as $field) {
+    if (!array_key_exists($field, $submittedData)) continue;
+    $value = trim((string)$submittedData[$field]);
+    if ($value !== '' && !in_array($value, ['Yes', 'No'], true)) {
+      jsonOut(['ok' => false, 'msg' => TLU_CYCLE_TIME_FIELDS[$field] . ' harus Yes atau No.']);
     }
   }
 
@@ -1078,6 +1149,9 @@ include __DIR__ . "/../includes/sidebar.php";
           <button type="button" class="btn btn-primary tlu-mode-button" id="openInputWorkflow">
             Input
           </button>
+          <button type="button" class="btn btn-outline-primary tlu-mode-button" id="openCycleTimeWorkflow">
+            Cycle Time
+          </button>
           <button type="button" class="btn btn-outline-primary tlu-mode-button" id="openExportWorkflow">
             Export CSV
           </button>
@@ -1150,8 +1224,17 @@ include __DIR__ . "/../includes/sidebar.php";
 
       <div class="card mt-3 d-none" id="siBargesBox">
         <div class="card-body">
-          <div class="d-flex align-items-center mb-3">
+          <div class="d-flex align-items-center gap-2 mb-3">
             <h6 class="m-0">Data Barges</h6>
+            <div class="hidden-columns-indicator d-none">
+              <span class="badge text-bg-secondary hidden-columns-badge">
+                <span class="hidden-columns-count">0</span> columns hidden
+              </span>
+              <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-secondary hidden-columns-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Show hidden columns">+</button>
+                <div class="dropdown-menu dropdown-menu-end hidden-columns-menu p-2"></div>
+              </div>
+            </div>
           </div>
 
           <div class="border rounded p-3 mb-3">
@@ -1232,6 +1315,155 @@ include __DIR__ . "/../includes/sidebar.php";
           </div>
           <div class="d-flex justify-content-end mt-3">
             <button type="button" class="btn btn-sm btn-success" id="exportDataBargesCsv" disabled>
+              Export Data Barges CSV
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-none" id="tluCycleTimeWorkflow">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h5 class="m-0">TLU Operation — Cycle Time</h5>
+        <button type="button" class="btn btn-sm btn-outline-secondary backToTluMode">
+          Kembali
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-3">
+              <label for="cycle_year" class="form-label fw-semibold">Pilih Tahun</label>
+              <select id="cycle_year" class="form-select">
+                <option value="">-- Pilih Tahun --</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label for="cycle_month" class="form-label fw-semibold">Pilih Bulan</label>
+              <select id="cycle_month" class="form-select" disabled>
+                <option value="">-- Pilih Bulan --</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label for="cycle_no_pk" class="form-label fw-semibold">Pilih Mother Vessel (No PK)</label>
+              <select name="cycle_no_pk" id="cycle_no_pk" class="form-select" disabled>
+                <option value="">-- Pilih Mother Vessel --</option>
+              </select>
+            </div>
+          </div>
+
+          <?php if (!$vessels): ?>
+            <div class="form-text text-muted">
+              Belum ada Mother Vessel dengan Laycan Start pada Data Barges.
+            </div>
+          <?php endif; ?>
+        </div>
+      </div>
+
+      <div class="card mt-3 d-none" id="cycleTimeBox">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h6 class="m-0">Data Barges</h6>
+            <div class="hidden-columns-indicator d-none">
+              <span class="badge text-bg-secondary hidden-columns-badge">
+                <span class="hidden-columns-count">0</span> columns hidden
+              </span>
+              <div class="dropdown">
+                <button type="button" class="btn btn-sm btn-outline-secondary hidden-columns-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Show hidden columns">+</button>
+                <div class="dropdown-menu dropdown-menu-end hidden-columns-menu p-2"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="border rounded p-3 mb-3">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
+              <div>
+                <h6 class="mb-1">Import CSV</h6>
+                <div class="small text-muted">
+                  Download data vessel ini, edit di Excel, lalu import kembali. Jangan mengubah kolom si_barges.
+                </div>
+              </div>
+              <div class="d-flex align-items-center flex-wrap gap-2">
+                <a class="btn btn-sm btn-outline-primary" id="downloadCycleTimeCsv" href="#">
+                  Download CSV
+                </a>
+                <form id="importCycleTimeForm" class="d-flex align-items-center flex-nowrap gap-2">
+                  <input type="file" class="form-control form-control-sm operation-csv-file" id="cycleTimeCsvFile" accept=".csv,text/csv" required>
+                  <button type="submit" class="btn btn-sm btn-primary flex-shrink-0" id="importCycleTimeButton">Import CSV</button>
+                </form>
+              </div>
+            </div>
+            <div class="alert d-none mt-3 mb-0" id="cycleTimeCsvStatus" role="alert"></div>
+          </div>
+
+          <div class="alert alert-primary py-2 mb-3" role="note">
+            Klik salah satu baris untuk melihat dan mengedit data operasi.
+          </div>
+
+          <div class="table-responsive data-barges-horizontal-scroll">
+            <table class="table table-bordered align-middle mb-0" id="cycleTimeTable">
+            <thead class="table-light">
+              <tr>
+                <th data-label="No.">No.</th>
+                <th class="sortable" data-key="no_pk" data-type="text" data-label="No. Reff" data-field="no_pk">No. Reff</th>
+                <th class="sortable" data-key="buyer" data-type="text" data-label="Buyer" data-field="buyer">Buyer</th>
+                <th class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel" data-field="mothervessel">Mother Vessel</th>
+                <th class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty" data-field="jetty_code">Jetty</th>
+                <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
+                <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
+                <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-field="qty">QTY</th>
+                <th class="sortable" data-key="qty_disc" data-type="number" data-label="QTY DISC" data-field="qty_disc">QTY DISC</th>
+                <th class="sortable" data-key="rc" data-type="number" data-label="RC" data-field="rc">RC</th>
+                <th class="sortable" data-key="qty_actual" data-type="number" data-label="QTY Actual" data-field="qty_actual">QTY Actual</th>
+                <th class="sortable" data-key="pbm_vendor" data-type="text" data-label="PBM Vendor" data-field="pbm_vendor">PBM Vendor</th>
+                <th class="sortable" data-key="floating_crane" data-type="text" data-label="Floating Crane" data-field="floating_crane">Floating Crane</th>
+                <th class="sortable cycle-time-editable-col" data-key="waiting_loading_jetty" data-type="number" data-label="Waiting Loading Jetty" data-edit-field="waiting_loading_jetty">Waiting Loading Jetty</th>
+                <th class="sortable cycle-time-editable-col" data-key="cek_waiting_loading_jetty" data-type="text" data-label="Cek Waiting Loading Jetty" data-edit-field="cek_waiting_loading_jetty" data-input-type="yesno">Cek Waiting Loading Jetty</th>
+                <th class="sortable cycle-time-editable-col" data-key="barges_arrival_early" data-type="number" data-label="Barges Arrival Early" data-edit-field="barges_arrival_early">Barges Arrival Early</th>
+                <th class="sortable cycle-time-editable-col" data-key="waiting_plan_loading" data-type="number" data-label="Waiting Plan Loading" data-edit-field="waiting_plan_loading">Waiting Plan Loading</th>
+                <th class="sortable cycle-time-editable-col" data-key="loading_time_jetty" data-type="number" data-label="Loading Time Jetty" data-edit-field="loading_time_jetty">Loading Time Jetty</th>
+                <th class="sortable cycle-time-editable-col" data-key="part_1" data-type="number" data-label="Part 1" data-edit-field="part_1">Part 1</th>
+                <th class="sortable cycle-time-editable-col" data-key="cek_part_1" data-type="text" data-label="Cek Part 1" data-edit-field="cek_part_1" data-input-type="yesno">Cek Part 1</th>
+                <th class="sortable cycle-time-editable-col" data-key="lhv_time" data-type="number" data-label="LHV Time" data-edit-field="lhv_time">LHV Time</th>
+                <th class="sortable cycle-time-editable-col" data-key="spog_time" data-type="number" data-label="SPOG Time" data-edit-field="spog_time">SPOG Time</th>
+                <th class="sortable cycle-time-editable-col" data-key="clear_pass_time" data-type="number" data-label="Clear Pass Time" data-edit-field="clear_pass_time">Clear Pass Time</th>
+                <th class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start" data-field="laycan_start">Laycan Start</th>
+                <th class="sortable" data-key="laycan_end" data-type="date" data-label="Laycan End" data-field="laycan_end">Laycan End</th>
+                <th class="sortable" data-key="arrival_jetty" data-type="date" data-label="Arrival Jetty" data-field="arrival_jetty">Arrival Jetty</th>
+                <th class="sortable" data-key="start_loading" data-type="date" data-label="Start Loading" data-field="start_loading">Start Loading</th>
+                <th class="sortable" data-key="completed_loading" data-type="date" data-label="Completed Loading" data-field="completed_loading">Completed Loading</th>
+                <th class="sortable" data-key="lhv" data-type="date" data-label="LHV" data-field="lhv">LHV</th>
+                <th class="sortable" data-key="spog_zona_2" data-type="date" data-label="SPOG ZONA 2" data-field="spog_zona_2">SPOG ZONA 2</th>
+                <th class="sortable" data-key="pkk" data-type="date" data-label="PKK" data-field="pkk">PKK</th>
+                <th class="sortable" data-key="rkbm" data-type="date" data-label="RKBM" data-field="rkbm">RKBM</th>
+                <th class="sortable" data-key="sts_spb" data-type="date" data-label="STS/SPB" data-field="sts_spb">STS/SPB</th>
+                <th class="sortable" data-key="start_mooring" data-type="date" data-label="Start Mooring" data-field="start_mooring">Start Mooring</th>
+                <th class="sortable" data-key="end_mooring" data-type="date" data-label="End Mooring" data-field="end_mooring">End Mooring</th>
+                <th class="sortable" data-key="mooring_place_1" data-type="text" data-label="Mooring Place 1" data-field="mooring_place_1">Mooring Place 1</th>
+                <th class="sortable" data-key="clear_pass" data-type="date" data-label="Clear Pass" data-field="clear_pass">Clear Pass</th>
+                <th class="sortable" data-key="start_mooring_clear_pass" data-type="date" data-label="Start Mooring Clear Pass" data-field="start_mooring_clear_pass">Start Mooring Clear Pass</th>
+                <th class="sortable" data-key="cast_off_mooring_clear_pass" data-type="date" data-label="Cast Off Mooring Clear Pass" data-field="cast_off_mooring_clear_pass">Cast Off Mooring Clear Pass</th>
+                <th class="sortable" data-key="mooring_place_2" data-type="text" data-label="Mooring Place 2" data-field="mooring_place_2">Mooring Place 2</th>
+                <th class="sortable" data-key="ta_barges_actual" data-type="date" data-label="TA Barges Actual" data-field="ta_barges_actual">TA Barges Actual</th>
+                <th class="sortable" data-key="ta_mv" data-type="date" data-label="TA MV" data-field="ta_mv">TA MV</th>
+                <th class="sortable" data-key="ta_flf" data-type="date" data-label="TA FLF" data-field="ta_flf">TA FLF</th>
+                <th class="sortable" data-key="cargo_readiness_actual" data-type="date" data-label="Cargo Readiness Actual" data-field="cargo_readiness_actual">Cargo Readiness Actual</th>
+                <th class="sortable" data-key="start_disch" data-type="date" data-label="Start Disch" data-field="start_disch">Start Disch</th>
+                <th class="sortable" data-key="completed_disch" data-type="date" data-label="Completed Disch" data-field="completed_disch">Completed Disch</th>
+                <th class="sortable" data-key="discharge_sequence" data-type="number" data-label="Discharge Sequence" data-field="discharge_sequence">Discharge Sequence</th>
+                <th class="sortable" data-key="back_to_jetty" data-type="date" data-label="Back to Jetty" data-field="back_to_jetty">Back to Jetty</th>
+                <th class="sortable" data-key="operation_remarks" data-type="text" data-label="Remarks" data-field="operation_remarks">Remarks</th>
+                <th class="sortable" data-key="created_by" data-type="text" data-label="Created By" data-field="created_by">Created By</th>
+                <th class="sortable" data-key="created_at" data-type="date" data-label="Created At" data-field="created_at">Created At</th>
+                <th class="sortable" data-key="updated_at" data-type="date" data-label="Updated At" data-field="updated_at">Updated At</th>
+              </tr>
+            </thead>
+              <tbody id="cycleTimeBody"></tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-end mt-3">
+            <button type="button" class="btn btn-sm btn-success" id="exportCycleTimeCsv" disabled>
               Export Data Barges CSV
             </button>
           </div>
@@ -1338,6 +1570,28 @@ include __DIR__ . "/../includes/sidebar.php";
   </div>
 </div>
 
+<div class="modal fade" id="cycleTimeDetailModal" tabindex="-1" aria-labelledby="cycleTimeDetailTitle" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="cycleTimeDetailTitle">Detail Barges</h5>
+          <div class="small text-muted" id="cycleTimeDetailSubtitle"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" style="max-height:70vh; overflow-y:auto;">
+        <div id="cycleTimeDetailBody"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="me-auto small" id="cycleTimeSaveStatus"></div>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+        <button type="button" class="btn btn-primary" id="cycleTimeSaveButton">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <style>
   /* Keep wide Data Barges columns from widening the whole page/topbar. */
   body {
@@ -1407,20 +1661,24 @@ include __DIR__ . "/../includes/sidebar.php";
     -webkit-overflow-scrolling: touch;
   }
 
-  #dataBargesTable {
+  #dataBargesTable,
+  #cycleTimeTable {
     width: max-content;
     min-width: 1900px;
     font-size: 15px;
   }
 
   #dataBargesTable th,
-  #dataBargesTable td {
+  #dataBargesTable td,
+  #cycleTimeTable th,
+  #cycleTimeTable td {
     min-width: 70px;
     padding: 12px 14px;
     white-space: nowrap;
   }
 
-  #dataBargesTable thead th {
+  #dataBargesTable thead th,
+  #cycleTimeTable thead th {
     position: sticky;
     top: 0;
     z-index: 2;
@@ -1429,21 +1687,53 @@ include __DIR__ . "/../includes/sidebar.php";
     vertical-align: middle;
   }
 
-  #dataBargesTable th.sortable { white-space: nowrap; }
-  #dataBargesTable .th-sort-wrap { display:flex; align-items:center; justify-content:space-between; gap:4px; }
-  #dataBargesTable .sort-toggle { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; }
-  #dataBargesTable th.sortable.sort-active .sort-toggle { opacity:1; font-weight:bold; }
-  #dataBargesTable .filter-menu { min-width: 260px; max-height: 80vh; overflow-y: auto; white-space: normal; z-index: 2000; }
-  #dataBargesTable .filter-menu .dropdown-header-label { font-weight:bold; font-size:.9rem; color:#212529; padding: .35rem 1rem .15rem; margin:0; }
-  #dataBargesTable .filter-menu .sort-option { font-size:.8rem; }
-  #dataBargesTable .filter-menu .sort-option.active-sort { font-weight:bold; background-color:#e7f1ff; border-color:#0d6efd; color:#0d6efd; }
-  #dataBargesTable .filter-values-list { max-height: 160px; overflow-y: auto; }
-  #dataBargesTable .filter-value-item label { cursor:pointer; }
-  #dataBargesTable th.sortable.filter-active .sort-toggle { opacity:1; font-weight:bold; }
-  #dataBargesTable .freeze-toggle.active { background-color:#0d6efd; border-color:#0d6efd; color:#fff; }
-  #dataBargesTable th.frozen-col, #dataBargesTable td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
-  #dataBargesTable thead th.frozen-col { background-color: var(--bs-table-bg, #f8f9fa); z-index: 3; }
-  #dataBargesTable th.frozen-col-last, #dataBargesTable td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+  /* Cycle Time module: editable columns between Floating Crane and Laycan Start get a distinct header color. */
+  #cycleTimeTable thead th.cycle-time-editable-col {
+    background-color: #fff3cd;
+  }
+
+  #dataBargesTable th.sortable, #cycleTimeTable th.sortable { white-space: nowrap; }
+  #dataBargesTable .th-sort-wrap, #cycleTimeTable .th-sort-wrap { display:flex; align-items:center; justify-content:space-between; gap:4px; }
+  #dataBargesTable .sort-toggle, #cycleTimeTable .sort-toggle { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; }
+  #dataBargesTable th.sortable.sort-active .sort-toggle, #cycleTimeTable th.sortable.sort-active .sort-toggle { opacity:1; font-weight:bold; }
+  #dataBargesTable .filter-menu, #cycleTimeTable .filter-menu { min-width: 260px; max-height: 80vh; overflow-y: auto; white-space: normal; z-index: 2000; }
+  #dataBargesTable .filter-menu .dropdown-header-label, #cycleTimeTable .filter-menu .dropdown-header-label { font-weight:bold; font-size:.9rem; color:#212529; padding: .35rem 1rem .15rem; margin:0; }
+  #dataBargesTable .filter-menu .sort-option, #cycleTimeTable .filter-menu .sort-option { font-size:.8rem; }
+  #dataBargesTable .filter-menu .sort-option.active-sort, #cycleTimeTable .filter-menu .sort-option.active-sort { font-weight:bold; background-color:#e7f1ff; border-color:#0d6efd; color:#0d6efd; }
+  #dataBargesTable .filter-values-list, #cycleTimeTable .filter-values-list { max-height: 160px; overflow-y: auto; }
+  #dataBargesTable .filter-value-item label, #cycleTimeTable .filter-value-item label { cursor:pointer; }
+  #dataBargesTable th.sortable.filter-active .sort-toggle, #cycleTimeTable th.sortable.filter-active .sort-toggle { opacity:1; font-weight:bold; }
+  #dataBargesTable .freeze-toggle.active, #cycleTimeTable .freeze-toggle.active { background-color:#0d6efd; border-color:#0d6efd; color:#fff; }
+  #dataBargesTable th.frozen-col, #dataBargesTable td.frozen-col,
+  #cycleTimeTable th.frozen-col, #cycleTimeTable td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
+  #dataBargesTable thead th.frozen-col, #cycleTimeTable thead th.frozen-col { background-color: var(--bs-table-bg, #f8f9fa); z-index: 3; }
+  #dataBargesTable th.frozen-col-last, #dataBargesTable td.frozen-col-last,
+  #cycleTimeTable th.frozen-col-last, #cycleTimeTable td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+
+  #dataBargesTable th.sortable, #cycleTimeTable th.sortable { cursor: grab; }
+  #dataBargesTable th.col-selecting, #dataBargesTable td.col-selecting,
+  #cycleTimeTable th.col-selecting, #cycleTimeTable td.col-selecting { background-color: rgba(13,110,253,.18) !important; }
+
+  .hidden-columns-indicator:not(.d-none) { display: flex; align-items: center; gap: 6px; }
+  .hidden-columns-badge { font-weight: 500; }
+  .hidden-columns-toggle { line-height: 1; padding: .1rem .5rem; font-weight: bold; }
+  .hidden-columns-menu { min-width: 220px; max-height: 60vh; overflow-y: auto; }
+  .hidden-columns-menu .hidden-column-item label { cursor: pointer; }
+  .hidden-columns-menu .hidden-columns-unhide-all { margin-top: .25rem; }
+
+  .hide-column-popup {
+    position: fixed;
+    z-index: 3000;
+    background: #212529;
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 10px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.3);
+    font-size: .85rem;
+    max-width: 220px;
+  }
+  .hide-column-popup-text { margin-bottom: 6px; white-space: normal; }
+  .hide-column-popup .hide-column-popup-btn { width: 100%; }
 
   #allOperationsTable {
     width: max-content;
@@ -1475,11 +1765,13 @@ include __DIR__ . "/../includes/sidebar.php";
     background-color: #f1f3f5;
   }
 
-  #siBargesBody tr[data-row-id] {
+  #siBargesBody tr[data-row-id],
+  #cycleTimeBody tr[data-row-id] {
     cursor: pointer;
   }
 
-  #siBargesBody tr[data-row-id]:hover > td {
+  #siBargesBody tr[data-row-id]:hover > td,
+  #cycleTimeBody tr[data-row-id]:hover > td {
     background-color: #eaf2f8;
   }
 
@@ -1508,9 +1800,8 @@ const tluInputWorkflow = document.getElementById('tluInputWorkflow');
 const tluExportWorkflow = document.getElementById('tluExportWorkflow');
 const openInputWorkflow = document.getElementById('openInputWorkflow');
 const openExportWorkflow = document.getElementById('openExportWorkflow');
-const tluYearSelect = document.getElementById('tlu_year');
-const tluMonthSelect = document.getElementById('tlu_month');
-const noPkSelect = document.getElementById('no_pk');
+const tluCycleTimeWorkflow = document.getElementById('tluCycleTimeWorkflow');
+const openCycleTimeWorkflow = document.getElementById('openCycleTimeWorkflow');
 const exportScopeInputs = [...document.querySelectorAll('input[name="tlu_export_scope"]')];
 const exportYearGroup = document.getElementById('exportYearGroup');
 const exportMonthGroup = document.getElementById('exportMonthGroup');
@@ -1520,19 +1811,6 @@ const exportMonthSelect = document.getElementById('export_month');
 const exportNoPkSelect = document.getElementById('export_no_pk');
 const downloadGroupedExport = document.getElementById('downloadGroupedExport');
 const groupedExportStatus = document.getElementById('groupedExportStatus');
-const siBargesBox = document.getElementById('siBargesBox');
-const siBargesBody = document.getElementById('siBargesBody');
-const siBargesDetailModal = document.getElementById('siBargesDetailModal');
-const siBargesDetailSubtitle = document.getElementById('siBargesDetailSubtitle');
-const siBargesDetailBody = document.getElementById('siBargesDetailBody');
-const siBargesSaveButton = document.getElementById('siBargesSaveButton');
-const siBargesSaveStatus = document.getElementById('siBargesSaveStatus');
-const downloadOperationCsv = document.getElementById('downloadOperationCsv');
-const exportDataBargesCsv = document.getElementById('exportDataBargesCsv');
-const importOperationForm = document.getElementById('importOperationForm');
-const operationCsvFile = document.getElementById('operationCsvFile');
-const importOperationButton = document.getElementById('importOperationButton');
-const operationCsvStatus = document.getElementById('operationCsvStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -1544,12 +1822,6 @@ const restrictedFloatingCranes = {
   KTM: 'STV KTM',
   MLS: 'STV MAESTRO'
 };
-let currentSiBargesRows = [];
-let currentDetailRowId = null;
-let sortState = { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
-let filters = {}; // key -> { condition, value, excluded:Set(display values), autoApply }
-let frozenKey = null; // data-key of the rightmost frozen column (that column + all to its left are frozen), or null
-
 const monthNames = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
@@ -1563,19 +1835,9 @@ function replaceSelectOptions(select, placeholder, options) {
   });
 }
 
-function resetSelectedVessel() {
-  noPkSelect.value = '';
-  noPkSelect.dispatchEvent(new Event('change'));
-}
-
 const availableYears = [...new Set(
   tluVesselPeriods.map(vessel => String(vessel.laycan_year))
 )].sort((left, right) => Number(right) - Number(left));
-replaceSelectOptions(
-  tluYearSelect,
-  '-- Pilih Tahun --',
-  availableYears.map(year => ({ value: year, label: year }))
-);
 replaceSelectOptions(
   exportYearSelect,
   '-- Pilih Tahun --',
@@ -1643,10 +1905,12 @@ function showTluWorkflow(workflow) {
   tluModeSelector.classList.add('d-none');
   allOperationsCard.classList.add('d-none');
   tluInputWorkflow.classList.toggle('d-none', workflow !== 'input');
+  tluCycleTimeWorkflow.classList.toggle('d-none', workflow !== 'cycletime');
   tluExportWorkflow.classList.toggle('d-none', workflow !== 'export');
 }
 
 openInputWorkflow.addEventListener('click', () => showTluWorkflow('input'));
+openCycleTimeWorkflow.addEventListener('click', () => showTluWorkflow('cycletime'));
 openExportWorkflow.addEventListener('click', () => {
   updateExportScopeFields();
   showTluWorkflow('export');
@@ -1654,6 +1918,7 @@ openExportWorkflow.addEventListener('click', () => {
 document.querySelectorAll('.backToTluMode').forEach(button => {
   button.addEventListener('click', () => {
     tluInputWorkflow.classList.add('d-none');
+    tluCycleTimeWorkflow.classList.add('d-none');
     tluExportWorkflow.classList.add('d-none');
     tluModeSelector.classList.remove('d-none');
     allOperationsCard.classList.remove('d-none');
@@ -1701,48 +1966,6 @@ downloadGroupedExport.addEventListener('click', () => {
   if (scope === 'vessel') params.set('no_pk', noPk);
 
   window.location.href = `7tluoperation.php?${params.toString()}`;
-});
-
-tluYearSelect.addEventListener('change', () => {
-  const selectedYear = tluYearSelect.value;
-  const availableMonths = [...new Set(
-    tluVesselPeriods
-      .filter(vessel => String(vessel.laycan_year) === selectedYear)
-      .map(vessel => Number(vessel.laycan_month))
-  )].sort((left, right) => left - right);
-
-  replaceSelectOptions(
-    tluMonthSelect,
-    '-- Pilih Bulan --',
-    availableMonths.map(month => ({
-      value: String(month),
-      label: monthNames[month - 1]
-    }))
-  );
-  tluMonthSelect.disabled = !selectedYear;
-  replaceSelectOptions(noPkSelect, '-- Pilih Mother Vessel --', []);
-  noPkSelect.disabled = true;
-  resetSelectedVessel();
-});
-
-tluMonthSelect.addEventListener('change', () => {
-  const selectedYear = tluYearSelect.value;
-  const selectedMonth = tluMonthSelect.value;
-  const matchingVessels = tluVesselPeriods.filter(vessel =>
-    String(vessel.laycan_year) === selectedYear &&
-    String(vessel.laycan_month) === selectedMonth
-  );
-
-  replaceSelectOptions(
-    noPkSelect,
-    '-- Pilih Mother Vessel --',
-    matchingVessels.map(vessel => ({
-      value: vessel.no_pk,
-      label: `${vessel.no_pk} — ${vessel.mothervessel}`
-    }))
-  );
-  noPkSelect.disabled = !selectedMonth;
-  resetSelectedVessel();
 });
 
 const siBargesDetailFields = [
@@ -1866,7 +2089,11 @@ allOperationsNext.addEventListener('click', () => renderAllOperationsPage(allOpe
 
 renderAllOperationsPage(1);
 
-const formattedNumberFields = new Set(['qty', 'qty_disc', 'rc', 'qty_actual']);
+const formattedNumberFields = new Set([
+  'qty', 'qty_disc', 'rc', 'qty_actual',
+  'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading',
+  'loading_time_jetty', 'part_1', 'lhv_time', 'spog_time', 'clear_pass_time'
+]);
 const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);
 
 function formatDisplayNumber(value) {
@@ -1978,14 +2205,6 @@ function selectMarkup(field, value, options) {
   `;
 }
 
-function dischargeSequenceMarkup(field, value) {
-  const options = Array.from(
-    { length: currentSiBargesRows.length },
-    (_, index) => String(index + 1)
-  );
-  return selectMarkup(field, value, options);
-}
-
 function datetimeLocalValue(value) {
   const text = String(value ?? '').trim();
   if (!text) return '';
@@ -1996,103 +2215,9 @@ function datetimeLocalValue(value) {
   return parseDDMonYYToISO(text);
 }
 
-function validateOperationTimelineInputs(reportError = false) {
-  const arrivalJettyInput = siBargesDetailBody.querySelector('[data-operation-field="arrival_jetty"]');
-  const startLoadingInput = siBargesDetailBody.querySelector('[data-operation-field="start_loading"]');
-  const completedLoadingInput = siBargesDetailBody.querySelector('[data-operation-field="completed_loading"]');
-  const startMooringInput = siBargesDetailBody.querySelector('[data-operation-field="start_mooring"]');
-  const endMooringInput = siBargesDetailBody.querySelector('[data-operation-field="end_mooring"]');
-  const startDischInput = siBargesDetailBody.querySelector('[data-operation-field="start_disch"]');
-  const completedDischInput = siBargesDetailBody.querySelector('[data-operation-field="completed_disch"]');
-  const timelineInputs = [
-    arrivalJettyInput,
-    startLoadingInput,
-    completedLoadingInput,
-    startMooringInput,
-    endMooringInput,
-    startDischInput,
-    completedDischInput
-  ];
-  if (timelineInputs.some(input => !input)) return true;
-
-  timelineInputs.forEach(input => input.setCustomValidity(''));
-
-  startLoadingInput.min = arrivalJettyInput.value || '';
-  completedLoadingInput.min = startLoadingInput.value || arrivalJettyInput.value || '';
-  endMooringInput.min = startMooringInput.value || '';
-  completedDischInput.min = startDischInput.value || '';
-
-  if (arrivalJettyInput.value && startLoadingInput.value && startLoadingInput.value < arrivalJettyInput.value) {
-    startLoadingInput.setCustomValidity('Start Loading must be equal to or later than Arrival Jetty.');
-  }
-  if (startLoadingInput.value && completedLoadingInput.value && completedLoadingInput.value < startLoadingInput.value) {
-    completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Start Loading.');
-  }
-  if (!startLoadingInput.value && arrivalJettyInput.value && completedLoadingInput.value && completedLoadingInput.value < arrivalJettyInput.value) {
-    completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Arrival Jetty.');
-  }
-  if (startMooringInput.value && endMooringInput.value && endMooringInput.value < startMooringInput.value) {
-    endMooringInput.setCustomValidity('End Mooring must be equal to or later than Start Mooring.');
-  }
-  if (startDischInput.value && completedDischInput.value && completedDischInput.value < startDischInput.value) {
-    completedDischInput.setCustomValidity('Completed Disch must be equal to or later than Start Disch.');
-  }
-
-  const invalidInput = timelineInputs.find(input => !input.checkValidity());
-  if (invalidInput && reportError) invalidInput.reportValidity();
-  return !invalidInput;
-}
-
 function csvCell(value) {
   const text = String(value ?? '');
   return `"${text.replaceAll('"', '""')}"`;
-}
-
-function exportVisibleDataBarges() {
-  const headers = [...document.querySelectorAll('#dataBargesTable thead th')]
-    .slice(1)
-    .map(header => header.dataset.label || header.textContent.trim());
-  const dischargeSequenceIndex = headers.indexOf('Discharge Sequence');
-
-  const rows = [...siBargesBody.querySelectorAll('tr[data-row-id]')]
-    .map((row, originalIndex) => ({
-      originalIndex,
-      values: [...row.cells].slice(1).map(cell => {
-        const value = cell.textContent.trim();
-        return value === '-' ? '' : value;
-      })
-    }))
-    .sort((left, right) => {
-      const leftSequence = left.values[dischargeSequenceIndex] || '';
-      const rightSequence = right.values[dischargeSequenceIndex] || '';
-
-      if (!leftSequence && !rightSequence) return left.originalIndex - right.originalIndex;
-      if (!leftSequence) return 1;
-      if (!rightSequence) return -1;
-
-      return Number(leftSequence) - Number(rightSequence) || left.originalIndex - right.originalIndex;
-    });
-
-  if (!rows.length) return;
-
-  const csv = [
-    headers.map(csvCell).join(','),
-    ...rows.map(row => row.values.map(csvCell).join(','))
-  ].join('\r\n');
-  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  const noPk = noPkSelect.value.trim();
-  const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, '_');
-  const selectedVessel = tluVesselPeriods.find(vessel => vessel.no_pk === noPk);
-  const safeMotherVessel = (selectedVessel?.mothervessel || '').trim().replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
-
-  link.href = url;
-  link.download = safeNoPk ? `tlu_${safeNoPk}—${safeMotherVessel}.csv` : 'tlu_export.csv';
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
 }
 
 function dischargeSequenceSortValue(row) {
@@ -2161,17 +2286,6 @@ function getSortValue(row, key, type) {
   return (value ?? '').toString().toLowerCase();
 }
 
-function getFilterState(key) {
-  if (!filters[key]) filters[key] = { condition: 'none', value: '', excluded: new Set(), autoApply: true };
-  return filters[key];
-}
-
-function isFilterActive(key) {
-  const f = filters[key];
-  if (!f) return false;
-  return (f.condition && f.condition !== 'none') || (f.excluded && f.excluded.size > 0);
-}
-
 const FILTER_CONDITIONS = {
   equals:            (v, f)=> v === f,
   not_equals:        (v, f)=> v !== f,
@@ -2183,48 +2297,20 @@ const FILTER_CONDITIONS = {
   not_contains:      (v, f)=> !v.includes(f),
 };
 
-function getUniqueColumnValues(key) {
-  const seen = new Set();
-  const values = [];
-  currentSiBargesRows.forEach(row => {
-    const v = columnDisplayValue(row, key);
-    if (!seen.has(v)) { seen.add(v); values.push(v); }
-  });
-  return values;
-}
+const CYCLE_TIME_COLUMN_FIELDS = [
+  'waiting_loading_jetty',
+  'cek_waiting_loading_jetty',
+  'barges_arrival_early',
+  'waiting_plan_loading',
+  'loading_time_jetty',
+  'part_1',
+  'cek_part_1',
+  'lhv_time',
+  'spog_time',
+  'clear_pass_time'
+];
 
-function rowPassesFilters(row) {
-  for (const key in filters) {
-    const f = filters[key];
-    if (!f || !isFilterActive(key)) continue;
-    const display = columnDisplayValue(row, key);
-
-    if (f.condition && f.condition !== 'none') {
-      const fn = FILTER_CONDITIONS[f.condition];
-      if (fn && !fn(display.toLowerCase(), (f.value || '').toLowerCase())) return false;
-    }
-
-    if (f.excluded && f.excluded.has(display)) return false;
-  }
-  return true;
-}
-
-function computeDisplayData() {
-  const filtered = currentSiBargesRows.filter(rowPassesFilters);
-  if (!sortState.key || sortState.dir === 0) return filtered;
-  const th = document.querySelector(`#dataBargesTable th[data-key="${sortState.key}"]`);
-  const type = th ? th.getAttribute('data-type') : 'text';
-  const dir = sortState.dir;
-  return filtered.sort((a, b)=>{
-    const va = getSortValue(a, sortState.key, type);
-    const vb = getSortValue(b, sortState.key, type);
-    if (va < vb) return -1 * dir;
-    if (va > vb) return 1 * dir;
-    return 0;
-  });
-}
-
-function rowMarkup(row, displayIndex) {
+function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
   const operationData = parseOperationData(row.operation_data);
   operationData.qty_actual = calculateQtyActual(operationData);
 
@@ -2243,6 +2329,7 @@ function rowMarkup(row, displayIndex) {
       ${operationCell(operationData, 'qty_actual')}
       ${operationCell(operationData, 'pbm_vendor')}
       ${operationCell(operationData, 'floating_crane')}
+      ${showCycleTimeColumns ? CYCLE_TIME_COLUMN_FIELDS.map(field => operationCell(operationData, field)).join('') : ''}
       <td>${displayLaycanDateTime(row.laycan_start)}</td>
       <td>${displayLaycanDateTime(row.laycan_end)}</td>
       ${operationCell(operationData, 'arrival_jetty')}
@@ -2276,33 +2363,6 @@ function rowMarkup(row, displayIndex) {
   `;
 }
 
-function renderTable() {
-  const displayData = computeDisplayData();
-  siBargesBody.innerHTML = displayData.length
-    ? displayData.map((row, index) => rowMarkup(row, index)).join('')
-    : '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
-  applyFreezeStyling();
-}
-
-function updateSortIndicators() {
-  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
-    const key = th.getAttribute('data-key');
-    const active = key === sortState.key && sortState.dir !== 0;
-    const filterActive = isFilterActive(key);
-    th.classList.toggle('sort-active', active);
-    th.classList.toggle('filter-active', filterActive);
-    const toggleBtn = th.querySelector('.sort-toggle');
-    if (toggleBtn) {
-      toggleBtn.innerHTML = active ? (sortState.dir === 1 ? '&#9650;' : '&#9660;') : '&#8645;';
-      toggleBtn.classList.toggle('text-primary', filterActive);
-    }
-    th.querySelectorAll('.sort-option').forEach(opt=>{
-      const dir = parseInt(opt.getAttribute('data-dir'), 10);
-      opt.classList.toggle('active-sort', active ? dir === sortState.dir : dir === 0);
-    });
-  });
-}
-
 function closeDropdown(th) {
   const toggleBtn = th.querySelector('.sort-toggle');
   if (!toggleBtn) return;
@@ -2310,554 +2370,1092 @@ function closeDropdown(th) {
   dd.hide();
 }
 
-function updateFreezeButtons() {
-  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
-    const key = th.getAttribute('data-key');
-    const btn = th.querySelector('.freeze-toggle');
-    if (!btn) return;
-    const isBoundary = key === frozenKey;
-    btn.textContent = isBoundary ? 'Unfreeze Column' : 'Freeze Column';
-    btn.classList.toggle('active', isBoundary);
-  });
-}
+function createOperationWorkflow(cfg) {
+  const yearSelect = document.getElementById(cfg.year);
+  const monthSelect = document.getElementById(cfg.month);
+  const noPkSelect = document.getElementById(cfg.noPk);
+  const box = document.getElementById(cfg.box);
+  const table = document.getElementById(cfg.table);
+  const body = document.getElementById(cfg.body);
+  const downloadCsv = document.getElementById(cfg.downloadCsv);
+  const exportCsvButton = document.getElementById(cfg.exportCsv);
+  const importForm = document.getElementById(cfg.importForm);
+  const csvFileInput = document.getElementById(cfg.csvFileInput);
+  const importButton = document.getElementById(cfg.importButton);
+  const csvStatus = document.getElementById(cfg.csvStatus);
+  const detailModal = document.getElementById(cfg.detailModal);
+  const detailSubtitle = document.getElementById(cfg.detailSubtitle);
+  const detailBody = document.getElementById(cfg.detailBody);
+  const saveButton = document.getElementById(cfg.saveButton);
+  const saveStatus = document.getElementById(cfg.saveStatus);
 
-// pins the frozen column + all columns to its left in place while the table
-// scrolls horizontally (sticky offsets are computed from actual rendered widths,
-// since column widths aren't fixed)
-function applyFreezeStyling() {
-  const headerRow = document.querySelector('#dataBargesTable thead tr');
-  if (!headerRow) return;
-  const headerCells = Array.from(headerRow.children);
+  // present only for tables opted into the drag-to-hide-columns feature (currently cycleTimeTable)
+  const hiddenColumnsIndicator = box.querySelector('.hidden-columns-indicator');
+  const hiddenColumnsCountEl = hiddenColumnsIndicator ? hiddenColumnsIndicator.querySelector('.hidden-columns-count') : null;
+  const hiddenColumnsMenu = hiddenColumnsIndicator ? hiddenColumnsIndicator.querySelector('.hidden-columns-menu') : null;
+  const COLUMN_DRAG_THRESHOLD = 6; // px of movement before a mousedown counts as a drag, not a click
 
-  headerCells.forEach(th=>{
-    th.classList.remove('frozen-col', 'frozen-col-last');
-    th.style.left = '';
-  });
-  document.querySelectorAll('#dataBargesTable tbody tr').forEach(tr=>{
-    Array.from(tr.children).forEach(td=>{
-      td.classList.remove('frozen-col', 'frozen-col-last');
-      td.style.position = '';
-      td.style.left = '';
-    });
-  });
+  let currentRows = [];
+  let currentDetailRowId = null;
+  let sortState = { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
+  let filters = {}; // key -> { condition, value, excluded:Set(display values), autoApply }
+  let frozenKey = null; // data-key of the rightmost frozen column (that column + all to its left are frozen), or null
+  let hiddenKeys = new Set(); // data-key of columns hidden via drag
+  let columnDragState = null; // { th, key, label, startX, startY, dragging }
+  let hideColumnPopupEl = null;
 
-  if (!frozenKey) return;
+  replaceSelectOptions(
+    yearSelect,
+    '-- Pilih Tahun --',
+    availableYears.map(year => ({ value: year, label: year }))
+  );
 
-  const frozenIndex = headerCells.findIndex(th=> th.getAttribute('data-key') === frozenKey);
-  if (frozenIndex === -1) return;
-
-  let left = 0;
-  for (let i = 0; i <= frozenIndex; i++){
-    const th = headerCells[i];
-    th.classList.add('frozen-col');
-    if (i === frozenIndex) th.classList.add('frozen-col-last');
-    th.style.left = `${left}px`;
-
-    document.querySelectorAll('#dataBargesTable tbody tr').forEach(tr=>{
-      const td = tr.children[i];
-      if (!td) return;
-      td.classList.add('frozen-col');
-      if (i === frozenIndex) td.classList.add('frozen-col-last');
-      td.style.left = `${left}px`;
-    });
-
-    left += th.getBoundingClientRect().width;
+  function resetSelectedVessel() {
+    noPkSelect.value = '';
+    noPkSelect.dispatchEvent(new Event('change'));
   }
-}
-window.addEventListener('resize', ()=> applyFreezeStyling());
 
-function updateSelectAllState(th) {
-  const key = th.getAttribute('data-key');
-  const f = getFilterState(key);
-  const selectAllEl = th.querySelector('.filter-select-all');
-  if (!selectAllEl) return;
-  const uniqueValues = getUniqueColumnValues(key);
-  const excludedCount = uniqueValues.filter(v=> f.excluded.has(v)).length;
-  if (excludedCount === 0){ selectAllEl.checked = true; selectAllEl.indeterminate = false; }
-  else if (excludedCount === uniqueValues.length){ selectAllEl.checked = false; selectAllEl.indeterminate = false; }
-  else { selectAllEl.checked = false; selectAllEl.indeterminate = true; }
-}
+  yearSelect.addEventListener('change', () => {
+    const selectedYear = yearSelect.value;
+    const availableMonths = [...new Set(
+      tluVesselPeriods
+        .filter(vessel => String(vessel.laycan_year) === selectedYear)
+        .map(vessel => Number(vessel.laycan_month))
+    )].sort((left, right) => left - right);
 
-function buildFilterValuesList(th) {
-  const key = th.getAttribute('data-key');
-  const f = getFilterState(key);
-  const listEl = th.querySelector('.filter-values-list');
-  const uniqueValues = getUniqueColumnValues(key);
+    replaceSelectOptions(
+      monthSelect,
+      '-- Pilih Bulan --',
+      availableMonths.map(month => ({
+        value: String(month),
+        label: monthNames[month - 1]
+      }))
+    );
+    monthSelect.disabled = !selectedYear;
+    replaceSelectOptions(noPkSelect, '-- Pilih Mother Vessel --', []);
+    noPkSelect.disabled = true;
+    resetSelectedVessel();
+  });
 
-  listEl.innerHTML = uniqueValues.map(v=>{
-    const checked = f.excluded.has(v) ? '' : 'checked';
-    const escaped = esc(v);
-    const labelHtml = v === '' ? '<i>(blank)</i>' : escaped;
-    return `<div class="form-check filter-value-item" data-value="${escaped}">
-      <input class="form-check-input filter-value-checkbox" type="checkbox" ${checked}>
-      <label class="form-check-label">${labelHtml}</label>
-    </div>`;
-  }).join('');
+  monthSelect.addEventListener('change', () => {
+    const selectedYear = yearSelect.value;
+    const selectedMonth = monthSelect.value;
+    const matchingVessels = tluVesselPeriods.filter(vessel =>
+      String(vessel.laycan_year) === selectedYear &&
+      String(vessel.laycan_month) === selectedMonth
+    );
 
-  updateSelectAllState(th);
-}
+    replaceSelectOptions(
+      noPkSelect,
+      '-- Pilih Mother Vessel --',
+      matchingVessels.map(vessel => ({
+        value: vessel.no_pk,
+        label: `${vessel.no_pk} — ${vessel.mothervessel}`
+      }))
+    );
+    noPkSelect.disabled = !selectedMonth;
+    resetSelectedVessel();
+  });
 
-function syncFilterControls(th) {
-  const key = th.getAttribute('data-key');
-  const f = getFilterState(key);
-  const conditionEl = th.querySelector('.filter-condition');
-  const valueEl = th.querySelector('.filter-value');
-  const searchEl = th.querySelector('.filter-search');
-  const autoApplyEl = th.querySelector('.filter-auto-apply');
-  if (conditionEl) conditionEl.value = f.condition;
-  if (valueEl) valueEl.value = f.value;
-  if (searchEl) searchEl.value = '';
-  if (autoApplyEl) autoApplyEl.checked = f.autoApply;
-  th.querySelectorAll('.filter-value-item').forEach(item=> item.classList.remove('d-none'));
-}
+  function dischargeSequenceMarkup(field, value) {
+    const options = Array.from(
+      { length: currentRows.length },
+      (_, index) => String(index + 1)
+    );
+    return selectMarkup(field, value, options);
+  }
 
-function initSortableHeaders() {
-  document.querySelectorAll('#dataBargesTable th.sortable').forEach(th=>{
-    const label = th.getAttribute('data-label');
-    const key = th.getAttribute('data-key');
+  function validateOperationTimelineInputs(reportError = false) {
+    const arrivalJettyInput = detailBody.querySelector('[data-operation-field="arrival_jetty"]');
+    const startLoadingInput = detailBody.querySelector('[data-operation-field="start_loading"]');
+    const completedLoadingInput = detailBody.querySelector('[data-operation-field="completed_loading"]');
+    const startMooringInput = detailBody.querySelector('[data-operation-field="start_mooring"]');
+    const endMooringInput = detailBody.querySelector('[data-operation-field="end_mooring"]');
+    const startDischInput = detailBody.querySelector('[data-operation-field="start_disch"]');
+    const completedDischInput = detailBody.querySelector('[data-operation-field="completed_disch"]');
+    const timelineInputs = [
+      arrivalJettyInput,
+      startLoadingInput,
+      completedLoadingInput,
+      startMooringInput,
+      endMooringInput,
+      startDischInput,
+      completedDischInput
+    ];
+    if (timelineInputs.some(input => !input)) return true;
 
-    th.innerHTML = `
-      <div class="th-sort-wrap">
-        <span>${label}</span>
-        <div class="dropdown">
-          <button type="button" class="btn btn-sm p-0 sort-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort / Filter ${label}">&#8645;</button>
-          <div class="dropdown-menu dropdown-menu-end filter-menu">
-            <p class="dropdown-header-label">Freeze</p>
-            <div class="px-3 pb-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary w-100 freeze-toggle">Freeze</button>
-            </div>
+    timelineInputs.forEach(input => input.setCustomValidity(''));
 
-            <hr class="dropdown-divider">
+    startLoadingInput.min = arrivalJettyInput.value || '';
+    completedLoadingInput.min = startLoadingInput.value || arrivalJettyInput.value || '';
+    endMooringInput.min = startMooringInput.value || '';
+    completedDischInput.min = startDischInput.value || '';
 
-            <p class="dropdown-header-label">Sort</p>
-            <div class="px-3 pb-2">
-              <div class="d-flex gap-1">
-                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="0">Default</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="1">Ascending</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="-1">Descending</button>
-              </div>
-            </div>
+    if (arrivalJettyInput.value && startLoadingInput.value && startLoadingInput.value < arrivalJettyInput.value) {
+      startLoadingInput.setCustomValidity('Start Loading must be equal to or later than Arrival Jetty.');
+    }
+    if (startLoadingInput.value && completedLoadingInput.value && completedLoadingInput.value < startLoadingInput.value) {
+      completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Start Loading.');
+    }
+    if (!startLoadingInput.value && arrivalJettyInput.value && completedLoadingInput.value && completedLoadingInput.value < arrivalJettyInput.value) {
+      completedLoadingInput.setCustomValidity('Completed Loading must be equal to or later than Arrival Jetty.');
+    }
+    if (startMooringInput.value && endMooringInput.value && endMooringInput.value < startMooringInput.value) {
+      endMooringInput.setCustomValidity('End Mooring must be equal to or later than Start Mooring.');
+    }
+    if (startDischInput.value && completedDischInput.value && completedDischInput.value < startDischInput.value) {
+      completedDischInput.setCustomValidity('Completed Disch must be equal to or later than Start Disch.');
+    }
 
-            <hr class="dropdown-divider">
+    const invalidInput = timelineInputs.find(input => !input.checkValidity());
+    if (invalidInput && reportError) invalidInput.reportValidity();
+    return !invalidInput;
+  }
 
-            <p class="dropdown-header-label">Filter</p>
-            <div class="px-3 pb-2">
-              <div class="d-flex gap-1 mb-2">
-                <select class="form-select form-select-sm filter-condition">
-                  <option value="none">Choose One</option>
-                  <option value="equals">Equals</option>
-                  <option value="not_equals">Does Not Equal</option>
-                  <option value="begins_with">Begins With</option>
-                  <option value="not_begins_with">Does Not Begin With</option>
-                  <option value="ends_with">Ends With</option>
-                  <option value="not_ends_with">Does Not End With</option>
-                  <option value="contains">Contains</option>
-                  <option value="not_contains">Does Not Contain</option>
-                </select>
-                <input type="text" class="form-control form-control-sm filter-value" placeholder="Value">
-              </div>
+  function exportVisibleData() {
+    const headers = [...table.querySelectorAll('thead th')]
+      .slice(1)
+      .map(header => header.dataset.label || header.textContent.trim());
+    const dischargeSequenceIndex = headers.indexOf('Discharge Sequence');
 
-              <div class="input-group input-group-sm mb-2">
-                <span class="input-group-text">&#128269;</span>
-                <input type="text" class="form-control filter-search" placeholder="Search">
-              </div>
+    const rows = [...body.querySelectorAll('tr[data-row-id]')]
+      .map((row, originalIndex) => ({
+        originalIndex,
+        values: [...row.cells].slice(1).map(cell => {
+          const value = cell.textContent.trim();
+          return value === '-' ? '' : value;
+        })
+      }))
+      .sort((left, right) => {
+        const leftSequence = left.values[dischargeSequenceIndex] || '';
+        const rightSequence = right.values[dischargeSequenceIndex] || '';
 
-              <div class="form-check mb-1">
-                <input class="form-check-input filter-select-all" type="checkbox" checked>
-                <label class="form-check-label fw-semibold">(Select All)</label>
-              </div>
+        if (!leftSequence && !rightSequence) return left.originalIndex - right.originalIndex;
+        if (!leftSequence) return 1;
+        if (!rightSequence) return -1;
 
-              <div class="filter-values-list border rounded p-1 mb-2"></div>
+        return Number(leftSequence) - Number(rightSequence) || left.originalIndex - right.originalIndex;
+      });
 
-              <div class="form-check mb-2">
-                <input class="form-check-input filter-auto-apply" type="checkbox" checked>
-                <label class="form-check-label">Auto Apply</label>
-              </div>
+    if (!rows.length) return;
 
-              <div class="d-flex justify-content-between gap-2">
-                <button type="button" class="btn btn-sm btn-primary flex-fill filter-apply">Apply Filter</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary flex-fill filter-clear">Clear Filter</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>`;
+    const csv = [
+      headers.map(csvCell).join(','),
+      ...rows.map(row => row.values.map(csvCell).join(','))
+    ].join('\r\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const noPk = noPkSelect.value.trim();
+    const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, '_');
+    const selectedVessel = tluVesselPeriods.find(vessel => vessel.no_pk === noPk);
+    const safeMotherVessel = (selectedVessel?.mothervessel || '').trim().replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
 
-    // popper strategy "fixed" escapes the .table-responsive/.data-barges-horizontal-scroll overflow-x:auto
-    // clipping (and lets flip-to-top work against the real viewport, not the clipped box)
-    const toggleBtn = th.querySelector('.sort-toggle');
-    new bootstrap.Dropdown(toggleBtn, {
-      popperConfig: (defaultConfig) => ({ ...defaultConfig, strategy: 'fixed' })
+    link.href = url;
+    link.download = safeNoPk ? `tlu_${safeNoPk}—${safeMotherVessel}.csv` : 'tlu_export.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function getFilterState(key) {
+    if (!filters[key]) filters[key] = { condition: 'none', value: '', excluded: new Set(), autoApply: true };
+    return filters[key];
+  }
+
+  function isFilterActive(key) {
+    const f = filters[key];
+    if (!f) return false;
+    return (f.condition && f.condition !== 'none') || (f.excluded && f.excluded.size > 0);
+  }
+
+  function getUniqueColumnValues(key) {
+    const seen = new Set();
+    const values = [];
+    currentRows.forEach(row => {
+      const v = columnDisplayValue(row, key);
+      if (!seen.has(v)) { seen.add(v); values.push(v); }
     });
+    return values;
+  }
 
-    // ----- Freeze -----
-    const freezeBtn = th.querySelector('.freeze-toggle');
-    freezeBtn.addEventListener('click', ()=>{
-      frozenKey = (frozenKey === key) ? null : key;
-      updateFreezeButtons();
-      applyFreezeStyling();
-      closeDropdown(th);
+  function rowPassesFilters(row) {
+    for (const key in filters) {
+      const f = filters[key];
+      if (!f || !isFilterActive(key)) continue;
+      const display = columnDisplayValue(row, key);
+
+      if (f.condition && f.condition !== 'none') {
+        const fn = FILTER_CONDITIONS[f.condition];
+        if (fn && !fn(display.toLowerCase(), (f.value || '').toLowerCase())) return false;
+      }
+
+      if (f.excluded && f.excluded.has(display)) return false;
+    }
+    return true;
+  }
+
+  function computeDisplayData() {
+    const filtered = currentRows.filter(rowPassesFilters);
+    if (!sortState.key || sortState.dir === 0) return filtered;
+    const th = table.querySelector(`th[data-key="${sortState.key}"]`);
+    const type = th ? th.getAttribute('data-type') : 'text';
+    const dir = sortState.dir;
+    return filtered.sort((a, b) => {
+      const va = getSortValue(a, sortState.key, type);
+      const vb = getSortValue(b, sortState.key, type);
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
     });
+  }
 
-    // ----- Sort -----
-    th.querySelectorAll('.sort-option').forEach(opt=>{
-      opt.addEventListener('click', (e)=>{
-        e.preventDefault();
+  function renderTable() {
+    const displayData = computeDisplayData();
+    body.innerHTML = displayData.length
+      ? displayData.map((row, index) => rowMarkup(row, index, cfg.showCycleTimeColumns)).join('')
+      : '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
+    applyHiddenColumns();
+    applyFreezeStyling();
+  }
+
+  function updateSortIndicators() {
+    table.querySelectorAll('th.sortable').forEach(th => {
+      const key = th.getAttribute('data-key');
+      const active = key === sortState.key && sortState.dir !== 0;
+      const filterActive = isFilterActive(key);
+      th.classList.toggle('sort-active', active);
+      th.classList.toggle('filter-active', filterActive);
+      const toggleBtn = th.querySelector('.sort-toggle');
+      if (toggleBtn) {
+        toggleBtn.innerHTML = active ? (sortState.dir === 1 ? '&#9650;' : '&#9660;') : '&#8645;';
+        toggleBtn.classList.toggle('text-primary', filterActive);
+      }
+      th.querySelectorAll('.sort-option').forEach(opt => {
         const dir = parseInt(opt.getAttribute('data-dir'), 10);
-        sortState = dir === 0 ? { key: null, dir: 0 } : { key, dir };
-        updateSortIndicators();
-        renderTable();
-        closeDropdown(th);
+        opt.classList.toggle('active-sort', active ? dir === sortState.dir : dir === 0);
+      });
+    });
+  }
+
+  function updateFreezeButtons() {
+    table.querySelectorAll('th.sortable').forEach(th => {
+      const key = th.getAttribute('data-key');
+      const btn = th.querySelector('.freeze-toggle');
+      if (!btn) return;
+      const isBoundary = key === frozenKey;
+      btn.textContent = isBoundary ? 'Unfreeze Column' : 'Freeze Column';
+      btn.classList.toggle('active', isBoundary);
+    });
+  }
+
+  // pins the frozen column + all columns to its left in place while the table
+  // scrolls horizontally (sticky offsets are computed from actual rendered widths,
+  // since column widths aren't fixed)
+  function applyFreezeStyling() {
+    const headerRow = table.querySelector('thead tr');
+    if (!headerRow) return;
+    const headerCells = Array.from(headerRow.children);
+
+    headerCells.forEach(th => {
+      th.classList.remove('frozen-col', 'frozen-col-last');
+      th.style.left = '';
+    });
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      Array.from(tr.children).forEach(td => {
+        td.classList.remove('frozen-col', 'frozen-col-last');
+        td.style.position = '';
+        td.style.left = '';
       });
     });
 
-    // ----- Filter -----
+    if (!frozenKey) return;
+
+    const frozenIndex = headerCells.findIndex(th => th.getAttribute('data-key') === frozenKey);
+    if (frozenIndex === -1) return;
+
+    let left = 0;
+    for (let i = 0; i <= frozenIndex; i++) {
+      const th = headerCells[i];
+      th.classList.add('frozen-col');
+      if (i === frozenIndex) th.classList.add('frozen-col-last');
+      th.style.left = `${left}px`;
+
+      table.querySelectorAll('tbody tr').forEach(tr => {
+        const td = tr.children[i];
+        if (!td) return;
+        td.classList.add('frozen-col');
+        if (i === frozenIndex) td.classList.add('frozen-col-last');
+        td.style.left = `${left}px`;
+      });
+
+      left += th.getBoundingClientRect().width;
+    }
+  }
+  window.addEventListener('resize', () => applyFreezeStyling());
+
+  // hides/shows th + td cells by column position (mirrors applyFreezeStyling's index-matching approach)
+  function applyHiddenColumns() {
+    if (!hiddenColumnsIndicator) return;
+    const headerRow = table.querySelector('thead tr');
+    if (!headerRow) return;
+    const headerCells = Array.from(headerRow.children);
+
+    headerCells.forEach((th, index) => {
+      const key = th.getAttribute('data-key');
+      const hidden = !!key && hiddenKeys.has(key);
+      th.classList.toggle('d-none', hidden);
+      table.querySelectorAll('tbody tr[data-row-id]').forEach(tr => {
+        const td = tr.children[index];
+        if (td) td.classList.toggle('d-none', hidden);
+      });
+    });
+  }
+
+  function renderHiddenColumnsMenu() {
+    if (!hiddenColumnsIndicator) return;
+    const count = hiddenKeys.size;
+    hiddenColumnsIndicator.classList.toggle('d-none', count === 0);
+    hiddenColumnsCountEl.textContent = count;
+
+    const headerRow = table.querySelector('thead tr');
+    const hiddenHeaders = headerRow
+      ? Array.from(headerRow.querySelectorAll('th[data-key]')).filter(th => hiddenKeys.has(th.getAttribute('data-key')))
+      : [];
+
+    hiddenColumnsMenu.innerHTML = hiddenHeaders.map(th => {
+      const key = th.getAttribute('data-key');
+      const label = th.getAttribute('data-label') || key;
+      const inputId = `hc-${cfg.table}-${key}`;
+      return `<div class="form-check hidden-column-item">
+        <input class="form-check-input hidden-column-checkbox" type="checkbox" checked data-key="${esc(key)}" id="${esc(inputId)}">
+        <label class="form-check-label" for="${esc(inputId)}">${esc(label)}</label>
+      </div>`;
+    }).join('') + (hiddenHeaders.length
+      ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 hidden-columns-unhide-all">Unhide all</button>`
+      : '');
+  }
+
+  function unhideColumn(key) {
+    hiddenKeys.delete(key);
+    applyHiddenColumns();
+    renderHiddenColumnsMenu();
+  }
+
+  if (hiddenColumnsMenu) {
+    hiddenColumnsMenu.addEventListener('change', (e) => {
+      if (!e.target.classList.contains('hidden-column-checkbox')) return;
+      if (!e.target.checked) unhideColumn(e.target.getAttribute('data-key'));
+    });
+    hiddenColumnsMenu.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('hidden-columns-unhide-all')) return;
+      hiddenKeys.clear();
+      applyHiddenColumns();
+      renderHiddenColumnsMenu();
+    });
+  }
+
+  // returns the data-keys currently spanned by the in-progress column drag selection
+  function getColumnSelectionKeys() {
+    if (!columnDragState) return [];
+    const lo = Math.min(columnDragState.startIndex, columnDragState.hoverIndex);
+    const hi = Math.max(columnDragState.startIndex, columnDragState.hoverIndex);
+    return columnDragState.rects.slice(lo, hi + 1).map(r => r.key);
+  }
+
+  function applyColumnSelectionHighlight() {
+    const keys = new Set(getColumnSelectionKeys());
+    const headerRow = table.querySelector('thead tr');
+    if (!headerRow) return;
+    const bodyRows = table.querySelectorAll('tbody tr[data-row-id]');
+    Array.from(headerRow.children).forEach((th, index) => {
+      const key = th.getAttribute('data-key');
+      const selected = !!key && keys.has(key);
+      th.classList.toggle('col-selecting', selected);
+      bodyRows.forEach(tr => {
+        const td = tr.children[index];
+        if (td) td.classList.toggle('col-selecting', selected);
+      });
+    });
+  }
+
+  function clearColumnSelectionHighlight() {
+    table.querySelectorAll('.col-selecting').forEach(el => el.classList.remove('col-selecting'));
+  }
+
+  function positionHideColumnPopup(x, y) {
+    if (!hideColumnPopupEl) return;
+    const left = Math.min(x + 16, window.innerWidth - 240);
+    const top = Math.min(y + 16, window.innerHeight - 90);
+    hideColumnPopupEl.style.left = `${left}px`;
+    hideColumnPopupEl.style.top = `${top}px`;
+  }
+
+  function updateHideColumnPopupContent() {
+    if (!hideColumnPopupEl) return;
+    const keys = getColumnSelectionKeys();
+    const headerRow = table.querySelector('thead tr');
+    const label = keys.length === 1 && headerRow
+      ? (headerRow.querySelector(`th[data-key="${keys[0]}"]`)?.getAttribute('data-label') || keys[0])
+      : '';
+    const textEl = hideColumnPopupEl.querySelector('.hide-column-popup-text');
+    const btnEl = hideColumnPopupEl.querySelector('.hide-column-popup-btn');
+    textEl.textContent = keys.length === 1 ? `Hide "${label}" column?` : `Hide ${keys.length} columns?`;
+    btnEl.textContent = keys.length === 1 ? 'Hide column' : 'Hide columns';
+  }
+
+  function openHideColumnPopup(x, y) {
+    if (hideColumnPopupEl) return;
+    const popup = document.createElement('div');
+    popup.className = 'hide-column-popup';
+    popup.innerHTML = `
+      <div class="hide-column-popup-text"></div>
+      <button type="button" class="btn btn-sm btn-danger hide-column-popup-btn"></button>
+    `;
+    document.body.appendChild(popup);
+    hideColumnPopupEl = popup;
+    popup.querySelector('.hide-column-popup-btn').addEventListener('click', confirmHideColumnSelection);
+    updateHideColumnPopupContent();
+    positionHideColumnPopup(x, y);
+  }
+
+  function closeHideColumnPopup() {
+    if (!hideColumnPopupEl) return;
+    hideColumnPopupEl.remove();
+    hideColumnPopupEl = null;
+  }
+
+  function attachSelectionDismissListeners() {
+    setTimeout(() => {
+      document.addEventListener('mousedown', handleColumnSelectionOutsideClick, true);
+      document.addEventListener('keydown', handleColumnSelectionEscape, true);
+    }, 0);
+  }
+
+  function detachSelectionDismissListeners() {
+    document.removeEventListener('mousedown', handleColumnSelectionOutsideClick, true);
+    document.removeEventListener('keydown', handleColumnSelectionEscape, true);
+  }
+
+  function handleColumnSelectionOutsideClick(e) {
+    if (hideColumnPopupEl && hideColumnPopupEl.contains(e.target)) return;
+    cancelColumnSelection();
+  }
+
+  function handleColumnSelectionEscape(e) {
+    if (e.key === 'Escape') cancelColumnSelection();
+  }
+
+  function cancelColumnSelection() {
+    clearColumnSelectionHighlight();
+    closeHideColumnPopup();
+    detachSelectionDismissListeners();
+    columnDragState = null;
+    document.body.style.cursor = '';
+  }
+
+  function confirmHideColumnSelection() {
+    const keys = getColumnSelectionKeys();
+    cancelColumnSelection();
+    keys.forEach(key => hiddenKeys.add(key));
+    applyHiddenColumns();
+    renderHiddenColumnsMenu();
+  }
+
+  let columnDragRafPending = false;
+  let columnDragLastEvent = null;
+
+  function handleColumnDragMove(e) {
+    if (!columnDragState || columnDragState.confirming) return;
+    columnDragLastEvent = e;
+    if (columnDragRafPending) return;
+    columnDragRafPending = true;
+    requestAnimationFrame(processColumnDragMove);
+  }
+
+  function processColumnDragMove() {
+    columnDragRafPending = false;
+    const e = columnDragLastEvent;
+    if (!columnDragState || columnDragState.confirming || !e) return;
+
+    if (!columnDragState.dragging) {
+      const dx = e.clientX - columnDragState.startX;
+      const dy = e.clientY - columnDragState.startY;
+      if (Math.hypot(dx, dy) < COLUMN_DRAG_THRESHOLD) return;
+      columnDragState.dragging = true;
+      document.body.style.cursor = 'grabbing';
+    }
+
+    let hoverIndex = columnDragState.rects.findIndex(r => e.clientX >= r.rect.left && e.clientX < r.rect.right);
+    if (hoverIndex === -1) {
+      hoverIndex = e.clientX < columnDragState.rects[0].rect.left ? 0 : columnDragState.rects.length - 1;
+    }
+    columnDragState.hoverIndex = hoverIndex;
+
+    applyColumnSelectionHighlight();
+    openHideColumnPopup(e.clientX, e.clientY);
+    updateHideColumnPopupContent();
+    positionHideColumnPopup(e.clientX, e.clientY);
+  }
+
+  function handleColumnDragEnd() {
+    if (!columnDragState) return;
+    document.body.style.cursor = '';
+    if (!columnDragState.dragging) {
+      // plain click with no drag motion — nothing was selected, nothing to confirm
+      columnDragState = null;
+      return;
+    }
+    // freeze the selection in place; only the popup button or an outside click/Escape resolves it now
+    columnDragState.confirming = true;
+    attachSelectionDismissListeners();
+  }
+
+  function startColumnDrag(e, key) {
+    cancelColumnSelection();
+    const sortableThs = Array.from(table.querySelectorAll('th.sortable'));
+    const rects = sortableThs.map(t => ({
+      key: t.getAttribute('data-key'),
+      rect: t.getBoundingClientRect()
+    }));
+    const startIndex = rects.findIndex(r => r.key === key);
+    if (startIndex === -1) return;
+    columnDragState = {
+      startX: e.clientX, startY: e.clientY,
+      dragging: false, confirming: false,
+      rects, startIndex, hoverIndex: startIndex
+    };
+  }
+
+  if (hiddenColumnsIndicator) {
+    document.addEventListener('mousemove', handleColumnDragMove);
+    document.addEventListener('mouseup', handleColumnDragEnd);
+  }
+
+  function updateSelectAllState(th) {
+    const key = th.getAttribute('data-key');
+    const f = getFilterState(key);
+    const selectAllEl = th.querySelector('.filter-select-all');
+    if (!selectAllEl) return;
+    const uniqueValues = getUniqueColumnValues(key);
+    const excludedCount = uniqueValues.filter(v => f.excluded.has(v)).length;
+    if (excludedCount === 0) { selectAllEl.checked = true; selectAllEl.indeterminate = false; }
+    else if (excludedCount === uniqueValues.length) { selectAllEl.checked = false; selectAllEl.indeterminate = false; }
+    else { selectAllEl.checked = false; selectAllEl.indeterminate = true; }
+  }
+
+  function buildFilterValuesList(th) {
+    const key = th.getAttribute('data-key');
+    const f = getFilterState(key);
+    const listEl = th.querySelector('.filter-values-list');
+    const uniqueValues = getUniqueColumnValues(key);
+
+    listEl.innerHTML = uniqueValues.map(v => {
+      const checked = f.excluded.has(v) ? '' : 'checked';
+      const escaped = esc(v);
+      const labelHtml = v === '' ? '<i>(blank)</i>' : escaped;
+      return `<div class="form-check filter-value-item" data-value="${escaped}">
+        <input class="form-check-input filter-value-checkbox" type="checkbox" ${checked}>
+        <label class="form-check-label">${labelHtml}</label>
+      </div>`;
+    }).join('');
+
+    updateSelectAllState(th);
+  }
+
+  function syncFilterControls(th) {
+    const key = th.getAttribute('data-key');
     const f = getFilterState(key);
     const conditionEl = th.querySelector('.filter-condition');
     const valueEl = th.querySelector('.filter-value');
     const searchEl = th.querySelector('.filter-search');
-    const selectAllEl = th.querySelector('.filter-select-all');
-    const listEl = th.querySelector('.filter-values-list');
     const autoApplyEl = th.querySelector('.filter-auto-apply');
-    const applyBtn = th.querySelector('.filter-apply');
-    const clearBtn = th.querySelector('.filter-clear');
-    const dropdownWrap = th.querySelector('.dropdown');
-
-    dropdownWrap.addEventListener('show.bs.dropdown', ()=>{
-      syncFilterControls(th);
-      buildFilterValuesList(th);
-    });
-
-    conditionEl.addEventListener('change', ()=>{
-      f.condition = conditionEl.value;
-      updateSortIndicators();
-      if (f.autoApply) renderTable();
-    });
-
-    valueEl.addEventListener('input', ()=>{
-      f.value = valueEl.value;
-      updateSortIndicators();
-      if (f.autoApply) renderTable();
-    });
-
-    searchEl.addEventListener('input', ()=>{
-      const term = searchEl.value.trim().toLowerCase();
-      listEl.querySelectorAll('.filter-value-item').forEach(item=>{
-        const val = (item.getAttribute('data-value') || '').toLowerCase();
-        item.classList.toggle('d-none', term !== '' && !val.includes(term));
-      });
-    });
-
-    selectAllEl.addEventListener('change', ()=>{
-      const checked = selectAllEl.checked;
-      const uniqueValues = getUniqueColumnValues(key);
-      uniqueValues.forEach(v=> checked ? f.excluded.delete(v) : f.excluded.add(v));
-      listEl.querySelectorAll('.filter-value-checkbox').forEach(cb=> cb.checked = checked);
-      selectAllEl.indeterminate = false;
-      updateSortIndicators();
-      if (f.autoApply) renderTable();
-    });
-
-    listEl.addEventListener('change', (e)=>{
-      if (!e.target.classList.contains('filter-value-checkbox')) return;
-      const item = e.target.closest('.filter-value-item');
-      const val = item.getAttribute('data-value');
-      if (e.target.checked) f.excluded.delete(val); else f.excluded.add(val);
-      updateSelectAllState(th);
-      updateSortIndicators();
-      if (f.autoApply) renderTable();
-    });
-
-    autoApplyEl.addEventListener('change', ()=>{
-      f.autoApply = autoApplyEl.checked;
-    });
-
-    applyBtn.addEventListener('click', ()=>{
-      renderTable();
-      updateSortIndicators();
-      closeDropdown(th);
-    });
-
-    clearBtn.addEventListener('click', ()=>{
-      f.condition = 'none';
-      f.value = '';
-      f.excluded.clear();
-      syncFilterControls(th);
-      buildFilterValuesList(th);
-      updateSortIndicators();
-      renderTable();
-      closeDropdown(th);
-    });
-  });
-  updateSortIndicators();
-  updateFreezeButtons();
-}
-// deferred: bootstrap.bundle.min.js is loaded later, in includes/footer.php
-document.addEventListener('DOMContentLoaded', initSortableHeaders);
-
-async function loadSelectedVessel() {
-  const noPk = noPkSelect.value.trim();
-
-  if (!noPk) {
-    siBargesBox.classList.add('d-none');
-    siBargesBody.innerHTML = '';
-    currentSiBargesRows = [];
-    exportDataBargesCsv.disabled = true;
-    return;
+    if (conditionEl) conditionEl.value = f.condition;
+    if (valueEl) valueEl.value = f.value;
+    if (searchEl) searchEl.value = '';
+    if (autoApplyEl) autoApplyEl.checked = f.autoApply;
+    th.querySelectorAll('.filter-value-item').forEach(item => item.classList.remove('d-none'));
   }
 
-  downloadOperationCsv.href =
-    `7tluoperation.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
-  siBargesBox.classList.remove('d-none');
-  exportDataBargesCsv.disabled = true;
-  siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
+  function initSortableHeaders() {
+    table.querySelectorAll('th.sortable').forEach(th => {
+      const label = th.getAttribute('data-label');
+      const key = th.getAttribute('data-key');
 
-  try {
-    const response = await fetch(
-      `7tluoperation.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
-      { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
-    );
-    const result = await response.json();
+      th.innerHTML = `
+        <div class="th-sort-wrap">
+          <span>${label}</span>
+          <div class="dropdown">
+            <button type="button" class="btn btn-sm p-0 sort-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Sort / Filter ${label}">&#8645;</button>
+            <div class="dropdown-menu dropdown-menu-end filter-menu">
+              <p class="dropdown-header-label">Freeze</p>
+              <div class="px-3 pb-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary w-100 freeze-toggle">Freeze</button>
+              </div>
 
-    if (!result.ok) throw new Error(result.msg || 'Gagal mengambil Data Barges.');
+              <hr class="dropdown-divider">
 
-    const rows = result.data || [];
+              <p class="dropdown-header-label">Sort</p>
+              <div class="px-3 pb-2">
+                <div class="d-flex gap-1">
+                  <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="0">Default</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="1">Ascending</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary flex-fill sort-option" data-dir="-1">Descending</button>
+                </div>
+              </div>
 
-    if (!rows.length) {
-      siBargesBody.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
+              <hr class="dropdown-divider">
+
+              <p class="dropdown-header-label">Filter</p>
+              <div class="px-3 pb-2">
+                <div class="d-flex gap-1 mb-2">
+                  <select class="form-select form-select-sm filter-condition">
+                    <option value="none">Choose One</option>
+                    <option value="equals">Equals</option>
+                    <option value="not_equals">Does Not Equal</option>
+                    <option value="begins_with">Begins With</option>
+                    <option value="not_begins_with">Does Not Begin With</option>
+                    <option value="ends_with">Ends With</option>
+                    <option value="not_ends_with">Does Not End With</option>
+                    <option value="contains">Contains</option>
+                    <option value="not_contains">Does Not Contain</option>
+                  </select>
+                  <input type="text" class="form-control form-control-sm filter-value" placeholder="Value">
+                </div>
+
+                <div class="input-group input-group-sm mb-2">
+                  <span class="input-group-text">&#128269;</span>
+                  <input type="text" class="form-control filter-search" placeholder="Search">
+                </div>
+
+                <div class="form-check mb-1">
+                  <input class="form-check-input filter-select-all" type="checkbox" checked>
+                  <label class="form-check-label fw-semibold">(Select All)</label>
+                </div>
+
+                <div class="filter-values-list border rounded p-1 mb-2"></div>
+
+                <div class="form-check mb-2">
+                  <input class="form-check-input filter-auto-apply" type="checkbox" checked>
+                  <label class="form-check-label">Auto Apply</label>
+                </div>
+
+                <div class="d-flex justify-content-between gap-2">
+                  <button type="button" class="btn btn-sm btn-primary flex-fill filter-apply">Apply Filter</button>
+                  <button type="button" class="btn btn-sm btn-outline-secondary flex-fill filter-clear">Clear Filter</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>`;
+
+      const toggleBtn = th.querySelector('.sort-toggle');
+      new bootstrap.Dropdown(toggleBtn, {
+        popperConfig: (defaultConfig) => ({ ...defaultConfig, strategy: 'fixed' })
+      });
+
+      const freezeBtn = th.querySelector('.freeze-toggle');
+      freezeBtn.addEventListener('click', () => {
+        frozenKey = (frozenKey === key) ? null : key;
+        updateFreezeButtons();
+        applyFreezeStyling();
+        closeDropdown(th);
+      });
+
+      th.querySelectorAll('.sort-option').forEach(opt => {
+        opt.addEventListener('click', (e) => {
+          e.preventDefault();
+          const dir = parseInt(opt.getAttribute('data-dir'), 10);
+          sortState = dir === 0 ? { key: null, dir: 0 } : { key, dir };
+          updateSortIndicators();
+          renderTable();
+          closeDropdown(th);
+        });
+      });
+
+      const f = getFilterState(key);
+      const conditionEl = th.querySelector('.filter-condition');
+      const valueEl = th.querySelector('.filter-value');
+      const searchEl = th.querySelector('.filter-search');
+      const selectAllEl = th.querySelector('.filter-select-all');
+      const listEl = th.querySelector('.filter-values-list');
+      const autoApplyEl = th.querySelector('.filter-auto-apply');
+      const applyBtn = th.querySelector('.filter-apply');
+      const clearBtn = th.querySelector('.filter-clear');
+      const dropdownWrap = th.querySelector('.dropdown');
+
+      dropdownWrap.addEventListener('show.bs.dropdown', () => {
+        syncFilterControls(th);
+        buildFilterValuesList(th);
+      });
+
+      conditionEl.addEventListener('change', () => {
+        f.condition = conditionEl.value;
+        updateSortIndicators();
+        if (f.autoApply) renderTable();
+      });
+
+      valueEl.addEventListener('input', () => {
+        f.value = valueEl.value;
+        updateSortIndicators();
+        if (f.autoApply) renderTable();
+      });
+
+      searchEl.addEventListener('input', () => {
+        const term = searchEl.value.trim().toLowerCase();
+        listEl.querySelectorAll('.filter-value-item').forEach(item => {
+          const val = (item.getAttribute('data-value') || '').toLowerCase();
+          item.classList.toggle('d-none', term !== '' && !val.includes(term));
+        });
+      });
+
+      selectAllEl.addEventListener('change', () => {
+        const checked = selectAllEl.checked;
+        const uniqueValues = getUniqueColumnValues(key);
+        uniqueValues.forEach(v => checked ? f.excluded.delete(v) : f.excluded.add(v));
+        listEl.querySelectorAll('.filter-value-checkbox').forEach(cb => cb.checked = checked);
+        selectAllEl.indeterminate = false;
+        updateSortIndicators();
+        if (f.autoApply) renderTable();
+      });
+
+      listEl.addEventListener('change', (e) => {
+        if (!e.target.classList.contains('filter-value-checkbox')) return;
+        const item = e.target.closest('.filter-value-item');
+        const val = item.getAttribute('data-value');
+        if (e.target.checked) f.excluded.delete(val); else f.excluded.add(val);
+        updateSelectAllState(th);
+        updateSortIndicators();
+        if (f.autoApply) renderTable();
+      });
+
+      autoApplyEl.addEventListener('change', () => {
+        f.autoApply = autoApplyEl.checked;
+      });
+
+      applyBtn.addEventListener('click', () => {
+        renderTable();
+        updateSortIndicators();
+        closeDropdown(th);
+      });
+
+      clearBtn.addEventListener('click', () => {
+        f.condition = 'none';
+        f.value = '';
+        f.excluded.clear();
+        syncFilterControls(th);
+        buildFilterValuesList(th);
+        updateSortIndicators();
+        renderTable();
+        closeDropdown(th);
+      });
+
+      if (hiddenColumnsIndicator) {
+        th.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          if (e.target.closest('.dropdown')) return; // let the sort/filter dropdown toggle work normally
+          e.preventDefault();
+          startColumnDrag(e, key);
+        });
+      }
+    });
+    updateSortIndicators();
+    updateFreezeButtons();
+    renderHiddenColumnsMenu();
+  }
+  // deferred: bootstrap.bundle.min.js is loaded later, in includes/footer.php
+  document.addEventListener('DOMContentLoaded', initSortableHeaders);
+
+  async function loadSelectedVessel() {
+    const noPk = noPkSelect.value.trim();
+
+    if (!noPk) {
+      box.classList.add('d-none');
+      body.innerHTML = '';
+      currentRows = [];
+      exportCsvButton.disabled = true;
       return;
     }
 
-    currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(rows);
-    renderTable();
-    exportDataBargesCsv.disabled = false;
-  } catch (error) {
-    exportDataBargesCsv.disabled = true;
-    siBargesBody.innerHTML = `<tr><td colspan="99" class="text-center text-danger py-3">${esc(error.message)}</td></tr>`;
-  }
-}
+    downloadCsv.href =
+      `7tluoperation.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
+    box.classList.remove('d-none');
+    exportCsvButton.disabled = true;
+    body.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
 
-exportDataBargesCsv.addEventListener('click', exportVisibleDataBarges);
+    try {
+      const response = await fetch(
+        `7tluoperation.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
+        { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
+      );
+      const result = await response.json();
 
-noPkSelect.addEventListener('change', () => {
-  operationCsvStatus.classList.add('d-none');
-  operationCsvStatus.textContent = '';
-  operationCsvFile.value = '';
-  loadSelectedVessel();
-});
+      if (!result.ok) throw new Error(result.msg || 'Gagal mengambil Data Barges.');
 
-importOperationForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  const noPk = noPkSelect.value.trim();
-  if (!noPk || !operationCsvFile.files.length) return;
+      const rows = result.data || [];
 
-  const formData = new FormData();
-  formData.append('no_pk', noPk);
-  formData.append('csv', operationCsvFile.files[0]);
-
-  importOperationButton.disabled = true;
-  importOperationButton.textContent = 'Importing...';
-  operationCsvStatus.className = 'alert d-none mt-3 mb-0';
-
-  try {
-    const response = await fetch('7tluoperation.php?action=import_operation_csv', {
-      method: 'POST',
-      headers: { 'X-Requested-With': 'XMLHttpRequest' },
-      body: formData
-    });
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.msg || 'Import CSV gagal.');
-
-    operationCsvStatus.textContent = result.msg;
-    operationCsvStatus.className =
-      `alert ${result.partial ? 'alert-warning' : 'alert-success'} mt-3 mb-0`;
-    operationCsvFile.value = '';
-    await loadSelectedVessel();
-  } catch (error) {
-    operationCsvStatus.textContent = error.message;
-    operationCsvStatus.className = 'alert alert-danger mt-3 mb-0';
-  } finally {
-    importOperationButton.disabled = false;
-    importOperationButton.textContent = 'Import CSV';
-  }
-});
-
-function openSiBargesDetail(rowId) {
-  const row = currentSiBargesRows.find(item => item.id === rowId);
-  if (!row) return;
-
-  const tableRow = siBargesBody.querySelector(`tr[data-row-id="${rowId}"]`);
-  if (!tableRow) return;
-
-  const headers = [...document.querySelectorAll('#dataBargesTable thead th')];
-  const cells = [...tableRow.cells]
-    .map(cell => cell.textContent.trim());
-
-  currentDetailRowId = rowId;
-  siBargesSaveStatus.textContent = '';
-  siBargesSaveStatus.className = 'me-auto small';
-  siBargesDetailSubtitle.textContent = `${row.si_barges || '-'} — ${row.mothervessel || '-'}`;
-  siBargesDetailBody.innerHTML = headers.map((header, index) => {
-    const label = header.dataset.label || header.textContent.trim();
-    const editField = header.dataset.editField;
-    const value = cells[index] === '-' ? '' : (cells[index] ?? '');
-    const isCalculated = header.dataset.calculated === 'true';
-    const inputType = header.dataset.inputType;
-    const valueMarkup = isCalculated
-      ? `
-        <div>
-          <div class="si-detail-value fw-semibold" data-operation-field="${esc(editField)}">${esc(value || '-')}</div>
-          <div class="form-text">Dihitung otomatis: QTY DISC + RC</div>
-        </div>
-      `
-      : inputType === 'pbm-vendor'
-      ? selectMarkup(editField, value, pbmVendorOptions)
-      : inputType === 'floating-crane'
-      ? selectMarkup(editField, value, floatingCraneOptions)
-      : inputType === 'discharge-sequence'
-      ? dischargeSequenceMarkup(editField, value)
-      : inputType === 'datetime-local'
-      ? `<input type="datetime-local" class="form-control" data-operation-field="${esc(editField)}" value="${esc(datetimeLocalValue(value))}">`
-      : inputType === 'textarea'
-      ? `<textarea class="form-control" data-operation-field="${esc(editField)}" rows="3">${esc(value)}</textarea>`
-      : editField
-      ? `<input type="text" class="form-control" data-operation-field="${esc(editField)}" value="${esc(value)}">`
-      : `<div class="si-detail-value">${esc(value || '-')}</div>`;
-
-    return `
-      <div class="si-detail-row">
-        <label class="fw-semibold text-muted">${esc(label)}</label>
-        ${valueMarkup}
-      </div>
-    `;
-  }).join('');
-
-  const qtyDiscInput = siBargesDetailBody.querySelector('[data-operation-field="qty_disc"]');
-  const rcInput = siBargesDetailBody.querySelector('[data-operation-field="rc"]');
-  const qtyActualInput = siBargesDetailBody.querySelector('[data-operation-field="qty_actual"]');
-  const updateQtyActual = () => {
-    if (!qtyActualInput) return;
-    const calculatedValue = calculateQtyActual({
-      qty_disc: qtyDiscInput?.value,
-      rc: rcInput?.value
-    });
-    qtyActualInput.textContent = calculatedValue || '-';
-  };
-  qtyDiscInput?.addEventListener('input', updateQtyActual);
-  rcInput?.addEventListener('input', updateQtyActual);
-  updateQtyActual();
-
-  [
-    'arrival_jetty',
-    'start_loading',
-    'completed_loading',
-    'start_mooring',
-    'end_mooring',
-    'start_disch',
-    'completed_disch'
-  ].forEach(field => {
-    siBargesDetailBody
-      .querySelector(`[data-operation-field="${field}"]`)
-      ?.addEventListener('input', () => validateOperationTimelineInputs(false));
-  });
-  validateOperationTimelineInputs(false);
-
-  const pbmVendorSelect = siBargesDetailBody.querySelector('[data-operation-field="pbm_vendor"]');
-  const floatingCraneSelect = siBargesDetailBody.querySelector('[data-operation-field="floating_crane"]');
-  const applyFloatingCraneRestriction = () => {
-    if (!pbmVendorSelect || !floatingCraneSelect) return;
-
-    const requiredFloatingCrane = restrictedFloatingCranes[pbmVendorSelect.value];
-    const reservedFloatingCranes = Object.values(restrictedFloatingCranes);
-
-    [...floatingCraneSelect.options].forEach(option => {
-      const isReserved = reservedFloatingCranes.includes(option.value);
-      const isAllowedReservedOption = option.value === requiredFloatingCrane;
-      option.hidden = isReserved && !isAllowedReservedOption;
-      option.disabled = isReserved && !isAllowedReservedOption;
-    });
-
-    if (requiredFloatingCrane) {
-      floatingCraneSelect.value = requiredFloatingCrane;
-      floatingCraneSelect.disabled = true;
-      floatingCraneSelect.setAttribute('aria-disabled', 'true');
-    } else {
-      floatingCraneSelect.disabled = false;
-      floatingCraneSelect.removeAttribute('aria-disabled');
-      if (reservedFloatingCranes.includes(floatingCraneSelect.value)) {
-        floatingCraneSelect.value = '';
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
+        return;
       }
+
+      currentRows = urutkanSesuaiDenganDischargeSequence(rows);
+      renderTable();
+      exportCsvButton.disabled = false;
+    } catch (error) {
+      exportCsvButton.disabled = true;
+      body.innerHTML = `<tr><td colspan="99" class="text-center text-danger py-3">${esc(error.message)}</td></tr>`;
     }
-  };
-  pbmVendorSelect?.addEventListener('change', applyFloatingCraneRestriction);
-  applyFloatingCraneRestriction();
-
-  bootstrap.Modal.getOrCreateInstance(siBargesDetailModal).show();
-}
-
-siBargesSaveButton.addEventListener('click', async () => {
-  const row = currentSiBargesRows.find(item => item.id === currentDetailRowId);
-  if (!row) return;
-
-  if (!validateOperationTimelineInputs(true)) {
-    siBargesSaveStatus.textContent = 'Please correct the invalid operation time sequence.';
-    siBargesSaveStatus.className = 'me-auto small text-danger';
-    return;
   }
 
-  const data = {};
-  siBargesDetailBody.querySelectorAll('[data-operation-field]').forEach(input => {
-    data[input.dataset.operationField] = input.matches('input, textarea, select')
-      ? input.value.trim()
-      : input.textContent.trim() === '-' ? '' : input.textContent.trim();
+  exportCsvButton.addEventListener('click', exportVisibleData);
+
+  noPkSelect.addEventListener('change', () => {
+    csvStatus.classList.add('d-none');
+    csvStatus.textContent = '';
+    csvFileInput.value = '';
+    loadSelectedVessel();
   });
 
-  siBargesSaveButton.disabled = true;
-  siBargesSaveButton.textContent = 'Saving...';
-  siBargesSaveStatus.textContent = '';
+  importForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const noPk = noPkSelect.value.trim();
+    if (!noPk || !csvFileInput.files.length) return;
 
-  try {
-    const response = await fetch('7tluoperation.php?action=save_operation_data', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Requested-With': 'XMLHttpRequest'
-      },
-      body: JSON.stringify({ sibarges_id: row.id, data })
+    const formData = new FormData();
+    formData.append('no_pk', noPk);
+    formData.append('csv', csvFileInput.files[0]);
+
+    importButton.disabled = true;
+    importButton.textContent = 'Importing...';
+    csvStatus.className = 'alert d-none mt-3 mb-0';
+
+    try {
+      const response = await fetch('7tluoperation.php?action=import_operation_csv', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.msg || 'Import CSV gagal.');
+
+      csvStatus.textContent = result.msg;
+      csvStatus.className =
+        `alert ${result.partial ? 'alert-warning' : 'alert-success'} mt-3 mb-0`;
+      csvFileInput.value = '';
+      await loadSelectedVessel();
+    } catch (error) {
+      csvStatus.textContent = error.message;
+      csvStatus.className = 'alert alert-danger mt-3 mb-0';
+    } finally {
+      importButton.disabled = false;
+      importButton.textContent = 'Import CSV';
+    }
+  });
+
+  function openDetail(rowId) {
+    const row = currentRows.find(item => item.id === rowId);
+    if (!row) return;
+
+    const tableRow = body.querySelector(`tr[data-row-id="${rowId}"]`);
+    if (!tableRow) return;
+
+    const headers = [...table.querySelectorAll('thead th')];
+    const cells = [...tableRow.cells].map(cell => cell.textContent.trim());
+
+    currentDetailRowId = rowId;
+    saveStatus.textContent = '';
+    saveStatus.className = 'me-auto small';
+    detailSubtitle.textContent = `${row.si_barges || '-'} — ${row.mothervessel || '-'}`;
+    detailBody.innerHTML = headers.map((header, index) => {
+      const label = header.dataset.label || header.textContent.trim();
+      const editField = header.dataset.editField;
+      const value = cells[index] === '-' ? '' : (cells[index] ?? '');
+      const isCalculated = header.dataset.calculated === 'true';
+      const inputType = header.dataset.inputType;
+      const valueMarkup = isCalculated
+        ? `
+          <div>
+            <div class="si-detail-value fw-semibold" data-operation-field="${esc(editField)}">${esc(value || '-')}</div>
+            <div class="form-text">Dihitung otomatis: QTY DISC + RC</div>
+          </div>
+        `
+        : inputType === 'pbm-vendor'
+        ? selectMarkup(editField, value, pbmVendorOptions)
+        : inputType === 'floating-crane'
+        ? selectMarkup(editField, value, floatingCraneOptions)
+        : inputType === 'discharge-sequence'
+        ? dischargeSequenceMarkup(editField, value)
+        : inputType === 'yesno'
+        ? selectMarkup(editField, value, ['Yes', 'No'])
+        : inputType === 'datetime-local'
+        ? `<input type="datetime-local" class="form-control" data-operation-field="${esc(editField)}" value="${esc(datetimeLocalValue(value))}">`
+        : inputType === 'textarea'
+        ? `<textarea class="form-control" data-operation-field="${esc(editField)}" rows="3">${esc(value)}</textarea>`
+        : editField
+        ? `<input type="text" class="form-control" data-operation-field="${esc(editField)}" value="${esc(value)}">`
+        : `<div class="si-detail-value">${esc(value || '-')}</div>`;
+
+      return `
+        <div class="si-detail-row">
+          <label class="fw-semibold text-muted">${esc(label)}</label>
+          ${valueMarkup}
+        </div>
+      `;
+    }).join('');
+
+    const qtyDiscInput = detailBody.querySelector('[data-operation-field="qty_disc"]');
+    const rcInput = detailBody.querySelector('[data-operation-field="rc"]');
+    const qtyActualInput = detailBody.querySelector('[data-operation-field="qty_actual"]');
+    const updateQtyActual = () => {
+      if (!qtyActualInput) return;
+      const calculatedValue = calculateQtyActual({
+        qty_disc: qtyDiscInput?.value,
+        rc: rcInput?.value
+      });
+      qtyActualInput.textContent = calculatedValue || '-';
+    };
+    qtyDiscInput?.addEventListener('input', updateQtyActual);
+    rcInput?.addEventListener('input', updateQtyActual);
+    updateQtyActual();
+
+    [
+      'arrival_jetty',
+      'start_loading',
+      'completed_loading',
+      'start_mooring',
+      'end_mooring',
+      'start_disch',
+      'completed_disch'
+    ].forEach(field => {
+      detailBody
+        .querySelector(`[data-operation-field="${field}"]`)
+        ?.addEventListener('input', () => validateOperationTimelineInputs(false));
     });
-    const result = await response.json();
-    if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan data operasi.');
+    validateOperationTimelineInputs(false);
 
-    row.operation_data = result.data;
-    row.operation_remarks = result.data.operation_remarks || '';
-    currentSiBargesRows = urutkanSesuaiDenganDischargeSequence(currentSiBargesRows);
-    renderTable();
+    const pbmVendorSelect = detailBody.querySelector('[data-operation-field="pbm_vendor"]');
+    const floatingCraneSelect = detailBody.querySelector('[data-operation-field="floating_crane"]');
+    const applyFloatingCraneRestriction = () => {
+      if (!pbmVendorSelect || !floatingCraneSelect) return;
 
-    siBargesSaveStatus.textContent = result.msg;
-    siBargesSaveStatus.className = 'me-auto small text-success';
-  } catch (error) {
-    siBargesSaveStatus.textContent = error.message;
-    siBargesSaveStatus.className = 'me-auto small text-danger';
-  } finally {
-    siBargesSaveButton.disabled = false;
-    siBargesSaveButton.textContent = 'Save';
+      const requiredFloatingCrane = restrictedFloatingCranes[pbmVendorSelect.value];
+      const reservedFloatingCranes = Object.values(restrictedFloatingCranes);
+
+      [...floatingCraneSelect.options].forEach(option => {
+        const isReserved = reservedFloatingCranes.includes(option.value);
+        const isAllowedReservedOption = option.value === requiredFloatingCrane;
+        option.hidden = isReserved && !isAllowedReservedOption;
+        option.disabled = isReserved && !isAllowedReservedOption;
+      });
+
+      if (requiredFloatingCrane) {
+        floatingCraneSelect.value = requiredFloatingCrane;
+        floatingCraneSelect.disabled = true;
+        floatingCraneSelect.setAttribute('aria-disabled', 'true');
+      } else {
+        floatingCraneSelect.disabled = false;
+        floatingCraneSelect.removeAttribute('aria-disabled');
+        if (reservedFloatingCranes.includes(floatingCraneSelect.value)) {
+          floatingCraneSelect.value = '';
+        }
+      }
+    };
+    pbmVendorSelect?.addEventListener('change', applyFloatingCraneRestriction);
+    applyFloatingCraneRestriction();
+
+    bootstrap.Modal.getOrCreateInstance(detailModal).show();
   }
+
+  saveButton.addEventListener('click', async () => {
+    if (cfg.readOnly && !cfg.showCycleTimeColumns) return;
+
+    const row = currentRows.find(item => item.id === currentDetailRowId);
+    if (!row) return;
+
+    if (!validateOperationTimelineInputs(true)) {
+      saveStatus.textContent = 'Please correct the invalid operation time sequence.';
+      saveStatus.className = 'me-auto small text-danger';
+      return;
+    }
+
+    const data = {};
+    detailBody.querySelectorAll('[data-operation-field]').forEach(input => {
+      data[input.dataset.operationField] = input.matches('input, textarea, select')
+        ? input.value.trim()
+        : input.textContent.trim() === '-' ? '' : input.textContent.trim();
+    });
+
+    saveButton.disabled = true;
+    saveButton.textContent = 'Saving...';
+    saveStatus.textContent = '';
+
+    try {
+      const response = await fetch('7tluoperation.php?action=save_operation_data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ sibarges_id: row.id, data })
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan data operasi.');
+
+      row.operation_data = result.data;
+      row.operation_remarks = result.data.operation_remarks || '';
+      currentRows = urutkanSesuaiDenganDischargeSequence(currentRows);
+      renderTable();
+
+      saveStatus.textContent = result.msg;
+      saveStatus.className = 'me-auto small text-success';
+    } catch (error) {
+      saveStatus.textContent = error.message;
+      saveStatus.className = 'me-auto small text-danger';
+    } finally {
+      saveButton.disabled = false;
+      saveButton.textContent = 'Save';
+    }
+  });
+
+  body.addEventListener('click', event => {
+    const row = event.target.closest('tr[data-row-id]');
+    if (!row) return;
+    openDetail(Number(row.dataset.rowId));
+  });
+
+  body.addEventListener('keydown', event => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+
+    const row = event.target.closest('tr[data-row-id]');
+    if (!row) return;
+
+    event.preventDefault();
+    openDetail(Number(row.dataset.rowId));
+  });
+}
+
+createOperationWorkflow({
+  year: 'tlu_year', month: 'tlu_month', noPk: 'no_pk',
+  box: 'siBargesBox', table: 'dataBargesTable', body: 'siBargesBody',
+  downloadCsv: 'downloadOperationCsv', exportCsv: 'exportDataBargesCsv',
+  importForm: 'importOperationForm', csvFileInput: 'operationCsvFile',
+  importButton: 'importOperationButton', csvStatus: 'operationCsvStatus',
+  detailModal: 'siBargesDetailModal', detailSubtitle: 'siBargesDetailSubtitle',
+  detailBody: 'siBargesDetailBody', saveButton: 'siBargesSaveButton', saveStatus: 'siBargesSaveStatus'
 });
 
-siBargesBody.addEventListener('click', event => {
-  const row = event.target.closest('tr[data-row-id]');
-  if (!row) return;
-  openSiBargesDetail(Number(row.dataset.rowId));
-});
-
-siBargesBody.addEventListener('keydown', event => {
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-
-  const row = event.target.closest('tr[data-row-id]');
-  if (!row) return;
-
-  event.preventDefault();
-  openSiBargesDetail(Number(row.dataset.rowId));
+createOperationWorkflow({
+  year: 'cycle_year', month: 'cycle_month', noPk: 'cycle_no_pk',
+  box: 'cycleTimeBox', table: 'cycleTimeTable', body: 'cycleTimeBody',
+  readOnly: true,
+  showCycleTimeColumns: true,
+  downloadCsv: 'downloadCycleTimeCsv', exportCsv: 'exportCycleTimeCsv',
+  importForm: 'importCycleTimeForm', csvFileInput: 'cycleTimeCsvFile',
+  importButton: 'importCycleTimeButton', csvStatus: 'cycleTimeCsvStatus',
+  detailModal: 'cycleTimeDetailModal', detailSubtitle: 'cycleTimeDetailSubtitle',
+  detailBody: 'cycleTimeDetailBody', saveButton: 'cycleTimeSaveButton', saveStatus: 'cycleTimeSaveStatus'
 });
 </script>
 

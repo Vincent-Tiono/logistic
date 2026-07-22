@@ -442,7 +442,7 @@ include __DIR__ . "/../includes/sidebar.php";
       <div id="inputVesselBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-2">
-          <label class="form-label">No. PK</label>
+          <label class="form-label">No. Reff</label>
           <input name="no_pk" class="form-control" placeholder="G.25-052" required>
         </div>
 
@@ -539,12 +539,23 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="card">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="m-0">Data Vessel</h6>
+        <div class="d-flex align-items-center gap-2">
+          <h6 class="m-0">Data Vessel</h6>
+          <div class="hidden-columns-indicator d-none">
+            <span class="badge text-bg-secondary hidden-columns-badge">
+              <span class="hidden-columns-count">0</span> columns hidden
+            </span>
+            <div class="dropdown">
+              <button type="button" class="btn btn-sm btn-outline-secondary hidden-columns-toggle" data-bs-toggle="dropdown" data-bs-auto-close="outside" aria-expanded="false" title="Show hidden columns">+</button>
+              <div class="dropdown-menu dropdown-menu-end hidden-columns-menu p-2"></div>
+            </div>
+          </div>
+        </div>
 
         <div class="d-flex gap-2 align-items-center">
           <div class="position-relative" style="width:320px;">
             <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
-                   placeholder="Search (No. PK / No. SI)..." />
+                   placeholder="Search (No. Reff / No. SI)..." />
             <button type="button" id="btnClearQ" title="Clear search"
                     style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
           </div>
@@ -567,6 +578,29 @@ include __DIR__ . "/../includes/sidebar.php";
         #tbl th.frozen-col, #tbl td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
         #tbl thead th.frozen-col { background-color: #f8f9fa; z-index: 3; }
         #tbl th.frozen-col-last, #tbl td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
+        #tbl th.sortable { cursor: grab; }
+        #tbl th.col-selecting, #tbl td.col-selecting { background-color: rgba(13,110,253,.18) !important; }
+
+        .hidden-columns-indicator:not(.d-none) { display: flex; align-items: center; gap: 6px; }
+        .hidden-columns-badge { font-weight: 500; }
+        .hidden-columns-toggle { line-height: 1; padding: .1rem .5rem; font-weight: bold; }
+        .hidden-columns-menu { min-width: 220px; max-height: 60vh; overflow-y: auto; }
+        .hidden-columns-menu .hidden-column-item label { cursor: pointer; }
+        .hidden-columns-menu .hidden-columns-unhide-all { margin-top: .25rem; }
+
+        .hide-column-popup {
+          position: fixed;
+          z-index: 3000;
+          background: #212529;
+          color: #fff;
+          border-radius: 6px;
+          padding: 8px 10px;
+          box-shadow: 0 6px 16px rgba(0,0,0,.3);
+          font-size: .85rem;
+          max-width: 220px;
+        }
+        .hide-column-popup-text { margin-bottom: 6px; white-space: normal; }
+        .hide-column-popup .hide-column-popup-btn { width: 100%; }
         .table-responsive { max-height: 65vh; overflow-y: auto; }
         #tbl thead th { position: sticky; top: 0; z-index: 2; background-color: #f8f9fa; text-align: left; vertical-align: middle; }
         #tbl thead th.frozen-col { z-index: 3; }
@@ -576,7 +610,7 @@ include __DIR__ . "/../includes/sidebar.php";
         <table class="table table-sm table-bordered align-middle" id="tbl">
           <thead class="table-light">
             <tr>
-              <th style="min-width:120px;" class="sortable" data-key="no_pk" data-type="text" data-label="No. PK"></th>
+              <th style="min-width:120px;" class="sortable" data-key="no_pk" data-type="text" data-label="No. Reff"></th>
               <th style="min-width:90px;" class="sortable" data-key="no_si_vessel" data-type="number" data-label="No. SI"></th>
               <th style="min-width:140px;" class="sortable" data-key="buyer" data-type="text" data-label="Buyer"></th>
               <th style="min-width:180px;" class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel"></th>
@@ -833,6 +867,7 @@ function renderTable(){
     ? data.map(rowTemplate).join('')
     : `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
   applyFreezeStyling();
+  applyHiddenColumns();
 }
 
 function updateSortIndicators(){
@@ -917,6 +952,255 @@ function applyFreezeStyling(){
   }
 }
 window.addEventListener('resize', ()=> applyFreezeStyling());
+
+// --- Hidden columns (drag-to-hide) ---
+const hiddenColumnsIndicator = document.querySelector('.hidden-columns-indicator');
+const hiddenColumnsCountEl = hiddenColumnsIndicator ? hiddenColumnsIndicator.querySelector('.hidden-columns-count') : null;
+const hiddenColumnsMenu = hiddenColumnsIndicator ? hiddenColumnsIndicator.querySelector('.hidden-columns-menu') : null;
+const COLUMN_DRAG_THRESHOLD = 6; // px of movement before a mousedown counts as a drag, not a click
+let hiddenKeys = new Set(); // data-key of columns hidden via drag
+let columnDragState = null; // { rects, startIndex, hoverIndex, dragging, confirming }
+let hideColumnPopupEl = null;
+
+// hides/shows th + td cells by column position (mirrors applyFreezeStyling's index-matching approach)
+function applyHiddenColumns() {
+  if (!hiddenColumnsIndicator) return;
+  const headerRow = document.querySelector('#tbl thead tr');
+  if (!headerRow) return;
+  const headerCells = Array.from(headerRow.children);
+
+  headerCells.forEach((th, index) => {
+    const key = th.getAttribute('data-key');
+    const hidden = !!key && hiddenKeys.has(key);
+    th.classList.toggle('d-none', hidden);
+    document.querySelectorAll('#tbl tbody tr').forEach(tr => {
+      if (tr.children.length < 2) return; // skip "no data"/error placeholder row
+      const td = tr.children[index];
+      if (td) td.classList.toggle('d-none', hidden);
+    });
+  });
+}
+
+function renderHiddenColumnsMenu() {
+  if (!hiddenColumnsIndicator) return;
+  const count = hiddenKeys.size;
+  hiddenColumnsIndicator.classList.toggle('d-none', count === 0);
+  hiddenColumnsCountEl.textContent = count;
+
+  const headerRow = document.querySelector('#tbl thead tr');
+  const hiddenHeaders = headerRow
+    ? Array.from(headerRow.querySelectorAll('th[data-key]')).filter(th => hiddenKeys.has(th.getAttribute('data-key')))
+    : [];
+
+  hiddenColumnsMenu.innerHTML = hiddenHeaders.map(th => {
+    const key = th.getAttribute('data-key');
+    const label = th.getAttribute('data-label') || key;
+    const inputId = `hc-tbl-${key}`;
+    return `<div class="form-check hidden-column-item">
+      <input class="form-check-input hidden-column-checkbox" type="checkbox" checked data-key="${escHtml(key)}" id="${escHtml(inputId)}">
+      <label class="form-check-label" for="${escHtml(inputId)}">${escHtml(label)}</label>
+    </div>`;
+  }).join('') + (hiddenHeaders.length
+    ? `<button type="button" class="btn btn-sm btn-outline-secondary w-100 hidden-columns-unhide-all">Unhide all</button>`
+    : '');
+}
+
+function unhideColumn(key) {
+  hiddenKeys.delete(key);
+  applyHiddenColumns();
+  renderHiddenColumnsMenu();
+}
+
+if (hiddenColumnsMenu) {
+  hiddenColumnsMenu.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('hidden-column-checkbox')) return;
+    if (!e.target.checked) unhideColumn(e.target.getAttribute('data-key'));
+  });
+  hiddenColumnsMenu.addEventListener('click', (e) => {
+    if (!e.target.classList.contains('hidden-columns-unhide-all')) return;
+    hiddenKeys.clear();
+    applyHiddenColumns();
+    renderHiddenColumnsMenu();
+  });
+}
+
+// returns the data-keys currently spanned by the in-progress column drag selection
+function getColumnSelectionKeys() {
+  if (!columnDragState) return [];
+  const lo = Math.min(columnDragState.startIndex, columnDragState.hoverIndex);
+  const hi = Math.max(columnDragState.startIndex, columnDragState.hoverIndex);
+  return columnDragState.rects.slice(lo, hi + 1).map(r => r.key);
+}
+
+function applyColumnSelectionHighlight() {
+  const keys = new Set(getColumnSelectionKeys());
+  const headerRow = document.querySelector('#tbl thead tr');
+  if (!headerRow) return;
+  const bodyRows = document.querySelectorAll('#tbl tbody tr');
+  Array.from(headerRow.children).forEach((th, index) => {
+    const key = th.getAttribute('data-key');
+    const selected = !!key && keys.has(key);
+    th.classList.toggle('col-selecting', selected);
+    bodyRows.forEach(tr => {
+      if (tr.children.length < 2) return;
+      const td = tr.children[index];
+      if (td) td.classList.toggle('col-selecting', selected);
+    });
+  });
+}
+
+function clearColumnSelectionHighlight() {
+  document.querySelectorAll('#tbl .col-selecting').forEach(el => el.classList.remove('col-selecting'));
+}
+
+function positionHideColumnPopup(x, y) {
+  if (!hideColumnPopupEl) return;
+  const left = Math.min(x + 16, window.innerWidth - 240);
+  const top = Math.min(y + 16, window.innerHeight - 90);
+  hideColumnPopupEl.style.left = `${left}px`;
+  hideColumnPopupEl.style.top = `${top}px`;
+}
+
+function updateHideColumnPopupContent() {
+  if (!hideColumnPopupEl) return;
+  const keys = getColumnSelectionKeys();
+  const headerRow = document.querySelector('#tbl thead tr');
+  const label = keys.length === 1 && headerRow
+    ? (headerRow.querySelector(`th[data-key="${keys[0]}"]`)?.getAttribute('data-label') || keys[0])
+    : '';
+  const textEl = hideColumnPopupEl.querySelector('.hide-column-popup-text');
+  const btnEl = hideColumnPopupEl.querySelector('.hide-column-popup-btn');
+  textEl.textContent = keys.length === 1 ? `Hide "${label}" column?` : `Hide ${keys.length} columns?`;
+  btnEl.textContent = keys.length === 1 ? 'Hide column' : 'Hide columns';
+}
+
+function openHideColumnPopup(x, y) {
+  if (hideColumnPopupEl) return;
+  const popup = document.createElement('div');
+  popup.className = 'hide-column-popup';
+  popup.innerHTML = `
+    <div class="hide-column-popup-text"></div>
+    <button type="button" class="btn btn-sm btn-danger hide-column-popup-btn"></button>
+  `;
+  document.body.appendChild(popup);
+  hideColumnPopupEl = popup;
+  popup.querySelector('.hide-column-popup-btn').addEventListener('click', confirmHideColumnSelection);
+  updateHideColumnPopupContent();
+  positionHideColumnPopup(x, y);
+}
+
+function closeHideColumnPopup() {
+  if (!hideColumnPopupEl) return;
+  hideColumnPopupEl.remove();
+  hideColumnPopupEl = null;
+}
+
+function attachSelectionDismissListeners() {
+  setTimeout(() => {
+    document.addEventListener('mousedown', handleColumnSelectionOutsideClick, true);
+    document.addEventListener('keydown', handleColumnSelectionEscape, true);
+  }, 0);
+}
+
+function detachSelectionDismissListeners() {
+  document.removeEventListener('mousedown', handleColumnSelectionOutsideClick, true);
+  document.removeEventListener('keydown', handleColumnSelectionEscape, true);
+}
+
+function handleColumnSelectionOutsideClick(e) {
+  if (hideColumnPopupEl && hideColumnPopupEl.contains(e.target)) return;
+  cancelColumnSelection();
+}
+
+function handleColumnSelectionEscape(e) {
+  if (e.key === 'Escape') cancelColumnSelection();
+}
+
+function cancelColumnSelection() {
+  clearColumnSelectionHighlight();
+  closeHideColumnPopup();
+  detachSelectionDismissListeners();
+  columnDragState = null;
+  document.body.style.cursor = '';
+}
+
+function confirmHideColumnSelection() {
+  const keys = getColumnSelectionKeys();
+  cancelColumnSelection();
+  keys.forEach(key => hiddenKeys.add(key));
+  applyHiddenColumns();
+  renderHiddenColumnsMenu();
+}
+
+let columnDragRafPending = false;
+let columnDragLastEvent = null;
+
+function handleColumnDragMove(e) {
+  if (!columnDragState || columnDragState.confirming) return;
+  columnDragLastEvent = e;
+  if (columnDragRafPending) return;
+  columnDragRafPending = true;
+  requestAnimationFrame(processColumnDragMove);
+}
+
+function processColumnDragMove() {
+  columnDragRafPending = false;
+  const e = columnDragLastEvent;
+  if (!columnDragState || columnDragState.confirming || !e) return;
+
+  if (!columnDragState.dragging) {
+    const dx = e.clientX - columnDragState.startX;
+    const dy = e.clientY - columnDragState.startY;
+    if (Math.hypot(dx, dy) < COLUMN_DRAG_THRESHOLD) return;
+    columnDragState.dragging = true;
+    document.body.style.cursor = 'grabbing';
+  }
+
+  let hoverIndex = columnDragState.rects.findIndex(r => e.clientX >= r.rect.left && e.clientX < r.rect.right);
+  if (hoverIndex === -1) {
+    hoverIndex = e.clientX < columnDragState.rects[0].rect.left ? 0 : columnDragState.rects.length - 1;
+  }
+  columnDragState.hoverIndex = hoverIndex;
+
+  applyColumnSelectionHighlight();
+  openHideColumnPopup(e.clientX, e.clientY);
+  updateHideColumnPopupContent();
+  positionHideColumnPopup(e.clientX, e.clientY);
+}
+
+function handleColumnDragEnd() {
+  if (!columnDragState) return;
+  document.body.style.cursor = '';
+  if (!columnDragState.dragging) {
+    // plain click with no drag motion — nothing was selected, nothing to confirm
+    columnDragState = null;
+    return;
+  }
+  // freeze the selection in place; only the popup button or an outside click/Escape resolves it now
+  columnDragState.confirming = true;
+  attachSelectionDismissListeners();
+}
+
+function startColumnDrag(e, key) {
+  cancelColumnSelection();
+  const sortableThs = Array.from(document.querySelectorAll('#tbl th.sortable'));
+  const rects = sortableThs.map(t => ({
+    key: t.getAttribute('data-key'),
+    rect: t.getBoundingClientRect()
+  }));
+  const startIndex = rects.findIndex(r => r.key === key);
+  if (startIndex === -1) return;
+  columnDragState = {
+    startX: e.clientX, startY: e.clientY,
+    dragging: false, confirming: false,
+    rects, startIndex, hoverIndex: startIndex
+  };
+}
+
+if (hiddenColumnsIndicator) {
+  document.addEventListener('mousemove', handleColumnDragMove);
+  document.addEventListener('mouseup', handleColumnDragEnd);
+}
 
 function escHtml(s){
   return (s ?? '').toString()
@@ -1145,9 +1429,19 @@ function initSortableHeaders(){
       renderTable();
       closeDropdown(th);
     });
+
+    if (hiddenColumnsIndicator) {
+      th.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('.dropdown')) return; // let the sort/filter dropdown toggle work normally
+        e.preventDefault();
+        startColumnDrag(e, key);
+      });
+    }
   });
   updateSortIndicators();
   updateFreezeButtons();
+  renderHiddenColumnsMenu();
 }
 // deferred: bootstrap.bundle.min.js is loaded later, in includes/footer.php
 document.addEventListener('DOMContentLoaded', initSortableHeaders);
