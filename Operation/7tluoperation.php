@@ -554,8 +554,10 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
   }
 
   $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
+  $motherVessel = $rows[0]['mothervessel'] ?? '';
+  $safeMotherVessel = trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '_', $motherVessel));
   header('Content-Type: text/csv; charset=utf-8');
-  header("Content-Disposition: attachment; filename=\"tlu_operation_{$safeNoPk}.csv\"");
+  header("Content-Disposition: attachment; filename=\"template_tlu_{$safeNoPk}—{$safeMotherVessel}.csv\"");
   echo "\xEF\xBB\xBF";
 
   $out = fopen('php://output', 'w');
@@ -2080,10 +2082,13 @@ function exportVisibleDataBarges() {
   const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  const safeNoPk = noPkSelect.value.trim().replace(/[^A-Za-z0-9._-]+/g, '_');
+  const noPk = noPkSelect.value.trim();
+  const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, '_');
+  const selectedVessel = tluVesselPeriods.find(vessel => vessel.no_pk === noPk);
+  const safeMotherVessel = (selectedVessel?.mothervessel || '').trim().replace(/[^A-Za-z0-9 ._-]+/g, '_').trim();
 
   link.href = url;
-  link.download = `data_barges_discharge_sequence_${safeNoPk || 'export'}.csv`;
+  link.download = safeNoPk ? `tlu_${safeNoPk}—${safeMotherVessel}.csv` : 'tlu_export.csv';
   document.body.appendChild(link);
   link.click();
   link.remove();
