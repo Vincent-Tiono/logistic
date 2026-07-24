@@ -473,8 +473,8 @@ function tableExportRow($row) {
     formatOperationDisplayNumber($qtyActual),
     $data['pbm_vendor'] ?? '',
     $data['floating_crane'] ?? '',
-    formatDisplayDateTime($row['laycan_start'] ?? '', false),
-    formatDisplayDateTime($row['laycan_end'] ?? '', false),
+    formatDisplayDateTime($row['laycan_start'] ?? '', true),
+    formatDisplayDateTime($row['laycan_end'] ?? '', true),
     formatDisplayDateTime($data['arrival_jetty'] ?? ''),
     formatDisplayDateTime($data['start_loading'] ?? ''),
     formatDisplayDateTime($data['completed_loading'] ?? ''),
@@ -710,8 +710,8 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
       'qty_actual' => formatOperationDisplayNumber($qtyActual),
       'pbm_vendor' => $data['pbm_vendor'] ?? '',
       'floating_crane' => $data['floating_crane'] ?? '',
-      'laycan_start' => formatDisplayDateTime($row['laycan_start'] ?? '', false),
-      'laycan_end' => formatDisplayDateTime($row['laycan_end'] ?? '', false),
+      'laycan_start' => formatDisplayDateTime($row['laycan_start'] ?? '', true),
+      'laycan_end' => formatDisplayDateTime($row['laycan_end'] ?? '', true),
       'remarks' => $row['operation_remarks'] ?? ''
     ];
     foreach (TLU_DATETIME_FIELDS as $field => $label) {
@@ -2312,8 +2312,16 @@ function parseDDMonYYToISO(text) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
+/* Laycan Start/End are date-only in the DB; always show them with a 00:00 time. */
+function fmtLaycanDateTime(value) {
+  const datePart = fmtDDMonYY(value, false);
+  if (datePart === '') return '';
+  const m = String(value ?? '').trim().match(/(\d{2}):(\d{2})/);
+  return `${datePart} ${m ? `${m[1]}:${m[2]}` : '00:00'}`;
+}
+
 function displayLaycanDateTime(value) {
-  const formatted = fmtDDMonYY(value, false);
+  const formatted = fmtLaycanDateTime(value);
   return formatted === '' ? '-' : esc(formatted);
 }
 
@@ -2654,7 +2662,7 @@ function getFieldValue(row, key) {
 // display value shown in the table cell for a given column (matches rowMarkup)
 function columnDisplayValue(row, key) {
   const raw = getFieldValue(row, key);
-  if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(raw, false);
+  if (key === 'laycan_start' || key === 'laycan_end') return fmtLaycanDateTime(raw);
   if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
   if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
   if (CYCLE_TIME_4DP_NUMBER_FIELDS.has(key)) return formatCycleTimeNumber(raw);
