@@ -2564,6 +2564,74 @@ function calculateCheckPart2(part2, mooring2, sailingTime) {
   return Math.abs(part2 - sum) < 1e-9 ? 'True' : 'False';
 }
 
+// Default for Total Waiting Disch MV: Mooring 2 + Pure Time.
+// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
+function calculateTotalWaitingDischMv(mooring2, pureTime) {
+  if (mooring2 === null || pureTime === null) return '';
+
+  return mooring2 + pureTime;
+}
+
+// Default for Waiting Cargo Readiness (P2): IFERROR(Waiting Cargo Readiness (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateWaitingCargoReadiness(waitingCargoReadinessP3, pureTime, totalWaitingDischMv) {
+  const numerator = waitingCargoReadinessP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
+// Default for Waiting MV (P2): IFERROR(Waiting MV (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateWaitingMv(waitingMvP3, pureTime, totalWaitingDischMv) {
+  const numerator = waitingMvP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
+// Default for Waiting FLF (P2): IFERROR(Waiting FLF (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateWaitingFlf(waitingFlfP3, pureTime, totalWaitingDischMv) {
+  const numerator = waitingFlfP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
+// Default for Waiting Queueing (P2): IFERROR(Waiting Queuing (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateWaitingQueueing(waitingQueuingP3, pureTime, totalWaitingDischMv) {
+  const numerator = waitingQueuingP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
+// Default for Other Factor (P2): IFERROR(Other Factor (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv) {
+  const numerator = otherFactorP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
 // Default for LHV Time: 0 if LHV is empty, else (LHV - Completed Loading) in days.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateLhvTime(data) {
@@ -2665,6 +2733,24 @@ const FORMULA_INFO_RULES = {
   ],
   check_part_2: [
     'Part 2 == Mooring 2 + Sailing Time'
+  ],
+  total_waiting_disch_mv: [
+    'Mooring 2 + Pure Time'
+  ],
+  waiting_cargo_readiness: [
+    'IFERROR(Waiting Cargo Readiness (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
+  ],
+  waiting_mv: [
+    'IFERROR(Waiting MV (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
+  ],
+  waiting_flf: [
+    'IFERROR(Waiting FLF (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
+  ],
+  waiting_queueing: [
+    'IFERROR(Waiting Queuing (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
+  ],
+  other_factor: [
+    'IFERROR(Other Factor (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
   ],
   barges_arrival_early: [
     'Laycan Start kosong → 0',
@@ -2795,6 +2881,41 @@ function getFieldValue(row, key) {
     const mooring2 = parseOperationNumber(getFieldValue(row, 'mooring_2'));
     const sailingTime = parseOperationNumber(getFieldValue(row, 'sailing_time'));
     return calculateCheckPart2(part2, mooring2, sailingTime);
+  }
+  if (key === 'total_waiting_disch_mv' && !String(operationData.total_waiting_disch_mv ?? '').trim()) {
+    const mooring2 = parseOperationNumber(getFieldValue(row, 'mooring_2'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    return calculateTotalWaitingDischMv(mooring2, pureTime);
+  }
+  if (key === 'waiting_cargo_readiness' && !String(operationData.waiting_cargo_readiness ?? '').trim()) {
+    const waitingCargoReadinessP3 = parseOperationNumber(getFieldValue(row, 'waiting_cargo_readiness_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateWaitingCargoReadiness(waitingCargoReadinessP3, pureTime, totalWaitingDischMv);
+  }
+  if (key === 'waiting_mv' && !String(operationData.waiting_mv ?? '').trim()) {
+    const waitingMvP3 = parseOperationNumber(getFieldValue(row, 'waiting_mv_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateWaitingMv(waitingMvP3, pureTime, totalWaitingDischMv);
+  }
+  if (key === 'waiting_flf' && !String(operationData.waiting_flf ?? '').trim()) {
+    const waitingFlfP3 = parseOperationNumber(getFieldValue(row, 'waiting_flf_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateWaitingFlf(waitingFlfP3, pureTime, totalWaitingDischMv);
+  }
+  if (key === 'waiting_queueing' && !String(operationData.waiting_queueing ?? '').trim()) {
+    const waitingQueuingP3 = parseOperationNumber(getFieldValue(row, 'waiting_queuing_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateWaitingQueueing(waitingQueuingP3, pureTime, totalWaitingDischMv);
+  }
+  if (key === 'other_factor' && !String(operationData.other_factor ?? '').trim()) {
+    const otherFactorP3 = parseOperationNumber(getFieldValue(row, 'other_factor_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv);
   }
   if (key === 'lhv_time' && !String(operationData.lhv_time ?? '').trim()) {
     return calculateLhvTime(operationData);
@@ -2960,6 +3081,47 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       parseOperationNumber(operationData.part_2),
       parseOperationNumber(operationData.mooring_2),
       parseOperationNumber(operationData.sailing_time)
+    );
+  }
+  if (!String(operationData.total_waiting_disch_mv ?? '').trim()) {
+    operationData.total_waiting_disch_mv = calculateTotalWaitingDischMv(
+      parseOperationNumber(operationData.mooring_2),
+      parseOperationNumber(operationData.pure_time)
+    );
+  }
+  if (!String(operationData.waiting_cargo_readiness ?? '').trim()) {
+    operationData.waiting_cargo_readiness = calculateWaitingCargoReadiness(
+      parseOperationNumber(operationData.waiting_cargo_readiness_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
+    );
+  }
+  if (!String(operationData.waiting_mv ?? '').trim()) {
+    operationData.waiting_mv = calculateWaitingMv(
+      parseOperationNumber(operationData.waiting_mv_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
+    );
+  }
+  if (!String(operationData.waiting_flf ?? '').trim()) {
+    operationData.waiting_flf = calculateWaitingFlf(
+      parseOperationNumber(operationData.waiting_flf_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
+    );
+  }
+  if (!String(operationData.waiting_queueing ?? '').trim()) {
+    operationData.waiting_queueing = calculateWaitingQueueing(
+      parseOperationNumber(operationData.waiting_queuing_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
+    );
+  }
+  if (!String(operationData.other_factor ?? '').trim()) {
+    operationData.other_factor = calculateOtherFactor(
+      parseOperationNumber(operationData.other_factor_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
     );
   }
   if (!String(operationData.lhv_time ?? '').trim()) {
