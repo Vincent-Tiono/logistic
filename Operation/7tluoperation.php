@@ -54,29 +54,89 @@ const TLU_OPERATION_FIELDS = [
   'discharge_sequence',
   'back_to_jetty',
   'waiting_loading_jetty',
-  'cek_waiting_loading_jetty',
+  'check_waiting_loading_jetty',
   'barges_arrival_early',
   'waiting_plan_loading',
   'loading_time_jetty',
   'part_1',
-  'cek_part_1',
+  'check_part_1',
   'lhv_time',
   'spog_time',
-  'clear_pass_time'
+  'clear_pass_time',
+  'part_2',
+  'check_part_2',
+  'mooring_2',
+  'sailing_time',
+  'total_waiting_disch_mv',
+  'check_total_waiting_disch_mv',
+  'waiting_cargo_readiness',
+  'waiting_mv',
+  'waiting_flf',
+  'waiting_queueing',
+  'waiting_sequence',
+  'other_factor',
+  'back_to_jetty_time',
+  'loading_rate',
+  'disch_time_loading_rate',
+  'disch_time_percent',
+  'cargo_readiness_p3',
+  'pure_time',
+  'waiting_cargo_readiness_p3',
+  'waiting_mv_p3',
+  'waiting_flf_p3',
+  'waiting_queuing_p3',
+  'waiting_sequence_p3',
+  'other_factor_p3',
+  'check_waiting_time_disch_mv',
+  'total_ct_ltc',
+  'laytime',
+  'ltc_rate',
+  'ltc_day',
+  'ltc_total'
 ];
 
 /* Cycle Time module: editable columns between Floating Crane and Laycan Start. */
 const TLU_CYCLE_TIME_FIELDS = [
   'waiting_loading_jetty' => 'Waiting Loading Jetty',
-  'cek_waiting_loading_jetty' => 'Cek Waiting Loading Jetty',
+  'check_waiting_loading_jetty' => 'Check Waiting Loading Jetty',
   'barges_arrival_early' => 'Barges Arrival Early',
   'waiting_plan_loading' => 'Waiting Plan Loading',
   'loading_time_jetty' => 'Loading Time Jetty',
   'part_1' => 'Part 1',
-  'cek_part_1' => 'Cek Part 1',
+  'check_part_1' => 'Check Part 1',
   'lhv_time' => 'LHV Time',
   'spog_time' => 'SPOG Time',
-  'clear_pass_time' => 'Clear Pass Time'
+  'clear_pass_time' => 'Clear Pass Time',
+  'part_2' => 'Part 2',
+  'check_part_2' => 'Check Part 2',
+  'mooring_2' => 'Mooring 2',
+  'sailing_time' => 'Sailing Time',
+  'total_waiting_disch_mv' => 'Total Waiting Disch MV',
+  'check_total_waiting_disch_mv' => 'Check Total Waiting Disch MV',
+  'waiting_cargo_readiness' => 'Waiting Cargo Readiness (P2)',
+  'waiting_mv' => 'Waiting MV (P2)',
+  'waiting_flf' => 'Waiting FLF (P2)',
+  'waiting_queueing' => 'Waiting Queueing (P2)',
+  'waiting_sequence' => 'Waiting Sequence (P2)',
+  'other_factor' => 'Other Factor (P2)',
+  'back_to_jetty_time' => 'Back to Jetty Time',
+  'loading_rate' => 'Loading Rate',
+  'disch_time_loading_rate' => 'Disch Time for Loading Rate',
+  'disch_time_percent' => 'Disch Time %',
+  'cargo_readiness_p3' => 'Cargo Readiness (P3)',
+  'pure_time' => 'Pure Time',
+  'waiting_cargo_readiness_p3' => 'Waiting Cargo Readiness (P3)',
+  'waiting_mv_p3' => 'Waiting MV (P3)',
+  'waiting_flf_p3' => 'Waiting FLF (P3)',
+  'waiting_queuing_p3' => 'Waiting Queuing (P3)',
+  'waiting_sequence_p3' => 'Waiting Sequence (P3)',
+  'other_factor_p3' => 'Other Factor (P3)',
+  'check_waiting_time_disch_mv' => 'Check Waiting Time Disch MV',
+  'total_ct_ltc' => 'Total CT LTC',
+  'laytime' => 'Laytime',
+  'ltc_rate' => 'LTC Rate',
+  'ltc_day' => 'LTC Day',
+  'ltc_total' => 'LTC Total'
 ];
 
 const TLU_CYCLE_TIME_NUMBER_FIELDS = [
@@ -87,10 +147,38 @@ const TLU_CYCLE_TIME_NUMBER_FIELDS = [
   'part_1',
   'lhv_time',
   'spog_time',
-  'clear_pass_time'
+  'clear_pass_time',
+  'part_2',
+  'mooring_2',
+  'sailing_time',
+  'total_waiting_disch_mv',
+  'waiting_cargo_readiness',
+  'waiting_mv',
+  'waiting_flf',
+  'waiting_queueing',
+  'waiting_sequence',
+  'other_factor',
+  'back_to_jetty_time',
+  'loading_rate',
+  'disch_time_loading_rate',
+  'disch_time_percent',
+  'cargo_readiness_p3',
+  'pure_time',
+  'waiting_cargo_readiness_p3',
+  'waiting_mv_p3',
+  'waiting_flf_p3',
+  'waiting_queuing_p3',
+  'waiting_sequence_p3',
+  'other_factor_p3',
+  'total_ct_ltc',
+  'laytime',
+  'ltc_rate',
+  'ltc_day',
+  'ltc_total'
 ];
 
-const TLU_CYCLE_TIME_YESNO_FIELDS = ['cek_waiting_loading_jetty', 'cek_part_1'];
+const TLU_CYCLE_TIME_YESNO_FIELDS = ['check_total_waiting_disch_mv'];
+const TLU_CYCLE_TIME_TRUEFALSE_FIELDS = ['check_waiting_loading_jetty', 'check_part_1', 'check_part_2', 'check_waiting_time_disch_mv'];
 
 const TLU_DATETIME_FIELDS = [
   'arrival_jetty' => 'Arrival Jetty',
@@ -706,6 +794,14 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
     $value = trim((string)$submittedData[$field]);
     if ($value !== '' && !in_array($value, ['Yes', 'No'], true)) {
       jsonOut(['ok' => false, 'msg' => TLU_CYCLE_TIME_FIELDS[$field] . ' harus Yes atau No.']);
+    }
+  }
+
+  foreach (TLU_CYCLE_TIME_TRUEFALSE_FIELDS as $field) {
+    if (!array_key_exists($field, $submittedData)) continue;
+    $value = trim((string)$submittedData[$field]);
+    if ($value !== '' && !in_array($value, ['True', 'False'], true)) {
+      jsonOut(['ok' => false, 'msg' => TLU_CYCLE_TIME_FIELDS[$field] . ' harus True atau False.']);
     }
   }
 
@@ -1419,20 +1515,20 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="pbm_vendor" data-type="text" data-label="PBM Vendor" data-field="pbm_vendor">PBM Vendor</th>
                 <th class="sortable" data-key="floating_crane" data-type="text" data-label="Floating Crane" data-field="floating_crane">Floating Crane</th>
                 <th class="sortable cycle-time-editable-col" data-key="waiting_loading_jetty" data-type="number" data-label="Waiting Loading Jetty" data-edit-field="waiting_loading_jetty">Waiting Loading Jetty</th>
-                <th class="sortable cycle-time-editable-col" data-key="cek_waiting_loading_jetty" data-type="text" data-label="Cek Waiting Loading Jetty" data-edit-field="cek_waiting_loading_jetty" data-input-type="yesno">Cek Waiting Loading Jetty</th>
+                <th class="sortable cycle-time-editable-col" data-key="check_waiting_loading_jetty" data-type="text" data-label="Check Waiting Loading Jetty" data-edit-field="check_waiting_loading_jetty" data-input-type="truefalse">Check Waiting Loading Jetty</th>
                 <th class="sortable cycle-time-editable-col" data-key="barges_arrival_early" data-type="number" data-label="Barges Arrival Early" data-edit-field="barges_arrival_early">Barges Arrival Early</th>
                 <th class="sortable cycle-time-editable-col" data-key="waiting_plan_loading" data-type="number" data-label="Waiting Plan Loading" data-edit-field="waiting_plan_loading">Waiting Plan Loading</th>
                 <th class="sortable cycle-time-editable-col" data-key="loading_time_jetty" data-type="number" data-label="Loading Time Jetty" data-edit-field="loading_time_jetty">Loading Time Jetty</th>
-                <th class="sortable cycle-time-editable-col" data-key="part_1" data-type="number" data-label="Part 1" data-edit-field="part_1">Part 1</th>
-                <th class="sortable cycle-time-editable-col" data-key="cek_part_1" data-type="text" data-label="Cek Part 1" data-edit-field="cek_part_1" data-input-type="yesno">Cek Part 1</th>
-                <th class="sortable cycle-time-editable-col" data-key="lhv_time" data-type="number" data-label="LHV Time" data-edit-field="lhv_time">LHV Time</th>
-                <th class="sortable cycle-time-editable-col" data-key="spog_time" data-type="number" data-label="SPOG Time" data-edit-field="spog_time">SPOG Time</th>
-                <th class="sortable cycle-time-editable-col" data-key="clear_pass_time" data-type="number" data-label="Clear Pass Time" data-edit-field="clear_pass_time">Clear Pass Time</th>
                 <th class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start" data-field="laycan_start">Laycan Start</th>
                 <th class="sortable" data-key="laycan_end" data-type="date" data-label="Laycan End" data-field="laycan_end">Laycan End</th>
                 <th class="sortable" data-key="arrival_jetty" data-type="date" data-label="Arrival Jetty" data-field="arrival_jetty">Arrival Jetty</th>
                 <th class="sortable" data-key="start_loading" data-type="date" data-label="Start Loading" data-field="start_loading">Start Loading</th>
                 <th class="sortable" data-key="completed_loading" data-type="date" data-label="Completed Loading" data-field="completed_loading">Completed Loading</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part1-col" data-key="part_1" data-type="number" data-label="Part 1" data-edit-field="part_1">Part 1</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part1-col" data-key="check_part_1" data-type="text" data-label="Check Part 1" data-edit-field="check_part_1" data-input-type="truefalse">Check Part 1</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part1-col" data-key="lhv_time" data-type="number" data-label="LHV Time" data-edit-field="lhv_time">LHV Time</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part1-col" data-key="spog_time" data-type="number" data-label="SPOG Time" data-edit-field="spog_time">SPOG Time</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part1-col" data-key="clear_pass_time" data-type="number" data-label="Clear Pass Time" data-edit-field="clear_pass_time">Clear Pass Time</th>
                 <th class="sortable" data-key="lhv" data-type="date" data-label="LHV" data-field="lhv">LHV</th>
                 <th class="sortable" data-key="spog_zona_2" data-type="date" data-label="SPOG ZONA 2" data-field="spog_zona_2">SPOG ZONA 2</th>
                 <th class="sortable" data-key="pkk" data-type="date" data-label="PKK" data-field="pkk">PKK</th>
@@ -1445,6 +1541,19 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="start_mooring_clear_pass" data-type="date" data-label="Start Mooring Clear Pass" data-field="start_mooring_clear_pass">Start Mooring Clear Pass</th>
                 <th class="sortable" data-key="cast_off_mooring_clear_pass" data-type="date" data-label="Cast Off Mooring Clear Pass" data-field="cast_off_mooring_clear_pass">Cast Off Mooring Clear Pass</th>
                 <th class="sortable" data-key="mooring_place_2" data-type="text" data-label="Mooring Place 2" data-field="mooring_place_2">Mooring Place 2</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="part_2" data-type="number" data-label="Part 2" data-edit-field="part_2">Part 2</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="check_part_2" data-type="text" data-label="Check Part 2" data-edit-field="check_part_2" data-input-type="truefalse">Check Part 2</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="mooring_2" data-type="number" data-label="Mooring 2" data-edit-field="mooring_2">Mooring 2</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="sailing_time" data-type="number" data-label="Sailing Time" data-edit-field="sailing_time">Sailing Time</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="total_waiting_disch_mv" data-type="number" data-label="Total Waiting Disch MV" data-edit-field="total_waiting_disch_mv">Total Waiting Disch MV</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="check_total_waiting_disch_mv" data-type="text" data-label="Check Total Waiting Disch MV" data-edit-field="check_total_waiting_disch_mv" data-input-type="yesno">Check Total Waiting Disch MV</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="waiting_cargo_readiness" data-type="number" data-label="Waiting Cargo Readiness (P2)" data-edit-field="waiting_cargo_readiness">Waiting Cargo Readiness (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="waiting_mv" data-type="number" data-label="Waiting MV (P2)" data-edit-field="waiting_mv">Waiting MV (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="waiting_flf" data-type="number" data-label="Waiting FLF (P2)" data-edit-field="waiting_flf">Waiting FLF (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="waiting_queueing" data-type="number" data-label="Waiting Queueing (P2)" data-edit-field="waiting_queueing">Waiting Queueing (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="waiting_sequence" data-type="number" data-label="Waiting Sequence (P2)" data-edit-field="waiting_sequence">Waiting Sequence (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="other_factor" data-type="number" data-label="Other Factor (P2)" data-edit-field="other_factor">Other Factor (P2)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-part2-col" data-key="back_to_jetty_time" data-type="number" data-label="Back to Jetty Time" data-edit-field="back_to_jetty_time">Back to Jetty Time</th>
                 <th class="sortable" data-key="ta_barges_actual" data-type="date" data-label="TA Barges Actual" data-field="ta_barges_actual">TA Barges Actual</th>
                 <th class="sortable" data-key="ta_mv" data-type="date" data-label="TA MV" data-field="ta_mv">TA MV</th>
                 <th class="sortable" data-key="ta_flf" data-type="date" data-label="TA FLF" data-field="ta_flf">TA FLF</th>
@@ -1453,6 +1562,23 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="completed_disch" data-type="date" data-label="Completed Disch" data-field="completed_disch">Completed Disch</th>
                 <th class="sortable" data-key="discharge_sequence" data-type="number" data-label="Discharge Sequence" data-field="discharge_sequence">Discharge Sequence</th>
                 <th class="sortable" data-key="back_to_jetty" data-type="date" data-label="Back to Jetty" data-field="back_to_jetty">Back to Jetty</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="loading_rate" data-type="number" data-label="Loading Rate" data-edit-field="loading_rate">Loading Rate</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="disch_time_loading_rate" data-type="number" data-label="Disch Time for Loading Rate" data-edit-field="disch_time_loading_rate">Disch Time for Loading Rate</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="disch_time_percent" data-type="number" data-label="Disch Time %" data-edit-field="disch_time_percent">Disch Time %</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="cargo_readiness_p3" data-type="number" data-label="Cargo Readiness (P3)" data-edit-field="cargo_readiness_p3">Cargo Readiness (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="pure_time" data-type="number" data-label="Pure Time" data-edit-field="pure_time">Pure Time</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="waiting_cargo_readiness_p3" data-type="number" data-label="Waiting Cargo Readiness (P3)" data-edit-field="waiting_cargo_readiness_p3">Waiting Cargo Readiness (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="waiting_mv_p3" data-type="number" data-label="Waiting MV (P3)" data-edit-field="waiting_mv_p3">Waiting MV (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="waiting_flf_p3" data-type="number" data-label="Waiting FLF (P3)" data-edit-field="waiting_flf_p3">Waiting FLF (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="waiting_queuing_p3" data-type="number" data-label="Waiting Queuing (P3)" data-edit-field="waiting_queuing_p3">Waiting Queuing (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="waiting_sequence_p3" data-type="number" data-label="Waiting Sequence (P3)" data-edit-field="waiting_sequence_p3">Waiting Sequence (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="other_factor_p3" data-type="number" data-label="Other Factor (P3)" data-edit-field="other_factor_p3">Other Factor (P3)</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="check_waiting_time_disch_mv" data-type="text" data-label="Check Waiting Time Disch MV" data-edit-field="check_waiting_time_disch_mv" data-input-type="truefalse">Check Waiting Time Disch MV</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="total_ct_ltc" data-type="number" data-label="Total CT LTC" data-edit-field="total_ct_ltc">Total CT LTC</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="laytime" data-type="number" data-label="Laytime" data-edit-field="laytime">Laytime</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="ltc_rate" data-type="number" data-label="LTC Rate" data-edit-field="ltc_rate">LTC Rate</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="ltc_day" data-type="number" data-label="LTC Day" data-edit-field="ltc_day">LTC Day</th>
+                <th class="sortable cycle-time-editable-col cycle-time-loadingrate-col" data-key="ltc_total" data-type="number" data-label="LTC Total" data-edit-field="ltc_total">LTC Total</th>
                 <th class="sortable" data-key="operation_remarks" data-type="text" data-label="Remarks" data-field="operation_remarks">Remarks</th>
                 <th class="sortable" data-key="created_by" data-type="text" data-label="Created By" data-field="created_by">Created By</th>
                 <th class="sortable" data-key="created_at" data-type="date" data-label="Created At" data-field="created_at">Created At</th>
@@ -1692,10 +1818,28 @@ include __DIR__ . "/../includes/sidebar.php";
     background-color: #fff3cd;
   }
 
+  /* Distinct light header colors for each editable column group, different from each other and from the default (#fff3cd). */
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part1-col {
+    background-color: #d0ebff;
+  }
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part2-col {
+    background-color: #d3f9d8;
+  }
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col {
+    background-color: #e5d4f5;
+  }
+
   #dataBargesTable th.sortable, #cycleTimeTable th.sortable { white-space: nowrap; }
   #dataBargesTable .th-sort-wrap, #cycleTimeTable .th-sort-wrap { display:flex; align-items:center; justify-content:space-between; gap:4px; }
   #dataBargesTable .sort-toggle, #cycleTimeTable .sort-toggle { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; }
   #dataBargesTable th.sortable.sort-active .sort-toggle, #cycleTimeTable th.sortable.sort-active .sort-toggle { opacity:1; font-weight:bold; }
+  #cycleTimeTable .formula-info-btn { text-decoration:none; line-height:1; opacity:.6; border:none; background:transparent; padding:0; font-size:.95rem; }
+  #cycleTimeTable .formula-info-btn:hover, #cycleTimeTable .formula-info-btn:focus { opacity:1; }
+  .wlj-formula-popover { max-width: 320px; }
+  .wlj-formula-popover .popover-header { font-weight: 600; }
+  .wlj-formula-rules { display:flex; flex-direction:column; gap:.4rem; font-size:.82rem; }
+  .wlj-formula-rule { padding-bottom:.35rem; border-bottom:1px dashed #dee2e6; }
+  .wlj-formula-rule:last-child { border-bottom:none; padding-bottom:0; }
   #dataBargesTable .filter-menu, #cycleTimeTable .filter-menu { min-width: 260px; max-height: 80vh; overflow-y: auto; white-space: normal; z-index: 2000; }
   #dataBargesTable .filter-menu .dropdown-header-label, #cycleTimeTable .filter-menu .dropdown-header-label { font-weight:bold; font-size:.9rem; color:#212529; padding: .35rem 1rem .15rem; margin:0; }
   #dataBargesTable .filter-menu .sort-option, #cycleTimeTable .filter-menu .sort-option { font-size:.8rem; }
@@ -2092,9 +2236,25 @@ renderAllOperationsPage(1);
 const formattedNumberFields = new Set([
   'qty', 'qty_disc', 'rc', 'qty_actual',
   'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading',
-  'loading_time_jetty', 'part_1', 'lhv_time', 'spog_time', 'clear_pass_time'
+  'loading_time_jetty', 'part_1', 'lhv_time', 'spog_time', 'clear_pass_time',
+  'part_2', 'mooring_2', 'sailing_time', 'total_waiting_disch_mv',
+  'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf', 'waiting_queueing',
+  'waiting_sequence', 'other_factor', 'back_to_jetty_time',
+  'loading_rate', 'disch_time_loading_rate', 'disch_time_percent',
+  'cargo_readiness_p3', 'pure_time', 'waiting_cargo_readiness_p3',
+  'waiting_mv_p3', 'waiting_flf_p3', 'waiting_queuing_p3',
+  'waiting_sequence_p3', 'other_factor_p3',
+  'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
 ]);
 const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);
+
+// Cycle time columns are always stored/calculated with full raw precision; only their
+// table display is rounded to 4 decimals. Addition, subtraction and comparisons between
+// these fields must keep using the raw (unrounded) numbers to avoid digit mismatches.
+const CYCLE_TIME_4DP_NUMBER_FIELDS = new Set([
+  'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading', 'loading_time_jetty',
+  'part_1', 'lhv_time', 'spog_time', 'clear_pass_time'
+]);
 
 function formatDisplayNumber(value) {
   const text = String(value ?? '').trim();
@@ -2105,6 +2265,18 @@ function formatDisplayNumber(value) {
 
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 6
+  }).format(Number(normalized));
+}
+
+function formatCycleTimeNumber(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
+
+  return new Intl.NumberFormat('en-US', {
+    maximumFractionDigits: 4
   }).format(Number(normalized));
 }
 
@@ -2167,7 +2339,9 @@ function parseOperationData(value) {
 }
 
 function operationCell(operationData, field) {
-  const value = formattedNumberFields.has(field)
+  const value = CYCLE_TIME_4DP_NUMBER_FIELDS.has(field)
+    ? formatCycleTimeNumber(operationData[field])
+    : formattedNumberFields.has(field)
     ? formatDisplayNumber(operationData[field])
     : operationDateTimeFields.has(field)
     ? formatOperationDateTimeDisplay(operationData[field])
@@ -2191,6 +2365,178 @@ function calculateQtyActual(data) {
 
   return formatDisplayNumber((qtyDisc ?? 0) + (rc ?? 0));
 }
+
+// Default for Waiting Loading Jetty: 0 if Laycan Start is empty, else (Start Loading - Arrival Jetty) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateWaitingLoadingJetty(laycanStart, data) {
+  if (!String(laycanStart ?? '').trim()) return 0;
+
+  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
+  const arrivalJetty = Date.parse(String(data.arrival_jetty ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(startLoading) || !Number.isFinite(arrivalJetty)) return '';
+
+  return (startLoading - arrivalJetty) / 86400000;
+}
+
+// Default for Barges Arrival Early: conditional formula comparing Arrival Jetty against Laycan Start/End.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateBargesArrivalEarly(row, data) {
+  const laycanStartRaw = String(row.laycan_start ?? '').trim();
+  if (!laycanStartRaw) return 0;
+
+  const laycanStart = Date.parse(laycanStartRaw.replace(' ', 'T'));
+  const laycanEnd = Date.parse(String(row.laycan_end ?? '').trim().replace(' ', 'T'));
+  const arrivalJetty = Date.parse(String(data.arrival_jetty ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(laycanStart) || !Number.isFinite(arrivalJetty)) return '';
+
+  if (arrivalJetty > laycanStart && Number.isFinite(laycanEnd) && arrivalJetty >= laycanEnd) {
+    return 0;
+  }
+
+  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
+  const daysBetween = (end, start) => (end - start) / 86400000;
+
+  if (Number.isFinite(laycanEnd) && laycanStart < arrivalJetty && arrivalJetty < laycanEnd) {
+    return Number.isFinite(startLoading) ? daysBetween(startLoading, arrivalJetty) : '';
+  }
+
+  if (arrivalJetty < laycanStart && Number.isFinite(startLoading) && startLoading < laycanStart) {
+    return daysBetween(startLoading, arrivalJetty);
+  }
+
+  return daysBetween(laycanStart, arrivalJetty);
+}
+
+// Default for Waiting Plan Loading: (Waiting Loading Jetty - Barges Arrival Early), floored at 0.
+// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
+function calculateWaitingPlanLoading(bargesArrivalEarly, waitingLoadingJetty) {
+  if (bargesArrivalEarly === null || waitingLoadingJetty === null) return '';
+
+  const diff = waitingLoadingJetty - bargesArrivalEarly;
+  return diff < 0 ? 0 : diff;
+}
+
+// Default for Check Waiting Loading Jetty: True if Waiting Loading Jetty equals Barges Arrival Early + Waiting Plan Loading.
+// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
+function calculateCheckWaitingLoadingJetty(waitingLoadingJetty, bargesArrivalEarly, waitingPlanLoading) {
+  if (waitingLoadingJetty === null || bargesArrivalEarly === null || waitingPlanLoading === null) return '';
+
+  const sum = bargesArrivalEarly + waitingPlanLoading;
+  return Math.abs(waitingLoadingJetty - sum) < 1e-9 ? 'True' : 'False';
+}
+
+// Default for Loading Time Jetty: 0 if Completed Loading is empty, else (Completed Loading - Start Loading) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateLoadingTimeJetty(data) {
+  const completedLoadingRaw = String(data.completed_loading ?? '').trim();
+  if (!completedLoadingRaw) return 0;
+
+  const completedLoading = Date.parse(completedLoadingRaw.replace(' ', 'T'));
+  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(completedLoading) || !Number.isFinite(startLoading)) return '';
+
+  return (completedLoading - startLoading) / 86400000;
+}
+
+// Default for Part 1: 0 if Clear Pass is empty, else (Clear Pass - Completed Loading) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculatePart1(data) {
+  const clearPassRaw = String(data.clear_pass ?? '').trim();
+  if (!clearPassRaw) return 0;
+
+  const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
+  const completedLoading = Date.parse(String(data.completed_loading ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(clearPass) || !Number.isFinite(completedLoading)) return '';
+
+  return (clearPass - completedLoading) / 86400000;
+}
+
+// Default for LHV Time: 0 if LHV is empty, else (LHV - Completed Loading) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateLhvTime(data) {
+  const lhvRaw = String(data.lhv ?? '').trim();
+  if (!lhvRaw) return 0;
+
+  const lhv = Date.parse(lhvRaw.replace(' ', 'T'));
+  const completedLoading = Date.parse(String(data.completed_loading ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(lhv) || !Number.isFinite(completedLoading)) return '';
+
+  return (lhv - completedLoading) / 86400000;
+}
+
+// Default for Clear Pass Time: 0 if Clear Pass is empty, else (Clear Pass - End Mooring) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateClearPassTime(data) {
+  const clearPassRaw = String(data.clear_pass ?? '').trim();
+  if (!clearPassRaw) return 0;
+
+  const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
+  const endMooring = Date.parse(String(data.end_mooring ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(clearPass) || !Number.isFinite(endMooring)) return '';
+
+  return (clearPass - endMooring) / 86400000;
+}
+
+// Default for SPOG Time: Part 1 - (LHV Time + Clear Pass Time).
+// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
+function calculateSpogTime(part1, lhvTime, clearPassTime) {
+  if (part1 === null || lhvTime === null || clearPassTime === null) return '';
+
+  return part1 - (lhvTime + clearPassTime);
+}
+
+// Default for Check Part 1: True if Part 1 equals LHV Time + SPOG Time + Clear Pass Time.
+// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
+function calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime) {
+  if (part1 === null || lhvTime === null || spogTime === null || clearPassTime === null) return '';
+
+  const sum = lhvTime + spogTime + clearPassTime;
+  return Math.abs(part1 - sum) < 1e-9 ? 'True' : 'False';
+}
+
+// Cycle time header columns that show a formula info icon/popover; value is the ordered list of rules shown in the popover.
+const FORMULA_INFO_RULES = {
+  waiting_loading_jetty: [
+    'Laycan Start kosong → 0',
+    'Lainnya -> Start Loading − Arrival Jetty'
+  ],
+  waiting_plan_loading: [
+    'Barges Arrival Early − Waiting Loading Jetty'
+  ],
+  loading_time_jetty: [
+    'Completed Loading kosong → 0',
+    'Lainnya -> Completed Loading − Start Loading'
+  ],
+  part_1: [
+    'Clear Pass kosong → 0',
+    'Lainnya -> Clear Pass − Completed Loading'
+  ],
+  lhv_time: [
+    'LHV kosong → 0',
+    'Lainnya -> LHV − Completed Loading'
+  ],
+  clear_pass_time: [
+    'Clear Pass kosong → 0',
+    'Lainnya -> Clear Pass − End Mooring'
+  ],
+  spog_time: [
+    'Part 1 − (LHV Time + Clear Pass Time)'
+  ],
+  check_part_1: [
+    'Part 1 == LHV Time + SPOG Time + Clear Pass Time'
+  ],
+  barges_arrival_early: [
+    'Laycan Start kosong → 0',
+    'Arrival Jetty > Laycan Start dan Arrival Jetty ≥ Laycan End → 0',
+    'Laycan Start < Arrival Jetty < Laycan End → Start Loading − Arrival Jetty',
+    'Arrival Jetty < Laycan Start dan Start Loading < Laycan Start → Start Loading − Arrival Jetty',
+    'Lainnya → Laycan Start − Arrival Jetty'
+  ],
+  check_waiting_loading_jetty: [
+    'Waiting Loading Jetty == Barges Arrival Early + Waiting Plan Loading',
+    // 'Waiting Loading Jetty ≠ Barges Arrival Early + Waiting Plan Loading → False'
+  ]
+};
 
 function selectMarkup(field, value, options) {
   const optionMarkup = options.map(option => `
@@ -2260,6 +2606,48 @@ function getFieldValue(row, key) {
   if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
   const operationData = parseOperationData(row.operation_data);
   if (key === 'qty_actual') return calculateQtyActual(operationData);
+  if (key === 'waiting_loading_jetty' && !String(operationData.waiting_loading_jetty ?? '').trim()) {
+    return calculateWaitingLoadingJetty(row.laycan_start, operationData);
+  }
+  if (key === 'barges_arrival_early' && !String(operationData.barges_arrival_early ?? '').trim()) {
+    return calculateBargesArrivalEarly(row, operationData);
+  }
+  if (key === 'waiting_plan_loading' && !String(operationData.waiting_plan_loading ?? '').trim()) {
+    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
+    const waitingLoadingJetty = parseOperationNumber(getFieldValue(row, 'waiting_loading_jetty'));
+    return calculateWaitingPlanLoading(bargesArrivalEarly, waitingLoadingJetty);
+  }
+  if (key === 'check_waiting_loading_jetty' && !String(operationData.check_waiting_loading_jetty ?? '').trim()) {
+    const waitingLoadingJetty = parseOperationNumber(getFieldValue(row, 'waiting_loading_jetty'));
+    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
+    const waitingPlanLoading = parseOperationNumber(getFieldValue(row, 'waiting_plan_loading'));
+    return calculateCheckWaitingLoadingJetty(waitingLoadingJetty, bargesArrivalEarly, waitingPlanLoading);
+  }
+  if (key === 'loading_time_jetty' && !String(operationData.loading_time_jetty ?? '').trim()) {
+    return calculateLoadingTimeJetty(operationData);
+  }
+  if (key === 'part_1' && !String(operationData.part_1 ?? '').trim()) {
+    return calculatePart1(operationData);
+  }
+  if (key === 'lhv_time' && !String(operationData.lhv_time ?? '').trim()) {
+    return calculateLhvTime(operationData);
+  }
+  if (key === 'clear_pass_time' && !String(operationData.clear_pass_time ?? '').trim()) {
+    return calculateClearPassTime(operationData);
+  }
+  if (key === 'spog_time' && !String(operationData.spog_time ?? '').trim()) {
+    const part1 = parseOperationNumber(getFieldValue(row, 'part_1'));
+    const lhvTime = parseOperationNumber(getFieldValue(row, 'lhv_time'));
+    const clearPassTime = parseOperationNumber(getFieldValue(row, 'clear_pass_time'));
+    return calculateSpogTime(part1, lhvTime, clearPassTime);
+  }
+  if (key === 'check_part_1' && !String(operationData.check_part_1 ?? '').trim()) {
+    const part1 = parseOperationNumber(getFieldValue(row, 'part_1'));
+    const lhvTime = parseOperationNumber(getFieldValue(row, 'lhv_time'));
+    const spogTime = parseOperationNumber(getFieldValue(row, 'spog_time'));
+    const clearPassTime = parseOperationNumber(getFieldValue(row, 'clear_pass_time'));
+    return calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime);
+  }
   return operationData[key] ?? '';
 }
 
@@ -2269,6 +2657,7 @@ function columnDisplayValue(row, key) {
   if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(raw, false);
   if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
   if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
+  if (CYCLE_TIME_4DP_NUMBER_FIELDS.has(key)) return formatCycleTimeNumber(raw);
   if (formattedNumberFields.has(key)) return formatDisplayNumber(raw);
   return (raw ?? '').toString();
 }
@@ -2299,20 +2688,105 @@ const FILTER_CONDITIONS = {
 
 const CYCLE_TIME_COLUMN_FIELDS = [
   'waiting_loading_jetty',
-  'cek_waiting_loading_jetty',
+  'check_waiting_loading_jetty',
   'barges_arrival_early',
   'waiting_plan_loading',
-  'loading_time_jetty',
+  'loading_time_jetty'
+];
+
+const CYCLE_TIME_COLUMN_FIELDS_LHV = [
   'part_1',
-  'cek_part_1',
+  'check_part_1',
   'lhv_time',
   'spog_time',
   'clear_pass_time'
 ];
 
+const CYCLE_TIME_COLUMN_FIELDS_PART2 = [
+  'part_2',
+  'check_part_2',
+  'mooring_2',
+  'sailing_time',
+  'total_waiting_disch_mv',
+  'check_total_waiting_disch_mv',
+  'waiting_cargo_readiness',
+  'waiting_mv',
+  'waiting_flf',
+  'waiting_queueing',
+  'waiting_sequence',
+  'other_factor',
+  'back_to_jetty_time'
+];
+
+const CYCLE_TIME_COLUMN_FIELDS_PART3 = [
+  'loading_rate',
+  'disch_time_loading_rate',
+  'disch_time_percent',
+  'cargo_readiness_p3',
+  'pure_time',
+  'waiting_cargo_readiness_p3',
+  'waiting_mv_p3',
+  'waiting_flf_p3',
+  'waiting_queuing_p3',
+  'waiting_sequence_p3',
+  'other_factor_p3',
+  'check_waiting_time_disch_mv',
+  'total_ct_ltc',
+  'laytime',
+  'ltc_rate',
+  'ltc_day',
+  'ltc_total'
+];
+
 function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
   const operationData = parseOperationData(row.operation_data);
   operationData.qty_actual = calculateQtyActual(operationData);
+  if (!String(operationData.waiting_loading_jetty ?? '').trim()) {
+    operationData.waiting_loading_jetty = calculateWaitingLoadingJetty(row.laycan_start, operationData);
+  }
+  if (!String(operationData.barges_arrival_early ?? '').trim()) {
+    operationData.barges_arrival_early = calculateBargesArrivalEarly(row, operationData);
+  }
+  if (!String(operationData.waiting_plan_loading ?? '').trim()) {
+    operationData.waiting_plan_loading = calculateWaitingPlanLoading(
+      parseOperationNumber(operationData.barges_arrival_early),
+      parseOperationNumber(operationData.waiting_loading_jetty)
+    );
+  }
+  if (!String(operationData.check_waiting_loading_jetty ?? '').trim()) {
+    operationData.check_waiting_loading_jetty = calculateCheckWaitingLoadingJetty(
+      parseOperationNumber(operationData.waiting_loading_jetty),
+      parseOperationNumber(operationData.barges_arrival_early),
+      parseOperationNumber(operationData.waiting_plan_loading)
+    );
+  }
+  if (!String(operationData.loading_time_jetty ?? '').trim()) {
+    operationData.loading_time_jetty = calculateLoadingTimeJetty(operationData);
+  }
+  if (!String(operationData.part_1 ?? '').trim()) {
+    operationData.part_1 = calculatePart1(operationData);
+  }
+  if (!String(operationData.lhv_time ?? '').trim()) {
+    operationData.lhv_time = calculateLhvTime(operationData);
+  }
+  if (!String(operationData.clear_pass_time ?? '').trim()) {
+    operationData.clear_pass_time = calculateClearPassTime(operationData);
+  }
+  if (!String(operationData.spog_time ?? '').trim()) {
+    operationData.spog_time = calculateSpogTime(
+      parseOperationNumber(operationData.part_1),
+      parseOperationNumber(operationData.lhv_time),
+      parseOperationNumber(operationData.clear_pass_time)
+    );
+  }
+  if (!String(operationData.check_part_1 ?? '').trim()) {
+    operationData.check_part_1 = calculateCheckPart1(
+      parseOperationNumber(operationData.part_1),
+      parseOperationNumber(operationData.lhv_time),
+      parseOperationNumber(operationData.spog_time),
+      parseOperationNumber(operationData.clear_pass_time)
+    );
+  }
 
   return `
     <tr data-row-id="${row.id}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
@@ -2335,6 +2809,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       ${operationCell(operationData, 'arrival_jetty')}
       ${operationCell(operationData, 'start_loading')}
       ${operationCell(operationData, 'completed_loading')}
+      ${showCycleTimeColumns ? CYCLE_TIME_COLUMN_FIELDS_LHV.map(field => operationCell(operationData, field)).join('') : ''}
       ${operationCell(operationData, 'lhv')}
       ${operationCell(operationData, 'spog_zona_2')}
       ${operationCell(operationData, 'pkk')}
@@ -2347,6 +2822,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       ${operationCell(operationData, 'start_mooring_clear_pass')}
       ${operationCell(operationData, 'cast_off_mooring_clear_pass')}
       ${operationCell(operationData, 'mooring_place_2')}
+      ${showCycleTimeColumns ? CYCLE_TIME_COLUMN_FIELDS_PART2.map(field => operationCell(operationData, field)).join('') : ''}
       ${operationCell(operationData, 'ta_barges_actual')}
       ${operationCell(operationData, 'ta_mv')}
       ${operationCell(operationData, 'ta_flf')}
@@ -2355,6 +2831,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       ${operationCell(operationData, 'completed_disch')}
       ${operationCell(operationData, 'discharge_sequence')}
       ${operationCell(operationData, 'back_to_jetty')}
+      ${showCycleTimeColumns ? CYCLE_TIME_COLUMN_FIELDS_PART3.map(field => operationCell(operationData, field)).join('') : ''}
       <td>${displayValue(row.operation_remarks)}</td>
       <td>${displayValue(row.created_by)}</td>
       <td>${displayDateTime(row.created_at)}</td>
@@ -3048,7 +3525,31 @@ function createOperationWorkflow(cfg) {
               </div>
             </div>
           </div>
+          ${FORMULA_INFO_RULES[key] ? `
+            <button type="button" class="btn btn-sm p-0 formula-info-btn" aria-label="Formula ${esc(label)}">&#9432;</button>
+          ` : ''}
         </div>`;
+
+      if (FORMULA_INFO_RULES[key]) {
+        const formulaBtn = th.querySelector('.formula-info-btn');
+        const formulaPopover = new bootstrap.Popover(formulaBtn, {
+          trigger: 'click',
+          html: true,
+          placement: 'bottom',
+          container: 'body',
+          customClass: 'wlj-formula-popover',
+          content: `
+            <div class="wlj-formula-rules">
+              ${FORMULA_INFO_RULES[key].map(rule => `<div class="wlj-formula-rule">${esc(rule)}</div>`).join('')}
+            </div>
+          `
+        });
+        formulaBtn.addEventListener('click', e => e.stopPropagation());
+        document.addEventListener('click', e => {
+          if (formulaBtn.contains(e.target) || e.target.closest('.popover')) return;
+          formulaPopover.hide();
+        });
+      }
 
       const toggleBtn = th.querySelector('.sort-toggle');
       new bootstrap.Dropdown(toggleBtn, {
@@ -3155,6 +3656,7 @@ function createOperationWorkflow(cfg) {
         th.addEventListener('mousedown', (e) => {
           if (e.button !== 0) return;
           if (e.target.closest('.dropdown')) return; // let the sort/filter dropdown toggle work normally
+          if (e.target.closest('.formula-info-btn')) return; // let the formula popover toggle work normally
           e.preventDefault();
           startColumnDrag(e, key);
         });
@@ -3289,6 +3791,8 @@ function createOperationWorkflow(cfg) {
         ? dischargeSequenceMarkup(editField, value)
         : inputType === 'yesno'
         ? selectMarkup(editField, value, ['Yes', 'No'])
+        : inputType === 'truefalse'
+        ? selectMarkup(editField, value, ['True', 'False'])
         : inputType === 'datetime-local'
         ? `<input type="datetime-local" class="form-control" data-operation-field="${esc(editField)}" value="${esc(datetimeLocalValue(value))}">`
         : inputType === 'textarea'
