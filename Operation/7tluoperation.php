@@ -2386,14 +2386,25 @@ function calculateWaitingLoadingJetty(laycanStart, data) {
   return (startLoading - arrivalJetty) / 86400000;
 }
 
+// Laycan Start/End are stored as bare "YYYY-MM-DD" dates. Date.parse() treats a
+// date-only string as UTC midnight but a "YYYY-MM-DD HH:MM:SS" string (once the
+// space is swapped for "T") as local midnight — mixing the two would shift Laycan
+// Start/End by the local UTC offset relative to Arrival Jetty/Start Loading. Anchor
+// the bare date to local midnight explicitly so all values share the same basis.
+function parseLaycanDateTime(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return NaN;
+  return Date.parse(s.includes(' ') || s.includes('T') ? s.replace(' ', 'T') : `${s}T00:00:00`);
+}
+
 // Default for Barges Arrival Early: conditional formula comparing Arrival Jetty against Laycan Start/End.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateBargesArrivalEarly(row, data) {
   const laycanStartRaw = String(row.laycan_start ?? '').trim();
   if (!laycanStartRaw) return 0;
 
-  const laycanStart = Date.parse(laycanStartRaw.replace(' ', 'T'));
-  const laycanEnd = Date.parse(String(row.laycan_end ?? '').trim().replace(' ', 'T'));
+  const laycanStart = parseLaycanDateTime(laycanStartRaw);
+  const laycanEnd = parseLaycanDateTime(row.laycan_end);
   const arrivalJetty = Date.parse(String(data.arrival_jetty ?? '').trim().replace(' ', 'T'));
   if (!Number.isFinite(laycanStart) || !Number.isFinite(arrivalJetty)) return '';
 
