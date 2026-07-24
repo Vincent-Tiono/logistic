@@ -2496,6 +2496,19 @@ function calculateTotalCtLtc(data) {
   return (backToJetty - arrivalJetty) / 86400000;
 }
 
+// Default for Back to Jetty Time: 0 if Back to Jetty is empty, else (Back to Jetty - Completed Disch) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateBackToJettyTime(data) {
+  const backToJettyRaw = String(data.back_to_jetty ?? '').trim();
+  if (!backToJettyRaw) return 0;
+
+  const backToJetty = Date.parse(backToJettyRaw.replace(' ', 'T'));
+  const completedDisch = Date.parse(String(data.completed_disch ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(backToJetty) || !Number.isFinite(completedDisch)) return '';
+
+  return (backToJetty - completedDisch) / 86400000;
+}
+
 // Default for Part 1: 0 if Clear Pass is empty, else (Clear Pass - Completed Loading) in days.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculatePart1(data) {
@@ -2632,6 +2645,18 @@ function calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv) {
   return Number.isFinite(result) ? result : 0;
 }
 
+// Default for Waiting Sequence (P2): IFERROR(Waiting Sequence (P3) / Pure Time * Total Waiting Disch MV, 0).
+// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
+function calculateWaitingSequence(waitingSequenceP3, pureTime, totalWaitingDischMv) {
+  const numerator = waitingSequenceP3 ?? 0;
+  const denominator = pureTime ?? 0;
+  const multiplier = totalWaitingDischMv ?? 0;
+  if (!denominator) return 0;
+
+  const result = (numerator / denominator) * multiplier;
+  return Number.isFinite(result) ? result : 0;
+}
+
 // Default for LHV Time: 0 if LHV is empty, else (LHV - Completed Loading) in days.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateLhvTime(data) {
@@ -2700,6 +2725,10 @@ const FORMULA_INFO_RULES = {
     'Arrival Jetty kosong → 0',
     'Lainnya -> Back to Jetty − Arrival Jetty'
   ],
+  back_to_jetty_time: [
+    'Back to Jetty kosong → 0',
+    'Lainnya -> Back to Jetty − Completed Disch'
+  ],
   part_1: [
     'Clear Pass kosong → 0',
     'Lainnya -> Clear Pass − Completed Loading'
@@ -2751,6 +2780,9 @@ const FORMULA_INFO_RULES = {
   ],
   other_factor: [
     'IFERROR(Other Factor (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
+  ],
+  waiting_sequence: [
+    'IFERROR(Waiting Sequence (P3) ÷ Pure Time × Total Waiting Disch MV, 0)'
   ],
   barges_arrival_early: [
     'Laycan Start kosong → 0',
@@ -2862,6 +2894,9 @@ function getFieldValue(row, key) {
   if (key === 'total_ct_ltc' && !String(operationData.total_ct_ltc ?? '').trim()) {
     return calculateTotalCtLtc(operationData);
   }
+  if (key === 'back_to_jetty_time' && !String(operationData.back_to_jetty_time ?? '').trim()) {
+    return calculateBackToJettyTime(operationData);
+  }
   if (key === 'part_1' && !String(operationData.part_1 ?? '').trim()) {
     return calculatePart1(operationData);
   }
@@ -2916,6 +2951,12 @@ function getFieldValue(row, key) {
     const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
     const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
     return calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv);
+  }
+  if (key === 'waiting_sequence' && !String(operationData.waiting_sequence ?? '').trim()) {
+    const waitingSequenceP3 = parseOperationNumber(getFieldValue(row, 'waiting_sequence_p3'));
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
+    return calculateWaitingSequence(waitingSequenceP3, pureTime, totalWaitingDischMv);
   }
   if (key === 'lhv_time' && !String(operationData.lhv_time ?? '').trim()) {
     return calculateLhvTime(operationData);
@@ -3060,6 +3101,9 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
   if (!String(operationData.total_ct_ltc ?? '').trim()) {
     operationData.total_ct_ltc = calculateTotalCtLtc(operationData);
   }
+  if (!String(operationData.back_to_jetty_time ?? '').trim()) {
+    operationData.back_to_jetty_time = calculateBackToJettyTime(operationData);
+  }
   if (!String(operationData.part_1 ?? '').trim()) {
     operationData.part_1 = calculatePart1(operationData);
   }
@@ -3120,6 +3164,13 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
   if (!String(operationData.other_factor ?? '').trim()) {
     operationData.other_factor = calculateOtherFactor(
       parseOperationNumber(operationData.other_factor_p3),
+      parseOperationNumber(operationData.pure_time),
+      parseOperationNumber(operationData.total_waiting_disch_mv)
+    );
+  }
+  if (!String(operationData.waiting_sequence ?? '').trim()) {
+    operationData.waiting_sequence = calculateWaitingSequence(
+      parseOperationNumber(operationData.waiting_sequence_p3),
       parseOperationNumber(operationData.pure_time),
       parseOperationNumber(operationData.total_waiting_disch_mv)
     );

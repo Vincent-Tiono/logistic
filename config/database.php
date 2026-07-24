@@ -99,3 +99,44 @@ function ensure_vessel_schedule_columns(mysqli $connection): void
         );
     }
 }
+
+/**
+ * Keep existing installations compatible with the shipper Laytime column.
+ */
+function ensure_shipper_laytime_column(mysqli $connection): void
+{
+    static $checkedDatabases = [];
+
+    $result = $connection->query('SELECT DATABASE() AS db_name');
+    $databaseRow = $result->fetch_assoc();
+    $database = (string) ($databaseRow['db_name'] ?? '');
+    if ($database === '' || isset($checkedDatabases[$database])) {
+        return;
+    }
+
+    try {
+        $statement = $connection->prepare(
+            "SELECT COLUMN_NAME
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = ?
+               AND TABLE_NAME = 'shipper'
+               AND COLUMN_NAME = 'laytime'"
+        );
+        $statement->bind_param('s', $database);
+        $statement->execute();
+        $exists = (bool) $statement->get_result()->fetch_assoc();
+        $statement->close();
+
+        if (!$exists) {
+            $connection->query("ALTER TABLE shipper ADD COLUMN laytime DECIMAL(10,2) DEFAULT NULL AFTER nama_lengkap");
+        }
+
+        $checkedDatabases[$database] = true;
+    } catch (Throwable $exception) {
+        throw new RuntimeException(
+            'Gagal menyiapkan kolom Laytime pada data Shipper.',
+            0,
+            $exception
+        );
+    }
+}

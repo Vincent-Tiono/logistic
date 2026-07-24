@@ -14,6 +14,7 @@ require_once __DIR__ . '/../config/database.php';
 
 try {
   $koneksi = db_connect('databarging');
+  ensure_shipper_laytime_column($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
@@ -21,6 +22,11 @@ try {
 
 /* ========= HELPERS ========= */
 function clean($s){ return trim((string)$s); }
+
+function toNullableFloat($s){
+  $s = trim((string)$s);
+  return ($s === '' || !is_numeric($s)) ? null : (float)$s;
+}
 
 function jsonOut($arr){
   header('Content-Type: application/json; charset=utf-8');
@@ -34,11 +40,11 @@ if (isset($_GET['download']) && $_GET['download'] === 'shipper_template') {
   header('Content-Disposition: attachment; filename="shipper_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['shipper','pt','nama_lengkap']);
+  fputcsv($out, ['shipper','pt','nama_lengkap','laytime']);
 
   // contoh baris
-  fputcsv($out, ['MHU','PT. MULTI HARAPAN UTAMA',"PT MULTI HARAPAN UTAMA\nCFX TOWER LANTAI 3-4, JALAN JENDERAL GATOT SUBROTO,\nKAVELING 35-36,\nKUNINGAN TIMUR, SETIABUDI, KOTA ADM. JAKARTA SELATAN,\nDKI JAKARTA, INDONESIA, 12950"]);
-  fputcsv($out, ['CDI','PT. CITRA DAYAK INDAH',"PT CITRA DAYAK INDAH\nJL. RAPAK INDAH PERMAI\nBLOK F NO. 21 LOK BAHU, SUNGAI KUNJANG,\nSAMARINDA, KALIMANTAN TIMUR"]);
+  fputcsv($out, ['MHU','PT. MULTI HARAPAN UTAMA',"PT MULTI HARAPAN UTAMA\nCFX TOWER LANTAI 3-4, JALAN JENDERAL GATOT SUBROTO,\nKAVELING 35-36,\nKUNINGAN TIMUR, SETIABUDI, KOTA ADM. JAKARTA SELATAN,\nDKI JAKARTA, INDONESIA, 12950", '9']);
+  fputcsv($out, ['CDI','PT. CITRA DAYAK INDAH',"PT CITRA DAYAK INDAH\nJL. RAPAK INDAH PERMAI\nBLOK F NO. 21 LOK BAHU, SUNGAI KUNJANG,\nSAMARINDA, KALIMANTAN TIMUR", '5']);
   fclose($out);
   exit;
 }
@@ -52,7 +58,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
 
-    $sql = "SELECT shipper, pt, nama_lengkap FROM shipper";
+    $sql = "SELECT shipper, pt, nama_lengkap, laytime FROM shipper";
     $types = "";
     $params = [];
 
@@ -81,6 +87,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
     $pt      = clean($_POST['pt'] ?? '');
     $nama    = clean($_POST['nama_lengkap'] ?? '');
+    $laytime = toNullableFloat($_POST['laytime'] ?? '');
 
     if ($shipper === "" || $pt === "" || $nama === "") {
       jsonOut(["ok"=>false,"msg"=>"Shipper, PT, dan Nama Lengkap wajib diisi."]);
@@ -95,9 +102,9 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $stmt->close();
     if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Kode Shipper sudah ada (harus unik)."]);
 
-    $stmt = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap) VALUES (?,?,?)");
+    $stmt = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("sss", $shipper, $pt, $nama);
+    $stmt->bind_param("sssd", $shipper, $pt, $nama, $laytime);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
@@ -111,14 +118,15 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
     $pt      = clean($_POST['pt'] ?? '');
     $nama    = clean($_POST['nama_lengkap'] ?? '');
+    $laytime = toNullableFloat($_POST['laytime'] ?? '');
 
     if ($shipper === "" || $pt === "" || $nama === "") {
       jsonOut(["ok"=>false,"msg"=>"Data update tidak valid."]);
     }
 
-    $stmt = $koneksi->prepare("UPDATE shipper SET pt=?, nama_lengkap=? WHERE shipper=?");
+    $stmt = $koneksi->prepare("UPDATE shipper SET pt=?, nama_lengkap=?, laytime=? WHERE shipper=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("sss", $pt, $nama, $shipper);
+    $stmt->bind_param("ssds", $pt, $nama, $laytime, $shipper);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
@@ -175,12 +183,13 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $idx = array_flip($header);
+    $hasLaytime = isset($idx['laytime']);
 
     $inserted = 0;
     $skipped  = 0;
     $errors   = 0;
 
-    $stmtIns = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap) VALUES (?,?,?)");
+    $stmtIns = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
     if (!$stmtIns) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]); }
 
     $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM shipper WHERE shipper=?");
@@ -190,6 +199,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       $shipper = strtoupper(clean($row[$idx['shipper']] ?? ''));
       $pt      = clean($row[$idx['pt']] ?? '');
       $nama    = clean($row[$idx['nama_lengkap']] ?? '');
+      $laytime = $hasLaytime ? toNullableFloat($row[$idx['laytime']] ?? '') : null;
 
       if ($shipper === "" || $pt === "" || $nama === "") { $errors++; continue; }
 
@@ -199,7 +209,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       $c = (int)($stmtChk->get_result()->fetch_assoc()['c'] ?? 0);
       if ($c > 0) { $skipped++; continue; }
 
-      $stmtIns->bind_param("sss", $shipper, $pt, $nama);
+      $stmtIns->bind_param("sssd", $shipper, $pt, $nama, $laytime);
       if ($stmtIns->execute()) $inserted++;
       else $errors++;
     }
@@ -290,10 +300,15 @@ include __DIR__ . "/../includes/sidebar.php";
           <input name="pt" class="form-control" placeholder="PT. MULTI HARAPAN UTAMA" required>
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label class="form-label">Nama Lengkap</label>
           <textarea name="nama_lengkap" class="form-control" rows="3"
             placeholder="Alamat / nama lengkap shipper..." required></textarea>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Laytime</label>
+          <input type="number" step="any" name="laytime" class="form-control" placeholder="9">
         </div>
 
         <div class="col-12">
@@ -380,11 +395,12 @@ include __DIR__ . "/../includes/sidebar.php";
               <th style="min-width:110px;" class="sortable" data-key="shipper" data-type="text" data-label="Shipper"></th>
               <th style="min-width:260px;" class="sortable" data-key="pt" data-type="text" data-label="PT"></th>
               <th class="sortable" data-key="nama_lengkap" data-type="text" data-label="Nama Lengkap"></th>
+              <th style="min-width:100px;" class="sortable" data-key="laytime" data-type="number" data-label="Laytime"></th>
               <th style="width:190px;">Action</th>
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="4" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -466,12 +482,14 @@ function rowTemplate(r){
   const shipper = esc(r.shipper);
   const pt = esc(r.pt);
   const nama = esc(r.nama_lengkap);
+  const laytime = esc(r.laytime);
 
   return `
   <tr data-shipper="${shipper}">
     <td><input class="form-control form-control-sm" value="${shipper}" disabled></td>
     <td><input class="form-control form-control-sm" name="pt" value="${pt}"></td>
     <td><textarea class="form-control form-control-sm" name="nama_lengkap" rows="3">${nama}</textarea></td>
+    <td><input type="number" step="any" class="form-control form-control-sm" name="laytime" value="${laytime}"></td>
     <td class="d-flex gap-2">
       <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
@@ -569,7 +587,7 @@ function renderTable(){
   const data = computeDisplayData();
   tbody.innerHTML = data.length
     ? data.map(rowTemplate).join('')
-    : `<tr><td colspan="4" class="text-center text-muted">No data</td></tr>`;
+    : `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
   applyFreezeStyling();
   applyHiddenColumns();
 }
@@ -1154,7 +1172,7 @@ async function loadTable(){
   const kw = q.value.trim();
   const res = await api('list', null, `&q=${encodeURIComponent(kw)}`);
   if (!res.ok){
-    tbody.innerHTML = `<tr><td colspan="4" class="text-danger">Error: ${res.msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Error: ${res.msg}</td></tr>`;
     return;
   }
   originalData = res.data;
@@ -1187,7 +1205,7 @@ tbody.addEventListener('click', async (e)=>{
       showAlert('success', res.msg);
       originalData = originalData.filter(r => r.shipper !== shipper);
       tr.remove();
-      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="4" class="text-center text-muted">No data</td></tr>`;
+      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
     } else {
       showAlert('danger', res.msg);
     }
@@ -1198,7 +1216,8 @@ tbody.addEventListener('click', async (e)=>{
     const payload = {
       shipper,
       pt: getVal('pt'),
-      nama_lengkap: getVal('nama_lengkap')
+      nama_lengkap: getVal('nama_lengkap'),
+      laytime: getVal('laytime')
     };
     const res = await api('update', payload);
     if (res.ok){
