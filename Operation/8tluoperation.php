@@ -28,6 +28,7 @@ const TLU_OPERATION_FIELDS = [
   'qty_disc',
   'rc',
   'qty_actual',
+  'barge_vendor',
   'pbm_vendor',
   'floating_crane',
   'arrival_jetty',
@@ -211,6 +212,7 @@ const TLU_CSV_COLUMNS = [
   'jetty',
   'tugboat',
   'barge',
+  'barge_vendor',
   'qty',
   'qty_disc',
   'rc',
@@ -252,6 +254,7 @@ const TLU_TABLE_EXPORT_HEADERS = [
   'Jetty',
   'Tugboat',
   'Barge',
+  'Barge Vendor',
   'QTY',
   'QTY DISC',
   'RC',
@@ -353,6 +356,19 @@ function validateFlfChoice($koneksi, $column, $value, $label) {
   $stmt->close();
 
   if (!$exists) jsonOut(['ok' => false, 'msg' => $label . ' tidak ditemukan pada data FLF.']);
+}
+
+function validateVendorChoice($koneksi, $value, $label) {
+  if ($value === '') return;
+
+  $stmt = $koneksi->prepare("SELECT 1 FROM vendor WHERE vendor = ? LIMIT 1");
+  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
+  $stmt->bind_param('s', $value);
+  $stmt->execute();
+  $exists = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+
+  if (!$exists) jsonOut(['ok' => false, 'msg' => $label . ' tidak ditemukan pada data Barge Vendor.']);
 }
 
 function parseOperationDateTimeValue($value) {
@@ -457,7 +473,7 @@ function decodeOperationData($value) {
   return is_array($decoded) ? $decoded : [];
 }
 
-function decodeOperationDataWithVesselDefaults(array $row) {
+function decodeOperationDataWithVesselDefaults(array $row, $koneksi = null) {
   $data = decodeOperationData($row['operation_data'] ?? '');
   foreach (['pkk', 'rkbm'] as $field) {
     if (trim((string)($data[$field] ?? '')) !== '') continue;
@@ -477,11 +493,29 @@ function decodeOperationDataWithVesselDefaults(array $row) {
     }
   }
 
+  // LTC Rate defaults to the matching Barge Vendor's LTC Rate (Operation/3vendor.php),
+  // unless this row already has its own manually-saved LTC Rate.
+  if ($koneksi !== null && trim((string)($data['ltc_rate'] ?? '')) === '') {
+    $bargeVendor = trim((string)($data['barge_vendor'] ?? ''));
+    if ($bargeVendor !== '') {
+      $stmt = $koneksi->prepare("SELECT ltc_rate FROM vendor WHERE vendor = ? LIMIT 1");
+      if ($stmt) {
+        $stmt->bind_param('s', $bargeVendor);
+        $stmt->execute();
+        $vendorRow = $stmt->get_result()->fetch_assoc();
+        $stmt->close();
+        if ($vendorRow && $vendorRow['ltc_rate'] !== null) {
+          $data['ltc_rate'] = $vendorRow['ltc_rate'];
+        }
+      }
+    }
+  }
+
   return $data;
 }
 
-function tableExportRow($row) {
-  $data = decodeOperationDataWithVesselDefaults($row);
+function tableExportRow($row, $koneksi = null) {
+  $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
   $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
   $rc = trim((string)($data['rc'] ?? ''));
   $qtyActual = '';
@@ -499,6 +533,7 @@ function tableExportRow($row) {
     $row['jetty_code'] ?? '',
     $row['tugboat'] ?? '',
     $row['barge'] ?? '',
+    $data['barge_vendor'] ?? '',
     formatOperationDisplayNumber($data['qty'] ?? ''),
     formatOperationDisplayNumber($qtyDisc),
     formatOperationDisplayNumber($rc),
@@ -540,7 +575,7 @@ function tableExportRow($row) {
 /* Column order/labels mirror the Cycle Time submodule table (#cycleTimeTable) headers. */
 const TLU_CYCLE_TIME_EXPORT_HEADERS = [
   'No. Reff', 'Buyer', 'Mother Vessel', 'Stowage Plan', 'Jetty', 'Shipper',
-  'Tugboat', 'Barge', 'QTY', 'QTY DISC', 'RC', 'QTY Actual', 'PBM Vendor', 'Floating Crane',
+  'Tugboat', 'Barge', 'Barge Vendor', 'QTY', 'QTY DISC', 'RC', 'QTY Actual', 'PBM Vendor', 'Floating Crane',
   'Waiting Loading Jetty', 'Check Waiting Loading Jetty', 'Barges Arrival Early',
   'Waiting Plan Loading', 'Loading Time Jetty',
   'Laycan Start', 'Laycan End', 'Arrival Jetty', 'Start Loading', 'Completed Loading',
@@ -561,8 +596,8 @@ const TLU_CYCLE_TIME_EXPORT_HEADERS = [
   'Remarks', 'Created By', 'Created At', 'Updated At'
 ];
 
-function cycleTimeExportRow($row) {
-  $data = decodeOperationDataWithVesselDefaults($row);
+function cycleTimeExportRow($row, $isFirstInVessel = true, $koneksi = null) {
+  $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
   $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
   $rc = trim((string)($data['rc'] ?? ''));
   $qtyActual = '';
@@ -577,11 +612,12 @@ function cycleTimeExportRow($row) {
     $row['no_pk'] ?? '',
     $row['buyer'] ?? '',
     $row['mothervessel'] ?? '',
-    formatOperationDisplayNumber($row['stowageplan_mt'] ?? ''),
+    $isFirstInVessel ? formatOperationDisplayNumber($row['stowageplan_mt'] ?? '') : '',
     $row['jetty_code'] ?? '',
     $row['shipper_code'] ?? '',
     $row['tugboat'] ?? '',
     $row['barge'] ?? '',
+    $data['barge_vendor'] ?? '',
     formatOperationDisplayNumber($data['qty'] ?? ''),
     formatOperationDisplayNumber($qtyDisc),
     formatOperationDisplayNumber($rc),
@@ -792,10 +828,11 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
   $previousVessel = null;
   foreach ($rows as $row) {
     $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
-    if ($previousVessel !== null && $vesselKey !== $previousVessel) {
+    $isFirstInVessel = $vesselKey !== $previousVessel;
+    if ($previousVessel !== null && $isFirstInVessel) {
       fputcsv($out, [], ',', '"', '');
     }
-    fputcsv($out, cycleTimeExportRow($row), ',', '"', '');
+    fputcsv($out, cycleTimeExportRow($row, $isFirstInVessel, $koneksi), ',', '"', '');
     $previousVessel = $vesselKey;
   }
   fclose($out);
@@ -845,7 +882,7 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
   $out = fopen('php://output', 'w');
   fputcsv($out, TLU_CSV_COLUMNS, ',', '"', '');
   foreach ($rows as $row) {
-    $data = decodeOperationDataWithVesselDefaults($row);
+    $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
     $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
     $rc = trim((string)($data['rc'] ?? ''));
     $qtyActual = '';
@@ -861,6 +898,7 @@ if (($_GET['download'] ?? '') === 'tlu_operation_template') {
       'jetty' => $row['jetty_code'],
       'tugboat' => $row['tugboat'],
       'barge' => $row['barge'],
+      'barge_vendor' => $data['barge_vendor'] ?? '',
       'qty' => formatOperationDisplayNumber($data['qty'] ?? ''),
       'qty_disc' => formatOperationDisplayNumber($qtyDisc),
       'rc' => formatOperationDisplayNumber($rc),
@@ -967,6 +1005,7 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
     jsonOut(['ok' => false, 'msg' => implode('. ', $timelineErrors) . '.']);
   }
 
+  validateVendorChoice($koneksi, $operationData['barge_vendor'] ?? '', 'Barge Vendor');
   validateFlfChoice($koneksi, 'vendor_flf', $operationData['pbm_vendor'] ?? '', 'PBM Vendor');
   validateFlfChoice($koneksi, 'floating_crane', $operationData['floating_crane'] ?? '', 'Floating Crane');
 
@@ -1070,10 +1109,13 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
 
   $vendorOptions = [];
   $floatingOptions = [];
+  $bargeVendorOptions = [];
   $res = $koneksi->query("SELECT DISTINCT vendor_flf FROM flf WHERE vendor_flf <> ''");
   if ($res) $vendorOptions = array_column($res->fetch_all(MYSQLI_ASSOC), 'vendor_flf');
   $res = $koneksi->query("SELECT DISTINCT floating_crane FROM flf WHERE floating_crane <> ''");
   if ($res) $floatingOptions = array_column($res->fetch_all(MYSQLI_ASSOC), 'floating_crane');
+  $res = $koneksi->query("SELECT DISTINCT vendor FROM vendor WHERE vendor <> ''");
+  if ($res) $bargeVendorOptions = array_column($res->fetch_all(MYSQLI_ASSOC), 'vendor');
 
   $stmtFind = $koneksi->prepare("
     SELECT id
@@ -1181,6 +1223,9 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
       }
     }
 
+    $bargeVendor = $operationData['barge_vendor'] ?? '';
+    if ($bargeVendor !== '' && !in_array($bargeVendor, $bargeVendorOptions, true)) $rowErrors[] = 'barge_vendor tidak ada di data Barge Vendor';
+
     $vendor = $operationData['pbm_vendor'] ?? '';
     $floating = $operationData['floating_crane'] ?? '';
     if ($vendor !== '' && !in_array($vendor, $vendorOptions, true)) $rowErrors[] = 'pbm_vendor tidak ada di data FLF';
@@ -1282,7 +1327,7 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
   $stmt->close();
 
   foreach ($rows as &$row) {
-    $operationData = decodeOperationDataWithVesselDefaults($row);
+    $operationData = decodeOperationDataWithVesselDefaults($row, $koneksi);
     $row['operation_data'] = $operationData
       ? json_encode($operationData, JSON_UNESCAPED_UNICODE)
       : null;
@@ -1314,6 +1359,19 @@ $res = $koneksi->query("
 ");
 if ($res) {
   $floatingCraneOptions = array_column($res->fetch_all(MYSQLI_ASSOC), 'floating_crane');
+  $res->free();
+}
+
+/* Dropdown choices maintained on the Barge Vendor page (Operation/3vendor.php). */
+$bargeVendorOptions = [];
+$res = $koneksi->query("
+  SELECT DISTINCT vendor
+  FROM vendor
+  WHERE vendor <> ''
+  ORDER BY vendor ASC
+");
+if ($res) {
+  $bargeVendorOptions = array_column($res->fetch_all(MYSQLI_ASSOC), 'vendor');
   $res->free();
 }
 
@@ -1375,7 +1433,7 @@ if ($res) {
     if ($previousVessel !== null && $vesselKey !== $previousVessel) {
       $allOperationsRows[] = null;
     }
-    $allOperationsRows[] = tableExportRow($row);
+    $allOperationsRows[] = tableExportRow($row, $koneksi);
     $previousVessel = $vesselKey;
   }
 }
@@ -1530,6 +1588,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper" data-field="shipper_code">Shipper</th>
                 <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
                 <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
+                <th class="sortable" data-key="barge_vendor" data-type="text" data-label="Barge Vendor" data-edit-field="barge_vendor" data-input-type="barge-vendor">Barge Vendor</th>
                 <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-edit-field="qty">QTY</th>
                 <th class="sortable" data-key="qty_disc" data-type="number" data-label="QTY DISC" data-edit-field="qty_disc">QTY DISC</th>
                 <th class="sortable" data-key="rc" data-type="number" data-label="RC" data-edit-field="rc">RC</th>
@@ -1671,6 +1730,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper" data-field="shipper_code">Shipper</th>
                 <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
                 <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
+                <th class="sortable" data-key="barge_vendor" data-type="text" data-label="Barge Vendor" data-field="barge_vendor">Barge Vendor</th>
                 <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-field="qty">QTY</th>
                 <th class="sortable" data-key="qty_disc" data-type="number" data-label="QTY DISC" data-field="qty_disc">QTY DISC</th>
                 <th class="sortable" data-key="rc" data-type="number" data-label="RC" data-field="rc">RC</th>
@@ -2120,6 +2180,7 @@ const downloadGroupedExport = document.getElementById('downloadGroupedExport');
 const groupedExportStatus = document.getElementById('groupedExportStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const bargeVendorOptions = <?= json_encode($bargeVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const allOperationsHeaders = <?= json_encode(TLU_TABLE_EXPORT_HEADERS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const allOperationsData = <?= json_encode($allOperationsRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -3126,7 +3187,8 @@ const FORMULA_INFO_RULES = {
     'Diambil dari Laytime Shipper (Operation/2shipper.php) sesuai Shipper baris ini'
   ],
   ltc_rate: [
-    'Input manual'
+    'Diambil dari LTC Rate Barge Vendor (Operation/3vendor.php) sesuai Barge Vendor baris ini',
+    'Bisa diubah manual per baris'
   ],
   ltc_day: [
     '(Laytime − (Total CT LTC − Barges Arrival Early)) > 0 → 0',
@@ -3202,6 +3264,10 @@ const DIRECT_ROW_FIELDS = new Set([
 ]);
 
 function getFieldValue(row, key, allRows = [row]) {
+  if (key === 'stowageplan_mt') {
+    const rows = allRows && allRows.length ? allRows : [row];
+    return rows[0]?.stowageplan_mt ?? '';
+  }
   if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
   const operationData = parseOperationData(row.operation_data);
   if (key === 'qty_actual') return calculateQtyActual(operationData);
@@ -3345,7 +3411,7 @@ function getFieldValue(row, key, allRows = [row]) {
     return calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3);
   }
   if (key === 'loading_rate' && !String(operationData.loading_rate ?? '').trim()) {
-    const stowageplanMt = parseOperationNumber(row.stowageplan_mt);
+    const stowageplanMt = parseOperationNumber(getFieldValue(row, 'stowageplan_mt', allRows));
     const totalDischTimeLoadingRate = sumDischTimeLoadingRate(allRows);
     return calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate);
   }
@@ -3590,7 +3656,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
   }
   if (!String(operationData.loading_rate ?? '').trim()) {
     operationData.loading_rate = calculateLoadingRate(
-      parseOperationNumber(row.stowageplan_mt),
+      parseOperationNumber(getFieldValue(row, 'stowageplan_mt', allRows)),
       sumDischTimeLoadingRate(allRows)
     );
   }
@@ -3601,11 +3667,12 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
       <td>${displayValue(row.no_pk)}</td>
       <td>${displayValue(row.buyer)}</td>
       <td>${displayValue(row.mothervessel)}</td>
-      ${showCycleTimeColumns ? `<td>${displayValue(formatDisplayNumber(row.stowageplan_mt))}</td>` : ''}
+      ${showCycleTimeColumns ? `<td>${displayIndex === 0 ? displayValue(formatDisplayNumber(getFieldValue(row, 'stowageplan_mt', allRows))) : ''}</td>` : ''}
       <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
       <td title="${esc(row.shipper_name)}">${displayValue(row.shipper_code)}</td>
       <td>${displayValue(row.tugboat)}</td>
       <td>${displayValue(row.barge)}</td>
+      ${operationCell(operationData, 'barge_vendor')}
       ${operationCell(operationData, 'qty')}
       ${operationCell(operationData, 'qty_disc')}
       ${operationCell(operationData, 'rc')}
@@ -4592,6 +4659,8 @@ function createOperationWorkflow(cfg) {
             <div class="form-text">Dihitung otomatis: QTY DISC + RC</div>
           </div>
         `
+        : inputType === 'barge-vendor'
+        ? selectMarkup(editField, value, bargeVendorOptions)
         : inputType === 'pbm-vendor'
         ? selectMarkup(editField, value, pbmVendorOptions)
         : inputType === 'floating-crane'

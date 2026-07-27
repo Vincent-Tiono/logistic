@@ -108,7 +108,7 @@ if (isset($_GET['download']) && $_GET['download'] === 'vendor_template') {
   header('Content-Disposition: attachment; filename="vendor_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['vendor','shipper','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate']);
+  fputcsv($out, ['vendor','shipper','tonnage','penalty','discount','contract','laytime','ltc_rate']);
   fputcsv($out, ['BMC','MHU','8200','DF','0','3','LK-001','9','1500']);
   fclose($out);
   exit;
@@ -126,20 +126,20 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     // sort whitelist (biar aman dari SQL injection)
     $sort = clean($_GET['sort'] ?? 'vendor');
     $dir  = strtoupper(clean($_GET['dir'] ?? 'ASC'));
-    $allowedSort = ['vendor','shipper','freight','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate'];
+    $allowedSort = ['vendor','shipper','freight','tonnage','penalty','discount','contract','laytime','ltc_rate'];
     if (!in_array($sort, $allowedSort, true)) $sort = 'vendor';
     if ($dir !== 'ASC' && $dir !== 'DESC') $dir = 'ASC';
 
-    $sql = "SELECT id, vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate
+    $sql = "SELECT id, vendor, shipper, freight, tonnage, penalty, discount, contract, laytime, ltc_rate
             FROM vendor";
     $types = "";
     $params = [];
 
     if ($q !== "") {
-      $sql .= " WHERE vendor LIKE ? OR shipper LIKE ? OR contract LIKE ? OR lookup LIKE ?";
+      $sql .= " WHERE vendor LIKE ? OR shipper LIKE ? OR contract LIKE ?";
       $kw = "%{$q}%";
-      $types = "ssss";
-      $params = [$kw,$kw,$kw,$kw];
+      $types = "sss";
+      $params = [$kw,$kw,$kw];
     }
 
     // sort utama + tie breaker biar stabil
@@ -167,26 +167,25 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $discount = toDecimal($_POST['discount'] ?? '');
     $contractRaw = clean($_POST['contract'] ?? '');
     $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
-    $lookup   = clean($_POST['lookup'] ?? '');
     $laytimeRaw = clean($_POST['laytime'] ?? '');
     $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
     $ltcRateRaw = clean($_POST['ltc_rate'] ?? '');
     $ltcRate  = ($ltcRateRaw !== '') ? toDecimal($ltcRateRaw) : computeLtcRate($freight, $tonnage, $contract);
 
     if ($vendor === "") {
-      jsonOut(["ok"=>false,"msg"=>"Vendor wajib diisi."]);
+      jsonOut(["ok"=>false,"msg"=>"Barge Vendor wajib diisi."]);
     }
 
-    $stmt = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate)
-                               VALUES (?,?,?,?,?,?,?,?,?,?)");
+    $stmt = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, laytime, ltc_rate)
+                               VALUES (?,?,?,?,?,?,?,?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
 
-    $stmt->bind_param("ssddsdssdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate);
+    $stmt->bind_param("ssddsdsdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $laytime, $ltcRate);
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data Barge Vendor berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== UPDATE =====
@@ -201,7 +200,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $discount = toDecimal($_POST['discount'] ?? '');
     $contractRaw = clean($_POST['contract'] ?? '');
     $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
-    $lookup   = clean($_POST['lookup'] ?? '');
     $laytimeRaw = clean($_POST['laytime'] ?? '');
     $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
     $ltcRateRaw = clean($_POST['ltc_rate'] ?? '');
@@ -212,17 +210,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $stmt = $koneksi->prepare("UPDATE vendor
-      SET vendor=?, shipper=?, freight=?, tonnage=?, penalty=?, discount=?, contract=?, lookup=?, laytime=?, ltc_rate=?
+      SET vendor=?, shipper=?, freight=?, tonnage=?, penalty=?, discount=?, contract=?, laytime=?, ltc_rate=?
       WHERE id=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
 
-    $stmt->bind_param("ssddsdssddi", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate, $id);
+    $stmt->bind_param("ssddsdsddi", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $laytime, $ltcRate, $id);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data Barge Vendor berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== DELETE =====
@@ -237,7 +235,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data Barge Vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== IMPORT CSV =====
@@ -263,7 +261,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     $header = array_map(fn($h)=> strtolower(trim((string)$h)), $header);
 
-    $required = ['vendor','shipper','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate'];
+    $required = ['vendor','shipper','tonnage','penalty','discount','contract','laytime','ltc_rate'];
     foreach ($required as $col) {
       if (!in_array($col, $header, true)) {
         fclose($fh);
@@ -275,8 +273,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $inserted = 0;
     $errors = 0;
 
-    $stmtIns = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate)
-                                  VALUES (?,?,?,?,?,?,?,?,?,?)");
+    $stmtIns = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, laytime, ltc_rate)
+                                  VALUES (?,?,?,?,?,?,?,?,?)");
     if (!$stmtIns) {
       fclose($fh);
       jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]);
@@ -291,7 +289,6 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       $discount = toDecimal($row[$idx['discount']] ?? '');
       $contractRaw = clean($row[$idx['contract']] ?? '');
       $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
-      $lookup   = clean($row[$idx['lookup']] ?? '');
       $laytimeRaw = clean($row[$idx['laytime']] ?? '');
       $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
       $ltcRateRaw = clean($row[$idx['ltc_rate']] ?? '');
@@ -299,7 +296,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
       if ($vendor === "") { $errors++; continue; }
 
-      $stmtIns->bind_param("ssddsdssdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate);
+      $stmtIns->bind_param("ssddsdsdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $laytime, $ltcRate);
       if ($stmtIns->execute()) $inserted++;
       else $errors++;
     }
@@ -320,14 +317,14 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $ok = $koneksi->query("DELETE FROM vendor");
     $err = $koneksi->error;
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data Barge Vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
   jsonOut(["ok"=>false,"msg"=>"Unknown action"]);
 }
 
 /* ========= NORMAL PAGE ========= */
-$pageTitle = "Vendor";
+$pageTitle = "Barge Vendor";
 include __DIR__ . "/../includes/header.php";
 include __DIR__ . "/../includes/sidebar.php";
 ?>
@@ -335,7 +332,7 @@ include __DIR__ . "/../includes/sidebar.php";
 <div class="content">
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h4 class="m-0">Vendor</h4>
+    <h4 class="m-0">Barge Vendor</h4>
   </div>
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
@@ -369,7 +366,7 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="m-0">Input Vendor</h6>
+        <h6 class="m-0">Input Barge Vendor</h6>
         <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputVendorBody">
           <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
         </button>
@@ -378,7 +375,7 @@ include __DIR__ . "/../includes/sidebar.php";
       <div id="inputVendorBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-2">
-          <label class="form-label">Vendor</label>
+          <label class="form-label">Barge Vendor</label>
           <input name="vendor" class="form-control" placeholder="BMC" required>
         </div>
 
@@ -419,11 +416,6 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <div class="col-md-2">
-          <label class="form-label">Lookup</label>
-          <input name="lookup" class="form-control" placeholder="LK-001">
-        </div>
-
-        <div class="col-md-2">
           <label class="form-label">Laytime</label>
           <input id="laytimeDisplay" name="laytime" class="form-control" value="" title="Default dari data Shipper, bisa diubah">
         </div>
@@ -446,7 +438,7 @@ include __DIR__ . "/../includes/sidebar.php";
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div class="d-flex align-items-center gap-2">
-          <h6 class="m-0">Data Vendor</h6>
+          <h6 class="m-0">Data Barge Vendor</h6>
           <div class="hidden-columns-indicator d-none">
             <span class="badge text-bg-secondary hidden-columns-badge">
               <span class="hidden-columns-count">0</span> columns hidden
@@ -460,7 +452,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="position-relative" style="width:320px;">
           <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
-                 placeholder="Search (Vendor / Shipper / Contract)..." />
+                 placeholder="Search (Barge Vendor / Shipper / Contract)..." />
           <button type="button" id="btnClearQ" title="Clear search"
                   style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
         </div>
@@ -514,21 +506,20 @@ include __DIR__ . "/../includes/sidebar.php";
         <table class="table table-sm table-bordered align-middle" id="tbl">
           <thead class="table-light">
             <tr>
-              <th style="min-width:140px;" class="sortable" data-key="vendor" data-type="text" data-label="Vendor"></th>
+              <th style="min-width:140px;" class="sortable" data-key="vendor" data-type="text" data-label="Barge Vendor"></th>
               <th style="min-width:160px;" class="sortable" data-key="shipper" data-type="text" data-label="Shipper"></th>
               <th style="min-width:110px;" class="sortable" data-key="freight" data-type="number" data-label="Freight"></th>
               <th style="min-width:110px;" class="sortable" data-key="tonnage" data-type="number" data-label="Tonnage"></th>
               <th style="min-width:110px;" class="sortable" data-key="penalty" data-type="text" data-label="Penalty"></th>
               <th style="min-width:110px;" class="sortable" data-key="discount" data-type="number" data-label="Discount"></th>
               <th style="min-width:130px;" class="sortable" data-key="contract" data-type="text" data-label="Contract"></th>
-              <th style="min-width:110px;" class="sortable" data-key="lookup" data-type="text" data-label="Lookup"></th>
               <th style="min-width:100px;" class="sortable" data-key="laytime" data-type="number" data-label="Laytime"></th>
               <th style="min-width:110px;" class="sortable" data-key="ltc_rate" data-type="number" data-label="LTC Rate"></th>
               <th style="width:190px;">Action</th>
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="10" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -618,9 +609,8 @@ function rowTemplate(r){
   }).join('');
   const discount = esc(r.discount ?? '0');
   const contract = esc(r.contract ?? '');
-  const lookup   = esc(r.lookup ?? '');
   const laytime  = esc(r.laytime ?? '0');
-  const ltcRate  = esc(r.ltc_rate ?? '0');
+  const ltcRate  = formatThousands(r.ltc_rate ?? 0);
 
   return `
   <tr data-id="${id}">
@@ -631,7 +621,6 @@ function rowTemplate(r){
     <td><select class="form-select form-select-sm" name="penalty">${penaltyOptions}</select></td>
     <td><input class="form-control form-control-sm" name="discount" value="${discount}"></td>
     <td><input class="form-control form-control-sm" name="contract" value="${contract}" title="Default dari Shipper, bisa diubah"></td>
-    <td><input class="form-control form-control-sm" name="lookup" value="${lookup}"></td>
     <td><input class="form-control form-control-sm" name="laytime" value="${laytime}" title="Default dari data Shipper, bisa diubah"></td>
     <td><input class="form-control form-control-sm" name="ltc_rate" value="${ltcRate}"></td>
 
@@ -681,6 +670,10 @@ function parseNumClient(s){
   return isNaN(n) ? 0 : n;
 }
 
+function formatThousands(n){
+  return Math.round(n || 0).toLocaleString('en-US');
+}
+
 const shipperSelect = document.getElementById('shipperSelect');
 const freightDisplay = document.getElementById('freightDisplay');
 const contractDisplay = document.getElementById('contractDisplay');
@@ -693,7 +686,7 @@ function recomputeLtcRateDefault(){
   const freight  = parseNumClient(freightDisplay ? freightDisplay.value : 0);
   const tonnage  = parseNumClient(tonnageInput ? tonnageInput.value : 0);
   const contract = parseNumClient(contractDisplay ? contractDisplay.value : 0);
-  ltcRateDisplay.value = Math.round(freight * tonnage * contract / 30);
+  ltcRateDisplay.value = formatThousands(freight * tonnage * contract / 30);
 }
 
 if (shipperSelect && freightDisplay) {
@@ -815,7 +808,7 @@ function renderTable(){
   const data = computeDisplayData();
   tbody.innerHTML = data.length
     ? data.map(rowTemplate).join('')
-    : `<tr><td colspan="11" class="text-center text-muted">No data</td></tr>`;
+    : `<tr><td colspan="10" class="text-center text-muted">No data</td></tr>`;
   applyFreezeStyling();
   applyHiddenColumns();
 }
@@ -1400,7 +1393,7 @@ async function loadTable(){
   const kw = q.value.trim();
   const res = await api('list', null, `&q=${encodeURIComponent(kw)}`);
   if (!res.ok){
-    tbody.innerHTML = `<tr><td colspan="11" class="text-danger">Error: ${res.msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="text-danger">Error: ${res.msg}</td></tr>`;
     return;
   }
   originalData = res.data;
@@ -1431,13 +1424,13 @@ tbody.addEventListener('click', async (e)=>{
   const id = tr.getAttribute('data-id');
 
   if (e.target.classList.contains('btnDelete')){
-    if (!confirm(`Hapus data vendor ini?`)) return;
+    if (!confirm(`Hapus data Barge Vendor ini?`)) return;
     const res = await api('delete', { id });
     if (res.ok){
       showAlert('success', res.msg);
       originalData = originalData.filter(r => String(r.id) !== id);
       tr.remove();
-      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No data</td></tr>`;
+      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No data</td></tr>`;
     } else {
       showAlert('danger', res.msg);
     }
@@ -1454,7 +1447,6 @@ tbody.addEventListener('click', async (e)=>{
       penalty: getVal('penalty'),
       discount: getVal('discount'),
       contract: getVal('contract'),
-      lookup: getVal('lookup'),
       laytime: getVal('laytime'),
       ltc_rate: getVal('ltc_rate'),
     };
@@ -1506,7 +1498,7 @@ formImport.addEventListener('submit', async (e)=>{
 
 if (btnDeleteAll){
   btnDeleteAll.addEventListener('click', async ()=>{
-    if (!confirm('Hapus SEMUA data vendor? Tindakan ini tidak bisa dibatalkan.')) return;
+    if (!confirm('Hapus SEMUA data Barge Vendor? Tindakan ini tidak bisa dibatalkan.')) return;
     const res = await api('delete_all');
     if (res.ok){
       showAlert('success', res.msg);

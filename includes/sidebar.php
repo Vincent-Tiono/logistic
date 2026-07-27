@@ -80,7 +80,7 @@ function canAccess($divisi, $target){
 
       <a class="nav-item-link<?= isActive('/logistic/Operation/3vendor.php') ?>" href="/logistic/Operation/3vendor.php">
         <span class="nav-icon">🏢</span>
-        <span class="nav-text">Vendor</span>
+        <span class="nav-text">Barge Vendor</span>
       </a>
 
       <a class="nav-item-link<?= isActive('/logistic/Operation/4barges.php') ?>" href="/logistic/Operation/4barges.php">
