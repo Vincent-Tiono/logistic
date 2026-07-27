@@ -2257,11 +2257,13 @@ const formattedNumberFields = new Set([
   'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf', 'waiting_queueing',
   'waiting_sequence', 'other_factor', 'back_to_jetty_time',
   'loading_rate', 'disch_time_loading_rate', 'disch_time_percent',
-  'cargo_readiness_p3', 'pure_time', 'waiting_cargo_readiness_p3',
+  'pure_time', 'waiting_cargo_readiness_p3',
   'waiting_mv_p3', 'waiting_flf_p3', 'waiting_queuing_p3',
   'waiting_sequence_p3', 'other_factor_p3',
   'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
 ]);
+// % Cargo Readiness (P3): whole-percent fields (no decimal places), formatted with formatCargoReadinessPercent.
+const CYCLE_TIME_PERCENT_FIELDS = new Set(['cargo_readiness_p3']);
 const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_FIELDS), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>);
 
 // Cycle time columns are always stored/calculated with full raw precision; only their
@@ -2269,7 +2271,15 @@ const operationDateTimeFields = new Set(<?= json_encode(array_keys(TLU_DATETIME_
 // these fields must keep using the raw (unrounded) numbers to avoid digit mismatches.
 const CYCLE_TIME_4DP_NUMBER_FIELDS = new Set([
   'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading', 'loading_time_jetty',
-  'part_1', 'lhv_time', 'spog_time', 'clear_pass_time'
+  'part_1', 'lhv_time', 'spog_time', 'clear_pass_time',
+  'part_2', 'mooring_2', 'sailing_time', 'total_waiting_disch_mv',
+  'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf', 'waiting_queueing',
+  'waiting_sequence', 'other_factor', 'back_to_jetty_time',
+  'loading_rate', 'disch_time_loading_rate', 'disch_time_percent',
+  'pure_time', 'waiting_cargo_readiness_p3',
+  'waiting_mv_p3', 'waiting_flf_p3', 'waiting_queuing_p3',
+  'waiting_sequence_p3', 'other_factor_p3',
+  'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
 ]);
 
 function formatDisplayNumber(value) {
@@ -2294,6 +2304,17 @@ function formatCycleTimeNumber(value) {
   return new Intl.NumberFormat('en-US', {
     maximumFractionDigits: 4
   }).format(Number(normalized));
+}
+
+// Whole-percent display (no decimal places), e.g. 45.6789 -> "46%".
+function formatCargoReadinessPercent(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+
+  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
+
+  return `${Math.round(Number(normalized))}%`;
 }
 
 /* ===== display format dd/Mon/yy [HH:MM] (matches Operation/6sibarges.php convention) ===== */
@@ -2363,7 +2384,9 @@ function parseOperationData(value) {
 }
 
 function operationCell(operationData, field) {
-  const value = CYCLE_TIME_4DP_NUMBER_FIELDS.has(field)
+  const value = CYCLE_TIME_PERCENT_FIELDS.has(field)
+    ? formatCargoReadinessPercent(operationData[field])
+    : CYCLE_TIME_4DP_NUMBER_FIELDS.has(field)
     ? formatCycleTimeNumber(operationData[field])
     : formattedNumberFields.has(field)
     ? formatDisplayNumber(operationData[field])
@@ -2782,6 +2805,31 @@ function calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate) {
   return Number.isFinite(result) ? result : 0;
 }
 
+// Sum of QTY Actual across every barge row of the vessel (not just the filtered/sorted rows shown).
+function sumQtyActual(allRows) {
+  return (allRows || []).reduce((sum, r) => {
+    return sum + (parseOperationNumber(getFieldValue(r, 'qty_actual', allRows)) ?? 0);
+  }, 0);
+}
+
+// Default for % Cargo Readiness (P3): (sum of QTY Actual up to and including this row) / (sum of QTY Actual
+// across all rows of the vessel), as a percentage. Row order follows allRows (same order used by
+// Disch Time for Loading Rate / Loading Rate). Returns the raw (unrounded) percentage number —
+// rounding to a whole percent happens at display time via formatCargoReadinessPercent.
+function calculateCargoReadinessP3(row, allRows) {
+  const rows = allRows && allRows.length ? allRows : [row];
+  const idx = rows.findIndex(r => Number(r.id) === Number(row.id));
+  const upToRows = idx >= 0 ? rows.slice(0, idx + 1) : [row];
+
+  const cumulativeQtyActual = upToRows.reduce((sum, r) => {
+    return sum + (parseOperationNumber(getFieldValue(r, 'qty_actual', allRows)) ?? 0);
+  }, 0);
+  const totalQtyActual = sumQtyActual(rows);
+  if (!totalQtyActual) return 0;
+
+  return (cumulativeQtyActual / totalQtyActual) * 100;
+}
+
 // Cycle time header columns that show a formula info icon/popover; value is the ordered list of rules shown in the popover.
 const FORMULA_INFO_RULES = {
   waiting_loading_jetty: [
@@ -2889,6 +2937,9 @@ const FORMULA_INFO_RULES = {
   loading_rate: [
     'IFERROR(Stowage Plan ÷ SUM(Disch Time for Loading Rate), 0)'
   ],
+  cargo_readiness_p3: [
+    'SUM(QTY Actual sampai baris ini) ÷ SUM(QTY Actual semua baris) × 100%'
+  ],
   laytime: [
     'Diambil dari Laytime Shipper (Operation/4shipper.php) sesuai Shipper baris ini'
   ]
@@ -2987,6 +3038,9 @@ function getFieldValue(row, key, allRows = [row]) {
   }
   if (key === 'disch_time_percent' && !String(operationData.disch_time_percent ?? '').trim()) {
     return calculateDischTimePercent(operationData);
+  }
+  if (key === 'cargo_readiness_p3' && !String(operationData.cargo_readiness_p3 ?? '').trim()) {
+    return calculateCargoReadinessP3(row, allRows);
   }
   if (key === 'pure_time' && !String(operationData.pure_time ?? '').trim()) {
     return calculatePureTime(operationData);
@@ -3101,6 +3155,7 @@ function columnDisplayValue(row, key, allRows = [row]) {
   if (key === 'laycan_start' || key === 'laycan_end') return fmtLaycanDateTime(raw);
   if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
   if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
+  if (CYCLE_TIME_PERCENT_FIELDS.has(key)) return formatCargoReadinessPercent(raw);
   if (CYCLE_TIME_4DP_NUMBER_FIELDS.has(key)) return formatCycleTimeNumber(raw);
   if (formattedNumberFields.has(key)) return formatDisplayNumber(raw);
   return (raw ?? '').toString();
@@ -3212,6 +3267,9 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
   }
   if (!String(operationData.disch_time_percent ?? '').trim()) {
     operationData.disch_time_percent = calculateDischTimePercent(operationData);
+  }
+  if (!String(operationData.cargo_readiness_p3 ?? '').trim()) {
+    operationData.cargo_readiness_p3 = calculateCargoReadinessP3(row, allRows);
   }
   if (!String(operationData.pure_time ?? '').trim()) {
     operationData.pure_time = calculatePureTime(operationData);
