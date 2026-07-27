@@ -2474,8 +2474,12 @@ function calculateLoadingTimeJetty(data) {
 }
 
 // Default for Disch Time for Loading Rate: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
-// Exception: if the immediately preceding row (in discharge-sequence order) has the same Start Disch and
-// Completed Disch as this row, this row's value is forced to 0 (repeated disch window shouldn't double-count).
+// Rule priority (checked in order, first match wins), based on discharge-sequence order (allRows):
+//   1. Sandwich rule (top priority): this row's Start Disch equals the PREVIOUS row's Start Disch AND
+//      this row's Completed Disch equals the NEXT row's Completed Disch → 0. (Prev/next rows are not forced by
+//      this rule — each still resolves through this same cascade independently, e.g. rule 2 below.)
+//   2. Consecutive-pair rule: this row's Start Disch and Completed Disch both equal the PREVIOUS row's → 0.
+//   3. Default: Completed Disch − Start Disch (days).
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateDischTimeLoadingRate(row, data, allRows) {
   const completedDischRaw = String(data.completed_disch ?? '').trim();
@@ -2485,13 +2489,20 @@ function calculateDischTimeLoadingRate(row, data, allRows) {
 
   const rows = allRows || [row];
   const idx = rows.findIndex(r => Number(r.id) === Number(row.id));
-  if (idx > 0) {
-    const prevData = parseOperationData(rows[idx - 1].operation_data);
-    const prevCompletedDischRaw = String(prevData.completed_disch ?? '').trim();
-    const prevStartDischRaw = String(prevData.start_disch ?? '').trim();
-    if (prevCompletedDischRaw && prevCompletedDischRaw === completedDischRaw && prevStartDischRaw === startDischRaw) {
-      return 0;
-    }
+  const prevData = idx > 0 ? parseOperationData(rows[idx - 1].operation_data) : null;
+  const nextData = idx >= 0 && idx < rows.length - 1 ? parseOperationData(rows[idx + 1].operation_data) : null;
+
+  const prevStartDischRaw = prevData ? String(prevData.start_disch ?? '').trim() : '';
+  const prevCompletedDischRaw = prevData ? String(prevData.completed_disch ?? '').trim() : '';
+  const nextCompletedDischRaw = nextData ? String(nextData.completed_disch ?? '').trim() : '';
+
+  if (prevData && nextData && startDischRaw && prevStartDischRaw === startDischRaw
+      && nextCompletedDischRaw && nextCompletedDischRaw === completedDischRaw) {
+    return 0;
+  }
+
+  if (prevData && prevCompletedDischRaw && prevCompletedDischRaw === completedDischRaw && prevStartDischRaw === startDischRaw) {
+    return 0;
   }
 
   const completedDisch = Date.parse(completedDischRaw.replace(' ', 'T'));
@@ -2786,6 +2797,7 @@ const FORMULA_INFO_RULES = {
   ],
   disch_time_loading_rate: [
     'Completed Disch kosong → 0',
+    'Start Disch = Start Disch baris sebelumnya DAN Completed Disch = Completed Disch baris berikutnya → 0 (prioritas utama)',
     'Baris sebelumnya (urutan discharge sequence) punya Start Disch & Completed Disch sama → 0',
     'Lainnya -> Completed Disch − Start Disch'
   ],
