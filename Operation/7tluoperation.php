@@ -3358,7 +3358,7 @@ function createOperationWorkflow(cfg) {
 
   let currentRows = [];
   let currentDetailRowId = null;
-  let sortState = { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
+  let sortState = cfg.defaultSort ? { key: cfg.defaultSort.key, dir: cfg.defaultSort.dir } : { key: null, dir: 0 }; // dir: 0 = default (unsorted), 1 = ascending, -1 = descending
   let filters = {}; // key -> { condition, value, excluded:Set(display values), autoApply }
   let frozenKey = null; // data-key of the rightmost frozen column (that column + all to its left are frozen), or null
   let hiddenKeys = new Set(); // data-key of columns hidden via drag
@@ -4427,6 +4427,7 @@ function createOperationWorkflow(cfg) {
 createOperationWorkflow({
   year: 'tlu_year', month: 'tlu_month', noPk: 'no_pk',
   box: 'siBargesBox', table: 'dataBargesTable', body: 'siBargesBody',
+  defaultSort: { key: 'completed_disch', dir: 1 },
   downloadCsv: 'downloadOperationCsv', exportCsv: 'exportDataBargesCsv',
   importForm: 'importOperationForm', csvFileInput: 'operationCsvFile',
   importButton: 'importOperationButton', csvStatus: 'operationCsvStatus',
@@ -4437,6 +4438,7 @@ createOperationWorkflow({
 createOperationWorkflow({
   year: 'cycle_year', month: 'cycle_month', noPk: 'cycle_no_pk',
   box: 'cycleTimeBox', table: 'cycleTimeTable', body: 'cycleTimeBody',
+  defaultSort: { key: 'completed_disch', dir: 1 },
   readOnly: true,
   showCycleTimeColumns: true,
   downloadCsv: 'downloadCycleTimeCsv', exportCsv: 'exportCycleTimeCsv',
