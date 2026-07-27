@@ -2473,6 +2473,19 @@ function calculateLoadingTimeJetty(data) {
   return (completedLoading - startLoading) / 86400000;
 }
 
+// Default for Disch Time for Loading Rate: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateDischTimeLoadingRate(data) {
+  const completedDischRaw = String(data.completed_disch ?? '').trim();
+  if (!completedDischRaw) return 0;
+
+  const completedDisch = Date.parse(completedDischRaw.replace(' ', 'T'));
+  const startDisch = Date.parse(String(data.start_disch ?? '').trim().replace(' ', 'T'));
+  if (!Number.isFinite(completedDisch) || !Number.isFinite(startDisch)) return '';
+
+  return (completedDisch - startDisch) / 86400000;
+}
+
 // Default for Disch Time: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateDischTimePercent(data) {
@@ -2756,6 +2769,10 @@ const FORMULA_INFO_RULES = {
     'Completed Loading kosong → 0',
     'Lainnya -> Completed Loading − Start Loading'
   ],
+  disch_time_loading_rate: [
+    'Completed Disch kosong → 0',
+    'Lainnya -> Completed Disch − Start Disch'
+  ],
   disch_time_percent: [
     'Completed Disch kosong → 0',
     'Lainnya -> Completed Disch − Start Disch'
@@ -2936,6 +2953,9 @@ function getFieldValue(row, key, allRows = [row]) {
   }
   if (key === 'loading_time_jetty' && !String(operationData.loading_time_jetty ?? '').trim()) {
     return calculateLoadingTimeJetty(operationData);
+  }
+  if (key === 'disch_time_loading_rate' && !String(operationData.disch_time_loading_rate ?? '').trim()) {
+    return calculateDischTimeLoadingRate(operationData);
   }
   if (key === 'disch_time_percent' && !String(operationData.disch_time_percent ?? '').trim()) {
     return calculateDischTimePercent(operationData);
@@ -3158,6 +3178,9 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
   }
   if (!String(operationData.loading_time_jetty ?? '').trim()) {
     operationData.loading_time_jetty = calculateLoadingTimeJetty(operationData);
+  }
+  if (!String(operationData.disch_time_loading_rate ?? '').trim()) {
+    operationData.disch_time_loading_rate = calculateDischTimeLoadingRate(operationData);
   }
   if (!String(operationData.disch_time_percent ?? '').trim()) {
     operationData.disch_time_percent = calculateDischTimePercent(operationData);
