@@ -445,6 +445,16 @@ function decodeOperationDataWithVesselDefaults(array $row) {
       $data[$field] = $vesselDate . ' 00:00';
     }
   }
+
+  // Laytime defaults to the matching Shipper's Laytime (Operation/4shipper.php),
+  // unless this row already has its own manually-saved Laytime.
+  if (trim((string)($data['laytime'] ?? '')) === '') {
+    $shipperLaytime = trim((string)($row['shipper_laytime'] ?? ''));
+    if ($shipperLaytime !== '') {
+      $data['laytime'] = $shipperLaytime;
+    }
+  }
+
   return $data;
 }
 
@@ -1088,6 +1098,7 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
       s.created_by, s.created_at, s.updated_at,
       v.pkk AS vessel_pkk,
       v.rkbm AS vessel_rkbm,
+      sh.laytime AS shipper_laytime,
       o.id AS operation_id,
       o.arrival_jetty,
       o.commence_loading,
@@ -1109,6 +1120,7 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
     FROM sibarges s
     INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+    LEFT JOIN shipper sh ON sh.shipper = s.shipper_code
     WHERE s.no_pk = ?
       AND s.record_status = 'ACT'
     ORDER BY s.barge_seq ASC, s.id ASC
@@ -1367,6 +1379,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="buyer" data-type="text" data-label="Buyer" data-field="buyer">Buyer</th>
                 <th class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel" data-field="mothervessel">Mother Vessel</th>
                 <th class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty" data-field="jetty_code">Jetty</th>
+                <th class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper" data-field="shipper_code">Shipper</th>
                 <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
                 <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
                 <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-edit-field="qty">QTY</th>
@@ -1506,6 +1519,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="buyer" data-type="text" data-label="Buyer" data-field="buyer">Buyer</th>
                 <th class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel" data-field="mothervessel">Mother Vessel</th>
                 <th class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty" data-field="jetty_code">Jetty</th>
+                <th class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper" data-field="shipper_code">Shipper</th>
                 <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
                 <th class="sortable" data-key="barge" data-type="text" data-label="Barge" data-field="barge">Barge</th>
                 <th class="sortable" data-key="qty" data-type="number" data-label="QTY" data-field="qty">QTY</th>
@@ -2700,6 +2714,15 @@ function calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime) {
   return Math.abs(part1 - sum) < 1e-9 ? 'True' : 'False';
 }
 
+// Default for Check Waiting Time Disch MV: True if Pure Time equals the sum of the (P3) waiting components.
+// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
+function calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3) {
+  if (pureTime === null || waitingCargoReadinessP3 === null || waitingMvP3 === null || waitingFlfP3 === null || waitingQueuingP3 === null || waitingSequenceP3 === null || otherFactorP3 === null) return '';
+
+  const sum = waitingCargoReadinessP3 + waitingMvP3 + waitingFlfP3 + waitingQueuingP3 + waitingSequenceP3 + otherFactorP3;
+  return Math.abs(pureTime - sum) < 1e-9 ? 'True' : 'False';
+}
+
 // Cycle time header columns that show a formula info icon/popover; value is the ordered list of rules shown in the popover.
 const FORMULA_INFO_RULES = {
   waiting_loading_jetty: [
@@ -2794,6 +2817,12 @@ const FORMULA_INFO_RULES = {
   check_waiting_loading_jetty: [
     'Waiting Loading Jetty == Barges Arrival Early + Waiting Plan Loading',
     // 'Waiting Loading Jetty ≠ Barges Arrival Early + Waiting Plan Loading → False'
+  ],
+  check_waiting_time_disch_mv: [
+    'Pure Time == Waiting Cargo Readiness (P3) + Waiting MV (P3) + Waiting FLF (P3) + Waiting Queueing (P3) + Waiting Sequence (P3) + Other Factor (P3)'
+  ],
+  laytime: [
+    'Diambil dari Laytime Shipper (Operation/4shipper.php) sesuai Shipper baris ini'
   ]
 };
 
@@ -2856,7 +2885,7 @@ function urutkanSesuaiDenganDischargeSequence(rows) {
 
 // fields stored directly on the sibarges row (everything else lives inside operation_data)
 const DIRECT_ROW_FIELDS = new Set([
-  'no_pk', 'buyer', 'mothervessel', 'jetty_code', 'tugboat', 'barge',
+  'no_pk', 'buyer', 'mothervessel', 'jetty_code', 'shipper_code', 'tugboat', 'barge',
   'laycan_start', 'laycan_end', 'operation_remarks',
   'created_by', 'created_at', 'updated_at'
 ]);
@@ -2976,6 +3005,16 @@ function getFieldValue(row, key) {
     const spogTime = parseOperationNumber(getFieldValue(row, 'spog_time'));
     const clearPassTime = parseOperationNumber(getFieldValue(row, 'clear_pass_time'));
     return calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime);
+  }
+  if (key === 'check_waiting_time_disch_mv' && !String(operationData.check_waiting_time_disch_mv ?? '').trim()) {
+    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
+    const waitingCargoReadinessP3 = parseOperationNumber(getFieldValue(row, 'waiting_cargo_readiness_p3'));
+    const waitingMvP3 = parseOperationNumber(getFieldValue(row, 'waiting_mv_p3'));
+    const waitingFlfP3 = parseOperationNumber(getFieldValue(row, 'waiting_flf_p3'));
+    const waitingQueuingP3 = parseOperationNumber(getFieldValue(row, 'waiting_queuing_p3'));
+    const waitingSequenceP3 = parseOperationNumber(getFieldValue(row, 'waiting_sequence_p3'));
+    const otherFactorP3 = parseOperationNumber(getFieldValue(row, 'other_factor_p3'));
+    return calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3);
   }
   return operationData[key] ?? '';
 }
@@ -3204,6 +3243,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       <td>${displayValue(row.buyer)}</td>
       <td>${displayValue(row.mothervessel)}</td>
       <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
+      <td title="${esc(row.shipper_name)}">${displayValue(row.shipper_code)}</td>
       <td>${displayValue(row.tugboat)}</td>
       <td>${displayValue(row.barge)}</td>
       ${operationCell(operationData, 'qty')}
