@@ -315,6 +315,28 @@ function formatOperationDisplayNumber($value) {
   return rtrim(rtrim(number_format((float)$normalized, 6, '.', ','), '0'), '.');
 }
 
+/* Cycle Time number columns display at 4 decimal places (see formatCycleTimeNumber in JS). */
+function formatCycleTimeDisplayNumber($value) {
+  $value = trim((string)$value);
+  if ($value === '') return '';
+
+  $normalized = str_replace([',', ' '], ['', ''], $value);
+  if (!is_numeric($normalized)) return $value;
+
+  return rtrim(rtrim(number_format((float)$normalized, 4, '.', ','), '0'), '.');
+}
+
+/* % Cargo Readiness (P3) displays as a whole percent (see formatCargoReadinessPercent in JS). */
+function formatCargoReadinessPercentDisplay($value) {
+  $value = trim((string)$value);
+  if ($value === '') return '';
+
+  $normalized = str_replace([',', ' '], ['', ''], $value);
+  if (!is_numeric($normalized)) return $value;
+
+  return round((float)$normalized) . '%';
+}
+
 function validateFlfChoice($koneksi, $column, $value, $label) {
   if ($value === '') return;
 
@@ -515,6 +537,129 @@ function tableExportRow($row) {
   ];
 }
 
+/* Column order/labels mirror the Cycle Time submodule table (#cycleTimeTable) headers. */
+const TLU_CYCLE_TIME_EXPORT_HEADERS = [
+  'No. Reff', 'Buyer', 'Mother Vessel', 'Stowage Plan', 'Jetty', 'Shipper',
+  'Tugboat', 'Barge', 'QTY', 'QTY DISC', 'RC', 'QTY Actual', 'PBM Vendor', 'Floating Crane',
+  'Waiting Loading Jetty', 'Check Waiting Loading Jetty', 'Barges Arrival Early',
+  'Waiting Plan Loading', 'Loading Time Jetty',
+  'Laycan Start', 'Laycan End', 'Arrival Jetty', 'Start Loading', 'Completed Loading',
+  'Part 1', 'Check Part 1', 'LHV Time', 'SPOG Time', 'Clear Pass Time',
+  'LHV', 'SPOG ZONA 2', 'PKK', 'RKBM', 'STS/SPB', 'Start Mooring', 'End Mooring',
+  'Mooring Place 1', 'Clear Pass', 'Start Mooring Clear Pass', 'Cast Off Mooring Clear Pass',
+  'Mooring Place 2',
+  'Part 2', 'Check Part 2', 'Mooring 2', 'Sailing Time', 'Total Waiting Disch MV',
+  'Check Total Waiting Disch MV', 'Waiting Cargo Readiness (P2)', 'Waiting MV (P2)',
+  'Waiting FLF (P2)', 'Waiting Queueing (P2)', 'Waiting Sequence (P2)', 'Other Factor (P2)',
+  'Back to Jetty Time',
+  'TA Barges Actual', 'TA MV', 'TA FLF', 'Cargo Readiness Actual', 'Start Disch',
+  'Completed Disch', 'Discharge Sequence', 'Back to Jetty',
+  'Loading Rate', 'Disch Time for Loading Rate', 'Disch Time', '% Cargo Readiness (P3)',
+  'Pure Time', 'Waiting Cargo Readiness (P3)', 'Waiting MV (P3)', 'Waiting FLF (P3)',
+  'Waiting Queuing (P3)', 'Waiting Sequence (P3)', 'Other Factor (P3)',
+  'Check Waiting Time Disch MV', 'Total CT LTC', 'Laytime', 'LTC Rate', 'LTC Day', 'LTC Total',
+  'Remarks', 'Created By', 'Created At', 'Updated At'
+];
+
+function cycleTimeExportRow($row) {
+  $data = decodeOperationDataWithVesselDefaults($row);
+  $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
+  $rc = trim((string)($data['rc'] ?? ''));
+  $qtyActual = '';
+  if ($qtyDisc !== '' || $rc !== '') {
+    $qtyActual = formatOperationNumber(
+      (float)str_replace(',', '', $qtyDisc) +
+      (float)str_replace(',', '', $rc)
+    );
+  }
+
+  return [
+    $row['no_pk'] ?? '',
+    $row['buyer'] ?? '',
+    $row['mothervessel'] ?? '',
+    formatOperationDisplayNumber($row['stowageplan_mt'] ?? ''),
+    $row['jetty_code'] ?? '',
+    $row['shipper_code'] ?? '',
+    $row['tugboat'] ?? '',
+    $row['barge'] ?? '',
+    formatOperationDisplayNumber($data['qty'] ?? ''),
+    formatOperationDisplayNumber($qtyDisc),
+    formatOperationDisplayNumber($rc),
+    formatOperationDisplayNumber($qtyActual),
+    $data['pbm_vendor'] ?? '',
+    $data['floating_crane'] ?? '',
+    formatCycleTimeDisplayNumber($data['waiting_loading_jetty'] ?? ''),
+    $data['check_waiting_loading_jetty'] ?? '',
+    formatCycleTimeDisplayNumber($data['barges_arrival_early'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_plan_loading'] ?? ''),
+    formatCycleTimeDisplayNumber($data['loading_time_jetty'] ?? ''),
+    formatDisplayDateTime($row['laycan_start'] ?? '', true),
+    formatDisplayDateTime($row['laycan_end'] ?? '', true),
+    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
+    formatDisplayDateTime($data['start_loading'] ?? ''),
+    formatDisplayDateTime($data['completed_loading'] ?? ''),
+    formatCycleTimeDisplayNumber($data['part_1'] ?? ''),
+    $data['check_part_1'] ?? '',
+    formatCycleTimeDisplayNumber($data['lhv_time'] ?? ''),
+    formatCycleTimeDisplayNumber($data['spog_time'] ?? ''),
+    formatCycleTimeDisplayNumber($data['clear_pass_time'] ?? ''),
+    formatDisplayDateTime($data['lhv'] ?? ''),
+    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
+    formatDisplayDateTime($data['pkk'] ?? ''),
+    formatDisplayDateTime($data['rkbm'] ?? ''),
+    formatDisplayDateTime($data['sts_spb'] ?? ''),
+    formatDisplayDateTime($data['start_mooring'] ?? ''),
+    formatDisplayDateTime($data['end_mooring'] ?? ''),
+    $data['mooring_place_1'] ?? '',
+    formatDisplayDateTime($data['clear_pass'] ?? ''),
+    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
+    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
+    $data['mooring_place_2'] ?? '',
+    formatCycleTimeDisplayNumber($data['part_2'] ?? ''),
+    $data['check_part_2'] ?? '',
+    formatCycleTimeDisplayNumber($data['mooring_2'] ?? ''),
+    formatCycleTimeDisplayNumber($data['sailing_time'] ?? ''),
+    formatCycleTimeDisplayNumber($data['total_waiting_disch_mv'] ?? ''),
+    $data['check_total_waiting_disch_mv'] ?? '',
+    formatCycleTimeDisplayNumber($data['waiting_cargo_readiness'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_mv'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_flf'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_queueing'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_sequence'] ?? ''),
+    formatCycleTimeDisplayNumber($data['other_factor'] ?? ''),
+    formatCycleTimeDisplayNumber($data['back_to_jetty_time'] ?? ''),
+    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
+    formatDisplayDateTime($data['ta_mv'] ?? ''),
+    formatDisplayDateTime($data['ta_flf'] ?? ''),
+    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
+    formatDisplayDateTime($data['start_disch'] ?? ''),
+    formatDisplayDateTime($data['completed_disch'] ?? ''),
+    $data['discharge_sequence'] ?? '',
+    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
+    formatCycleTimeDisplayNumber($data['loading_rate'] ?? ''),
+    formatCycleTimeDisplayNumber($data['disch_time_loading_rate'] ?? ''),
+    formatCycleTimeDisplayNumber($data['disch_time_percent'] ?? ''),
+    formatCargoReadinessPercentDisplay($data['cargo_readiness_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['pure_time'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_cargo_readiness_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_mv_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_flf_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_queuing_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['waiting_sequence_p3'] ?? ''),
+    formatCycleTimeDisplayNumber($data['other_factor_p3'] ?? ''),
+    $data['check_waiting_time_disch_mv'] ?? '',
+    formatCycleTimeDisplayNumber($data['total_ct_ltc'] ?? ''),
+    formatCycleTimeDisplayNumber($data['laytime'] ?? ''),
+    formatCycleTimeDisplayNumber($data['ltc_rate'] ?? ''),
+    formatCycleTimeDisplayNumber($data['ltc_day'] ?? ''),
+    formatCycleTimeDisplayNumber($data['ltc_total'] ?? ''),
+    $row['operation_remarks'] ?? '',
+    $row['created_by'] ?? '',
+    formatDisplayDateTime($row['created_at'] ?? ''),
+    formatDisplayDateTime($row['updated_at'] ?? '')
+  ];
+}
+
 function compareTluExportRows($left, $right) {
   $periodCompare = strcmp(
     (string)$left['earliest_laycan_start'],
@@ -571,11 +716,12 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
 
   $sql = "
     SELECT
-      s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
+      s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code, s.shipper_code,
       s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
       s.created_by, s.created_at, s.updated_at,
-      v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
+      v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm, v.stowageplan_mt,
       p.earliest_laycan_start,
+      sh.laytime AS shipper_laytime,
       o.operation_data, o.remarks AS operation_remarks
     FROM sibarges s
     INNER JOIN (
@@ -589,6 +735,7 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
     INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+    LEFT JOIN shipper sh ON sh.shipper = s.shipper_code
     WHERE s.record_status = 'ACT'
   ";
 
@@ -641,14 +788,14 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
   echo "\xEF\xBB\xBF";
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, TLU_TABLE_EXPORT_HEADERS, ',', '"', '');
+  fputcsv($out, TLU_CYCLE_TIME_EXPORT_HEADERS, ',', '"', '');
   $previousVessel = null;
   foreach ($rows as $row) {
     $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
     if ($previousVessel !== null && $vesselKey !== $previousVessel) {
       fputcsv($out, [], ',', '"', '');
     }
-    fputcsv($out, tableExportRow($row), ',', '"', '');
+    fputcsv($out, cycleTimeExportRow($row), ',', '"', '');
     $previousVessel = $vesselKey;
   }
   fclose($out);
@@ -2574,6 +2721,23 @@ function calculateTotalCtLtc(data) {
   return (backToJetty - arrivalJetty) / 86400000;
 }
 
+// Default for LTC Day: Laytime - (Total CT LTC - Barges Arrival Early); capped at 0 when that result is positive.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateLtcDay(laytime, totalCtLtc, bargesArrivalEarly) {
+  if (laytime === null || totalCtLtc === null || bargesArrivalEarly === null) return '';
+
+  const diff = laytime - (totalCtLtc - bargesArrivalEarly);
+  return diff > 0 ? 0 : diff;
+}
+
+// Default for LTC Total: LTC Rate * LTC Day.
+// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
+function calculateLtcTotal(ltcRate, ltcDay) {
+  if (ltcRate === null || ltcDay === null) return '';
+
+  return ltcRate * ltcDay;
+}
+
 // Default for Back to Jetty Time: 0 if Back to Jetty is empty, else (Back to Jetty - Completed Disch) in days.
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
 function calculateBackToJettyTime(data) {
@@ -3066,6 +3230,17 @@ function getFieldValue(row, key, allRows = [row]) {
   if (key === 'total_ct_ltc' && !String(operationData.total_ct_ltc ?? '').trim()) {
     return calculateTotalCtLtc(operationData);
   }
+  if (key === 'ltc_day' && !String(operationData.ltc_day ?? '').trim()) {
+    const laytime = parseOperationNumber(operationData.laytime);
+    const totalCtLtc = parseOperationNumber(getFieldValue(row, 'total_ct_ltc'));
+    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
+    return calculateLtcDay(laytime, totalCtLtc, bargesArrivalEarly);
+  }
+  if (key === 'ltc_total' && !String(operationData.ltc_total ?? '').trim()) {
+    const ltcRate = parseOperationNumber(operationData.ltc_rate);
+    const ltcDay = parseOperationNumber(getFieldValue(row, 'ltc_day'));
+    return calculateLtcTotal(ltcRate, ltcDay);
+  }
   if (key === 'back_to_jetty_time' && !String(operationData.back_to_jetty_time ?? '').trim()) {
     return calculateBackToJettyTime(operationData);
   }
@@ -3294,6 +3469,19 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
   }
   if (!String(operationData.total_ct_ltc ?? '').trim()) {
     operationData.total_ct_ltc = calculateTotalCtLtc(operationData);
+  }
+  if (!String(operationData.ltc_day ?? '').trim()) {
+    operationData.ltc_day = calculateLtcDay(
+      parseOperationNumber(operationData.laytime),
+      parseOperationNumber(operationData.total_ct_ltc),
+      parseOperationNumber(operationData.barges_arrival_early)
+    );
+  }
+  if (!String(operationData.ltc_total ?? '').trim()) {
+    operationData.ltc_total = calculateLtcTotal(
+      parseOperationNumber(operationData.ltc_rate),
+      parseOperationNumber(operationData.ltc_day)
+    );
   }
   if (!String(operationData.back_to_jetty_time ?? '').trim()) {
     operationData.back_to_jetty_time = calculateBackToJettyTime(operationData);
