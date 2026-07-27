@@ -73,37 +73,42 @@ function canAccess($divisi, $target){
         <span class="nav-text">Vessel</span>
       </a>
 
-      <a class="nav-item-link<?= isActive('/logistic/Operation/2barges.php') ?>" href="/logistic/Operation/2barges.php">
-        <span class="nav-icon">🛶</span>
-        <span class="nav-text">Barges</span>
-      </a>
-
-      <a class="nav-item-link<?= isActive('/logistic/Operation/3jetty.php') ?>" href="/logistic/Operation/3jetty.php">
-        <span class="nav-icon">🏗️</span>
-        <span class="nav-text">Jetty</span>
-      </a>
-
-      <a class="nav-item-link<?= isActive('/logistic/Operation/4shipper.php') ?>" href="/logistic/Operation/4shipper.php">
+      <a class="nav-item-link<?= isActive('/logistic/Operation/2shipper.php') ?>" href="/logistic/Operation/2shipper.php">
         <span class="nav-icon">📦</span>
         <span class="nav-text">Shipper</span>
       </a>
 
-      <a class="nav-item-link<?= isActive('/logistic/Operation/5flf.php') ?>" href="/logistic/Operation/5flf.php">
+      <a class="nav-item-link<?= isActive('/logistic/Operation/3vendor.php') ?>" href="/logistic/Operation/3vendor.php">
+        <span class="nav-icon">🏢</span>
+        <span class="nav-text">Vendor</span>
+      </a>
+
+      <a class="nav-item-link<?= isActive('/logistic/Operation/4barges.php') ?>" href="/logistic/Operation/4barges.php">
+        <span class="nav-icon">🛶</span>
+        <span class="nav-text">Barges</span>
+      </a>
+
+      <a class="nav-item-link<?= isActive('/logistic/Operation/5jetty.php') ?>" href="/logistic/Operation/5jetty.php">
+        <span class="nav-icon">🏗️</span>
+        <span class="nav-text">Jetty</span>
+      </a>
+
+      <a class="nav-item-link<?= isActive('/logistic/Operation/6flf.php') ?>" href="/logistic/Operation/6flf.php">
         <span class="nav-icon">⚙️</span>
         <span class="nav-text">FLF</span>
       </a>
 
-      <a class="nav-item-link<?= isActive('/logistic/Operation/6sibarges.php') ?>" href="/logistic/Operation/6sibarges.php">
+      <a class="nav-item-link<?= isActive('/logistic/Operation/7sibarges.php') ?>" href="/logistic/Operation/7sibarges.php">
         <span class="nav-icon">🧾</span>
         <span class="nav-text">SI Barges</span>
       </a>
 
-      <a class="nav-item-link<?= isActive('/logistic/Operation/7tluoperation.php') ?>" href="/logistic/Operation/7tluoperation.php">
+      <a class="nav-item-link<?= isActive('/logistic/Operation/8tluoperation.php') ?>" href="/logistic/Operation/8tluoperation.php">
         <span class="nav-icon">🧭</span>
         <span class="nav-text">TLU Operation</span>
       </a>
 
-      <a class="nav-item-link<?= isActive('/logistic/Operation/8coalbarging.php') ?>" href="/logistic/Operation/8coalbarging.php">
+      <a class="nav-item-link<?= isActive('/logistic/Operation/9coalbarging.php') ?>" href="/logistic/Operation/9coalbarging.php">
         <span class="nav-icon">🚚</span>
         <span class="nav-text">Coal Barging</span>
       </a>

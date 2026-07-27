@@ -8,7 +8,7 @@ if (!isset($_SESSION['username'])) {
 }
 
 /* ========= SELF PATH ========= */
-$SELF = "/logistic/Operation/6sibarges.php";
+$SELF = "/logistic/Operation/7sibarges.php";
 
 require_once __DIR__ . '/../config/database.php';
 

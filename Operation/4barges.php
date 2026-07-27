@@ -8,7 +8,7 @@ if (!isset($_SESSION['username'])) {
 }
 
 /* ========= SELF PATH (penting untuk AJAX & download template) ========= */
-$SELF = "/logistic/Operation/2barges.php";
+$SELF = "/logistic/Operation/4barges.php";
 
 require_once __DIR__ . '/../config/database.php';
 

@@ -2589,7 +2589,7 @@ downloadGroupedExport.addEventListener('click', () => {
   if (['vessel', 'month'].includes(scope)) params.set('month', month);
   if (scope === 'vessel') params.set('no_pk', noPk);
 
-  window.location.href = `8coalbarging.php?${params.toString()}`;
+  window.location.href = `9coalbarging.php?${params.toString()}`;
 });
 
 tluYearSelect.addEventListener('change', () => {
@@ -2717,7 +2717,7 @@ function formatDisplayNumber(value) {
   }).format(Number(normalized));
 }
 
-/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/6sibarges.php convention) ===== */
+/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/7sibarges.php convention) ===== */
 const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function fmtDDMonYY(val, withTime = false) {
@@ -2881,7 +2881,7 @@ function calculateDsrVsRedraft(data) {
   return raw === '' ? '' : formatDisplayNumber(raw);
 }
 
-/* ===== Sort / Filter / Freeze (same behavior as Operation/7tluoperation.php Data Barges table) ===== */
+/* ===== Sort / Filter / Freeze (same behavior as Operation/8tluoperation.php Data Barges table) ===== */
 
 // fields stored directly on the row (everything else lives inside operation_data)
 const DIRECT_ROW_FIELDS = new Set([
@@ -3868,7 +3868,7 @@ async function loadUnusedRcRows(noPk) {
 
   try {
     const response = await fetch(
-      `8coalbarging.php?action=unused_rc_options&no_pk=${encodeURIComponent(noPk)}`,
+      `9coalbarging.php?action=unused_rc_options&no_pk=${encodeURIComponent(noPk)}`,
       { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
     );
     const result = await response.json();
@@ -3900,7 +3900,7 @@ async function loadSelectedVessel() {
   }
 
   downloadOperationCsv.href =
-    `8coalbarging.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
+    `9coalbarging.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
   siBargesBox.classList.remove('d-none');
   exportDataBargesCsv.disabled = true;
   importFromTluButton.disabled = true;
@@ -3909,7 +3909,7 @@ async function loadSelectedVessel() {
 
   try {
     const response = await fetch(
-      `8coalbarging.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
+      `9coalbarging.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
       { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
     );
     const result = await response.json();
@@ -3956,7 +3956,7 @@ unusedRcBody.addEventListener('click', async event => {
   operationCsvStatus.className = 'alert d-none mt-3 mb-0';
 
   try {
-    const response = await fetch('8coalbarging.php?action=input_rc_row', {
+    const response = await fetch('9coalbarging.php?action=input_rc_row', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4016,7 +4016,7 @@ siBargesBody.addEventListener('change', async event => {
   select.disabled = true;
 
   try {
-    const response = await fetch('8coalbarging.php?action=save_operation_data', {
+    const response = await fetch('9coalbarging.php?action=save_operation_data', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4058,7 +4058,7 @@ importFromTluButton.addEventListener('click', async () => {
   importFromTluButton.textContent = 'Importing...';
 
   try {
-    const response = await fetch('8coalbarging.php?action=import_from_tlu_operation', {
+    const response = await fetch('9coalbarging.php?action=import_from_tlu_operation', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4102,7 +4102,7 @@ importOperationForm.addEventListener('submit', async event => {
   operationCsvStatus.className = 'alert d-none mt-3 mb-0';
 
   try {
-    const response = await fetch('8coalbarging.php?action=import_operation_csv', {
+    const response = await fetch('9coalbarging.php?action=import_operation_csv', {
       method: 'POST',
       headers: { 'X-Requested-With': 'XMLHttpRequest' },
       body: formData
@@ -4282,7 +4282,7 @@ siBargesSaveButton.addEventListener('click', async () => {
   siBargesSaveStatus.textContent = '';
 
   try {
-    const response = await fetch('8coalbarging.php?action=save_operation_data', {
+    const response = await fetch('9coalbarging.php?action=save_operation_data', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4347,7 +4347,7 @@ siBargesCreateRcButton.addEventListener('click', async () => {
   siBargesSaveStatus.textContent = '';
 
   try {
-    const response = await fetch('8coalbarging.php?action=create_rc_row', {
+    const response = await fetch('9coalbarging.php?action=create_rc_row', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -4392,7 +4392,7 @@ siBargesDeleteButton.addEventListener('click', async () => {
   siBargesSaveStatus.textContent = '';
 
   try {
-    const response = await fetch('8coalbarging.php?action=delete_coal_barging_row', {
+    const response = await fetch('9coalbarging.php?action=delete_coal_barging_row', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

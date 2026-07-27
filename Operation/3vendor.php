@@ -7,8 +7,8 @@ if (!isset($_SESSION['username'])) {
   exit;
 }
 
-/* ========= SELF PATH ========= */
-$SELF = "/logistic/Operation/3jetty.php";
+/* ========= SELF PATH (penting untuk AJAX & download template) ========= */
+$SELF = "/logistic/Operation/3vendor.php";
 
 require_once __DIR__ . '/../config/database.php';
 
@@ -19,8 +19,82 @@ try {
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
 }
 
+/* ========= TABLE GUARD (self-heal on first load) ========= */
+$koneksi->query("CREATE TABLE IF NOT EXISTS vendor (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  vendor VARCHAR(150) DEFAULT NULL,
+  shipper VARCHAR(150) DEFAULT NULL,
+  freight DECIMAL(15,2) DEFAULT NULL,
+  tonnage DECIMAL(15,2) DEFAULT NULL,
+  penalty VARCHAR(10) DEFAULT NULL,
+  discount DECIMAL(15,2) DEFAULT NULL,
+  contract VARCHAR(150) DEFAULT NULL,
+  lookup VARCHAR(150) DEFAULT NULL,
+  laytime DECIMAL(15,2) DEFAULT NULL,
+  ltc_rate DECIMAL(15,2) DEFAULT NULL
+)");
+
+$colCheck = $koneksi->query("SHOW COLUMNS FROM vendor LIKE 'mhu'");
+if ($colCheck && $colCheck->num_rows > 0) {
+  $koneksi->query("ALTER TABLE vendor CHANGE mhu freight DECIMAL(15,2) DEFAULT NULL");
+}
+$koneksi->query("ALTER TABLE vendor MODIFY penalty VARCHAR(10) DEFAULT NULL");
+$colCheck = $koneksi->query("SHOW COLUMNS FROM vendor LIKE 'kontrak'");
+if ($colCheck && $colCheck->num_rows > 0) {
+  $koneksi->query("ALTER TABLE vendor CHANGE kontrak contract VARCHAR(150) DEFAULT NULL");
+}
+$colCheck = $koneksi->query("SHOW COLUMNS FROM vendor LIKE 'ltc_day'");
+if ($colCheck && $colCheck->num_rows > 0) {
+  $koneksi->query("ALTER TABLE vendor CHANGE ltc_day laytime DECIMAL(15,2) DEFAULT NULL");
+}
+
 /* ========= HELPERS ========= */
 function clean($s){ return trim((string)$s); }
+
+function toDecimal($s){
+  $s = clean($s);
+  if ($s === "" || $s === "-") return 0;
+  $s = str_replace([",", " "], "", $s);      // "8,200" -> "8200"
+  if (preg_match('/^\d{1,3}(\.\d{3})+$/', $s)) $s = str_replace(".", "", $s); // "8.200" -> "8200"
+  return is_numeric($s) ? (float)$s : 0;
+}
+
+function normalizePenalty($s){
+  $s = strtoupper(trim((string)$s));
+  return in_array($s, ['DF','CQD'], true) ? $s : null;
+}
+
+function computeFreight($shipper){
+  switch (strtoupper(trim((string)$shipper))) {
+    case 'MHU': return 51500;
+    case 'CAM': return 85000;
+    default: return 0;
+  }
+}
+
+function computeContract($shipper){
+  switch (strtoupper(trim((string)$shipper))) {
+    case 'MHU': return 3;
+    case 'CAM': return 2;
+    default: return '';
+  }
+}
+
+function computeLtcRate($freight, $tonnage, $contract){
+  return round(((float)$freight) * ((float)$tonnage) * ((float)$contract) / 30, 0);
+}
+
+function getShipperLaytime($koneksi, $shipper){
+  $shipper = strtoupper(trim((string)$shipper));
+  if ($shipper === '') return '';
+  $stmt = $koneksi->prepare("SELECT laytime FROM shipper WHERE shipper=?");
+  if (!$stmt) return '';
+  $stmt->bind_param("s", $shipper);
+  $stmt->execute();
+  $row = $stmt->get_result()->fetch_assoc();
+  $stmt->close();
+  return ($row && $row['laytime'] !== null) ? $row['laytime'] : '';
+}
 
 function jsonOut($arr){
   header('Content-Type: application/json; charset=utf-8');
@@ -29,16 +103,13 @@ function jsonOut($arr){
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
-if (isset($_GET['download']) && $_GET['download'] === 'jetty_template') {
+if (isset($_GET['download']) && $_GET['download'] === 'vendor_template') {
   header('Content-Type: text/csv; charset=utf-8');
-  header('Content-Disposition: attachment; filename="jetty_template.csv"');
+  header('Content-Disposition: attachment; filename="vendor_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['jetty','nama_panjang']);
-
-  // contoh baris
-  fputcsv($out, ['ABK','JETTY PT ANUGERAH BARA KALTIM, EAST KALIMANTAN, INDONESIA']);
-  fputcsv($out, ['LKCT','JETTY LOA KULU COAL TERMINAL, EAST KALIMANTAN, INDONESIA']);
+  fputcsv($out, ['vendor','shipper','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate']);
+  fputcsv($out, ['BMC','MHU','8200','DF','0','3','LK-001','9','1500']);
   fclose($out);
   exit;
 }
@@ -48,22 +119,31 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-  // ===== LIST + SEARCH =====
+  // ===== LIST + SEARCH + SORT =====
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
 
-    $sql = "SELECT jetty, nama_panjang FROM jetty";
+    // sort whitelist (biar aman dari SQL injection)
+    $sort = clean($_GET['sort'] ?? 'vendor');
+    $dir  = strtoupper(clean($_GET['dir'] ?? 'ASC'));
+    $allowedSort = ['vendor','shipper','freight','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate'];
+    if (!in_array($sort, $allowedSort, true)) $sort = 'vendor';
+    if ($dir !== 'ASC' && $dir !== 'DESC') $dir = 'ASC';
+
+    $sql = "SELECT id, vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate
+            FROM vendor";
     $types = "";
     $params = [];
 
     if ($q !== "") {
-      $sql .= " WHERE jetty LIKE ? OR nama_panjang LIKE ?";
+      $sql .= " WHERE vendor LIKE ? OR shipper LIKE ? OR contract LIKE ? OR lookup LIKE ?";
       $kw = "%{$q}%";
-      $types = "ss";
-      $params = [$kw,$kw];
+      $types = "ssss";
+      $params = [$kw,$kw,$kw,$kw];
     }
 
-    $sql .= " ORDER BY jetty ASC LIMIT 500";
+    // sort utama + tie breaker biar stabil
+    $sql .= " ORDER BY {$sort} {$dir}, vendor ASC, id DESC LIMIT 500";
 
     $stmt = $koneksi->prepare($sql);
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
@@ -78,70 +158,89 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   // ===== CREATE =====
   if ($action === 'create') {
-    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
-    $nama  = clean($_POST['nama_panjang'] ?? '');
+    $vendor   = clean($_POST['vendor'] ?? '');
+    $shipper  = clean($_POST['shipper'] ?? '');
+    $freightRaw = clean($_POST['freight'] ?? '');
+    $freight  = ($freightRaw !== '') ? toDecimal($freightRaw) : computeFreight($shipper);
+    $tonnage  = toDecimal($_POST['tonnage'] ?? '');
+    $penalty  = normalizePenalty($_POST['penalty'] ?? '');
+    $discount = toDecimal($_POST['discount'] ?? '');
+    $contractRaw = clean($_POST['contract'] ?? '');
+    $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
+    $lookup   = clean($_POST['lookup'] ?? '');
+    $laytimeRaw = clean($_POST['laytime'] ?? '');
+    $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
+    $ltcRateRaw = clean($_POST['ltc_rate'] ?? '');
+    $ltcRate  = ($ltcRateRaw !== '') ? toDecimal($ltcRateRaw) : computeLtcRate($freight, $tonnage, $contract);
 
-    if ($jetty === "" || $nama === "") {
-      jsonOut(["ok"=>false,"msg"=>"Jetty & Nama Panjang wajib diisi."]);
+    if ($vendor === "") {
+      jsonOut(["ok"=>false,"msg"=>"Vendor wajib diisi."]);
     }
 
-    // duplicate check
-    $stmt = $koneksi->prepare("SELECT COUNT(*) c FROM jetty WHERE jetty=?");
+    $stmt = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate)
+                               VALUES (?,?,?,?,?,?,?,?,?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $jetty);
-    $stmt->execute();
-    $c = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
-    $stmt->close();
-    if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Kode Jetty sudah ada (harus unik)."]);
 
-    $stmt = $koneksi->prepare("INSERT INTO jetty (jetty, nama_panjang) VALUES (?,?)");
-    if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("ss", $jetty, $nama);
-
+    $stmt->bind_param("ssddsdssdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate);
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== UPDATE =====
   if ($action === 'update') {
-    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
-    $nama  = clean($_POST['nama_panjang'] ?? '');
+    $id       = (int)($_POST['id'] ?? 0);
+    $vendor   = clean($_POST['vendor'] ?? '');
+    $shipper  = clean($_POST['shipper'] ?? '');
+    $freightRaw = clean($_POST['freight'] ?? '');
+    $freight  = ($freightRaw !== '') ? toDecimal($freightRaw) : computeFreight($shipper);
+    $tonnage  = toDecimal($_POST['tonnage'] ?? '');
+    $penalty  = normalizePenalty($_POST['penalty'] ?? '');
+    $discount = toDecimal($_POST['discount'] ?? '');
+    $contractRaw = clean($_POST['contract'] ?? '');
+    $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
+    $lookup   = clean($_POST['lookup'] ?? '');
+    $laytimeRaw = clean($_POST['laytime'] ?? '');
+    $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
+    $ltcRateRaw = clean($_POST['ltc_rate'] ?? '');
+    $ltcRate  = ($ltcRateRaw !== '') ? toDecimal($ltcRateRaw) : computeLtcRate($freight, $tonnage, $contract);
 
-    if ($jetty === "" || $nama === "") {
+    if ($id <= 0 || $vendor === "") {
       jsonOut(["ok"=>false,"msg"=>"Data update tidak valid."]);
     }
 
-    $stmt = $koneksi->prepare("UPDATE jetty SET nama_panjang=? WHERE jetty=?");
+    $stmt = $koneksi->prepare("UPDATE vendor
+      SET vendor=?, shipper=?, freight=?, tonnage=?, penalty=?, discount=?, contract=?, lookup=?, laytime=?, ltc_rate=?
+      WHERE id=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("ss", $nama, $jetty);
+
+    $stmt->bind_param("ssddsdssddi", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate, $id);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== DELETE =====
   if ($action === 'delete') {
-    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
-    if ($jetty === "") jsonOut(["ok"=>false,"msg"=>"Kode Jetty kosong."]);
+    $id = (int)($_POST['id'] ?? 0);
+    if ($id <= 0) jsonOut(["ok"=>false,"msg"=>"ID kosong / tidak valid."]);
 
-    $stmt = $koneksi->prepare("DELETE FROM jetty WHERE jetty=?");
+    $stmt = $koneksi->prepare("DELETE FROM vendor WHERE id=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $jetty);
-
+    $stmt->bind_param("i", $id);
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
-  // ===== IMPORT CSV (SKIP DUPLICATE jetty) =====
+  // ===== IMPORT CSV =====
   if ($action === 'import_csv') {
     $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
     if (strtoupper(trim((string)$divisi)) !== 'IT') {
@@ -163,49 +262,52 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $header = array_map(fn($h)=> strtolower(trim((string)$h)), $header);
-    $required = ['jetty','nama_panjang'];
 
+    $required = ['vendor','shipper','tonnage','penalty','discount','contract','lookup','laytime','ltc_rate'];
     foreach ($required as $col) {
       if (!in_array($col, $header, true)) {
         fclose($fh);
-        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: jetty, nama_panjang"]);
+        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: ".implode(", ", $required)]);
       }
     }
-
     $idx = array_flip($header);
 
     $inserted = 0;
-    $skipped  = 0;
-    $errors   = 0;
+    $errors = 0;
 
-    $stmtIns = $koneksi->prepare("INSERT INTO jetty (jetty, nama_panjang) VALUES (?,?)");
-    if (!$stmtIns) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]); }
-
-    $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM jetty WHERE jetty=?");
-    if (!$stmtChk) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare check gagal: ".$koneksi->error]); }
+    $stmtIns = $koneksi->prepare("INSERT INTO vendor (vendor, shipper, freight, tonnage, penalty, discount, contract, lookup, laytime, ltc_rate)
+                                  VALUES (?,?,?,?,?,?,?,?,?,?)");
+    if (!$stmtIns) {
+      fclose($fh);
+      jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]);
+    }
 
     while (($row = fgetcsv($fh)) !== false) {
-      $jetty = strtoupper(clean($row[$idx['jetty']] ?? ''));
-      $nama  = clean($row[$idx['nama_panjang']] ?? '');
+      $vendor   = clean($row[$idx['vendor']] ?? '');
+      $shipper  = clean($row[$idx['shipper']] ?? '');
+      $freight  = computeFreight($shipper);
+      $tonnage  = toDecimal($row[$idx['tonnage']] ?? '');
+      $penalty  = normalizePenalty($row[$idx['penalty']] ?? '');
+      $discount = toDecimal($row[$idx['discount']] ?? '');
+      $contractRaw = clean($row[$idx['contract']] ?? '');
+      $contract = ($contractRaw !== '') ? $contractRaw : computeContract($shipper);
+      $lookup   = clean($row[$idx['lookup']] ?? '');
+      $laytimeRaw = clean($row[$idx['laytime']] ?? '');
+      $laytime  = ($laytimeRaw !== '') ? toDecimal($laytimeRaw) : (getShipperLaytime($koneksi, $shipper) ?: 0);
+      $ltcRateRaw = clean($row[$idx['ltc_rate']] ?? '');
+      $ltcRate  = ($ltcRateRaw !== '') ? toDecimal($ltcRateRaw) : computeLtcRate($freight, $tonnage, $contract);
 
-      if ($jetty === "" || $nama === "") { $errors++; continue; }
+      if ($vendor === "") { $errors++; continue; }
 
-      // duplicate check
-      $stmtChk->bind_param("s", $jetty);
-      $stmtChk->execute();
-      $c = (int)($stmtChk->get_result()->fetch_assoc()['c'] ?? 0);
-      if ($c > 0) { $skipped++; continue; }
-
-      $stmtIns->bind_param("ss", $jetty, $nama);
+      $stmtIns->bind_param("ssddsdssdd", $vendor, $shipper, $freight, $tonnage, $penalty, $discount, $contract, $lookup, $laytime, $ltcRate);
       if ($stmtIns->execute()) $inserted++;
       else $errors++;
     }
 
     fclose($fh);
     $stmtIns->close();
-    $stmtChk->close();
 
-    jsonOut(["ok"=>true,"msg"=>"Import selesai. Inserted: {$inserted}, Skipped (duplicate): {$skipped}, Error: {$errors}"]);
+    jsonOut(["ok"=>true,"msg"=>"Import selesai. Inserted: {$inserted}, Error: {$errors}"]);
   }
 
   // ===== DELETE ALL (IT only) =====
@@ -215,17 +317,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh menghapus semua data."]);
     }
 
-    $ok = $koneksi->query("DELETE FROM jetty");
+    $ok = $koneksi->query("DELETE FROM vendor");
     $err = $koneksi->error;
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data jetty berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data vendor berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
   jsonOut(["ok"=>false,"msg"=>"Unknown action"]);
 }
 
 /* ========= NORMAL PAGE ========= */
-$pageTitle = "Jetty";
+$pageTitle = "Vendor";
 include __DIR__ . "/../includes/header.php";
 include __DIR__ . "/../includes/sidebar.php";
 ?>
@@ -233,7 +335,7 @@ include __DIR__ . "/../includes/sidebar.php";
 <div class="content">
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h4 class="m-0">Jetty</h4>
+    <h4 class="m-0">Vendor</h4>
   </div>
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
@@ -245,13 +347,11 @@ include __DIR__ . "/../includes/sidebar.php";
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h6 class="mb-1">Import CSV</h6>
-          <div class="small text-muted">
-            Download template dulu, isi datanya, lalu upload. Duplicate <b>Jetty</b> akan <b>di-skip</b>.
-          </div>
+          <div class="small text-muted">Download template dulu, isi datanya, lalu upload.</div>
         </div>
 
         <div class="d-flex gap-2 align-items-center">
-          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=jetty_template">
+          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=vendor_template">
             Download Template CSV
           </a>
 
@@ -269,22 +369,68 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="m-0">Input Jetty</h6>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputJettyBody">
+        <h6 class="m-0">Input Vendor</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputVendorBody">
           <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
         </button>
       </div>
 
-      <div id="inputJettyBody">
+      <div id="inputVendorBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-2">
-          <label class="form-label">Jetty</label>
-          <input name="jetty" class="form-control" placeholder="ABK" required>
+          <label class="form-label">Vendor</label>
+          <input name="vendor" class="form-control" placeholder="BMC" required>
         </div>
 
-        <div class="col-md-10">
-          <label class="form-label">Nama Panjang</label>
-          <input name="nama_panjang" class="form-control" placeholder="JETTY PT ...." required>
+        <div class="col-md-2">
+          <label class="form-label">Shipper</label>
+          <select name="shipper" class="form-select" id="shipperSelect">
+            <option value="">-- pilih shipper --</option>
+          </select>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Freight</label>
+          <input id="freightDisplay" name="freight" class="form-control" value="0" title="Default dari Shipper, bisa diubah">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Tonnage</label>
+          <input id="tonnageInput" name="tonnage" class="form-control" placeholder="8,200">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Penalty</label>
+          <select name="penalty" class="form-select">
+            <option value="">-- pilih --</option>
+            <option value="DF">DF</option>
+            <option value="CQD">CQD</option>
+          </select>
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Discount</label>
+          <input name="discount" class="form-control" placeholder="0">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Contract</label>
+          <input id="contractDisplay" name="contract" class="form-control" value="" title="Default dari Shipper, bisa diubah">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Lookup</label>
+          <input name="lookup" class="form-control" placeholder="LK-001">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">Laytime</label>
+          <input id="laytimeDisplay" name="laytime" class="form-control" value="" title="Default dari data Shipper, bisa diubah">
+        </div>
+
+        <div class="col-md-2">
+          <label class="form-label">LTC Rate</label>
+          <input id="ltcRateDisplay" name="ltc_rate" class="form-control" value="0" title="Default dari Freight x Tonnage x Contract / 30, bisa diubah">
         </div>
 
         <div class="col-12">
@@ -300,7 +446,7 @@ include __DIR__ . "/../includes/sidebar.php";
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div class="d-flex align-items-center gap-2">
-          <h6 class="m-0">Data Jetty</h6>
+          <h6 class="m-0">Data Vendor</h6>
           <div class="hidden-columns-indicator d-none">
             <span class="badge text-bg-secondary hidden-columns-badge">
               <span class="hidden-columns-count">0</span> columns hidden
@@ -314,7 +460,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="position-relative" style="width:320px;">
           <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
-                 placeholder="Search (Jetty / Nama Panjang)..." />
+                 placeholder="Search (Vendor / Shipper / Contract)..." />
           <button type="button" id="btnClearQ" title="Clear search"
                   style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
         </div>
@@ -368,20 +514,24 @@ include __DIR__ . "/../includes/sidebar.php";
         <table class="table table-sm table-bordered align-middle" id="tbl">
           <thead class="table-light">
             <tr>
-              <th style="min-width:90px;" class="sortable" data-key="jetty" data-type="text" data-label="Jetty"></th>
-              <th class="sortable" data-key="nama_panjang" data-type="text" data-label="Nama Panjang"></th>
+              <th style="min-width:140px;" class="sortable" data-key="vendor" data-type="text" data-label="Vendor"></th>
+              <th style="min-width:160px;" class="sortable" data-key="shipper" data-type="text" data-label="Shipper"></th>
+              <th style="min-width:110px;" class="sortable" data-key="freight" data-type="number" data-label="Freight"></th>
+              <th style="min-width:110px;" class="sortable" data-key="tonnage" data-type="number" data-label="Tonnage"></th>
+              <th style="min-width:110px;" class="sortable" data-key="penalty" data-type="text" data-label="Penalty"></th>
+              <th style="min-width:110px;" class="sortable" data-key="discount" data-type="number" data-label="Discount"></th>
+              <th style="min-width:130px;" class="sortable" data-key="contract" data-type="text" data-label="Contract"></th>
+              <th style="min-width:110px;" class="sortable" data-key="lookup" data-type="text" data-label="Lookup"></th>
+              <th style="min-width:100px;" class="sortable" data-key="laytime" data-type="number" data-label="Laytime"></th>
+              <th style="min-width:110px;" class="sortable" data-key="ltc_rate" data-type="number" data-label="LTC Rate"></th>
               <th style="width:190px;">Action</th>
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="3" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="11" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
-
-      <!-- <div class="small text-muted mt-2">
-        Tips: Search langsung ketik di box atas. Update/Delete tanpa reload.
-      </div> -->
 
       <?php if ($isIT): ?>
       <div class="d-flex justify-content-end mt-3">
@@ -403,15 +553,15 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
-const inputJettyBody = document.getElementById('inputJettyBody');
+const inputVendorBody = document.getElementById('inputVendorBody');
 const btnToggleInputForm = document.getElementById('btnToggleInputForm');
 const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
 const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
-const INPUT_FORM_COLLAPSE_KEY = 'jetty_input_form_collapsed';
+const INPUT_FORM_COLLAPSE_KEY = 'vendor_input_form_collapsed';
 
 function setInputFormCollapsed(collapsed){
-  if (!inputJettyBody || !btnToggleInputForm) return;
-  inputJettyBody.style.display = collapsed ? 'none' : '';
+  if (!inputVendorBody || !btnToggleInputForm) return;
+  inputVendorBody.style.display = collapsed ? 'none' : '';
   btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
   if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
@@ -423,7 +573,7 @@ if (btnToggleInputForm) {
   try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
   setInputFormCollapsed(startCollapsed);
   btnToggleInputForm.addEventListener('click', () => {
-    const collapsed = inputJettyBody.style.display !== 'none';
+    const collapsed = inputVendorBody.style.display !== 'none';
     setInputFormCollapsed(collapsed);
   });
 }
@@ -453,18 +603,123 @@ function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 
-  const jetty = esc(r.jetty);
-  const nama  = esc(r.nama_panjang);
+  // ID tetap disimpan di data-id (hidden), tapi tidak ditampilkan di UI
+  const id = esc(r.id);
+
+  const vendor   = esc(r.vendor);
+  const shipper  = esc(r.shipper ?? '');
+  const shipperOptions = shipperOptionsHtml(shipper);
+  const freight  = esc(r.freight ?? '0');
+  const tonnage  = esc(r.tonnage ?? '0');
+  const penalty  = esc(r.penalty ?? '');
+  const penaltyOptions = ['', 'DF', 'CQD'].map(v=>{
+    const sel = v === penalty ? ' selected' : '';
+    return `<option value="${v}"${sel}>${v || '-- pilih --'}</option>`;
+  }).join('');
+  const discount = esc(r.discount ?? '0');
+  const contract = esc(r.contract ?? '');
+  const lookup   = esc(r.lookup ?? '');
+  const laytime  = esc(r.laytime ?? '0');
+  const ltcRate  = esc(r.ltc_rate ?? '0');
 
   return `
-  <tr data-jetty="${jetty}">
-    <td><input class="form-control form-control-sm" value="${jetty}" disabled></td>
-    <td><input class="form-control form-control-sm" name="nama_panjang" value="${nama}"></td>
+  <tr data-id="${id}">
+    <td><input class="form-control form-control-sm" name="vendor" value="${vendor}"></td>
+    <td><select class="form-select form-select-sm" name="shipper">${shipperOptions}</select></td>
+    <td><input class="form-control form-control-sm" name="freight" value="${freight}" title="Default dari Shipper, bisa diubah"></td>
+    <td><input class="form-control form-control-sm" name="tonnage" value="${tonnage}"></td>
+    <td><select class="form-select form-select-sm" name="penalty">${penaltyOptions}</select></td>
+    <td><input class="form-control form-control-sm" name="discount" value="${discount}"></td>
+    <td><input class="form-control form-control-sm" name="contract" value="${contract}" title="Default dari Shipper, bisa diubah"></td>
+    <td><input class="form-control form-control-sm" name="lookup" value="${lookup}"></td>
+    <td><input class="form-control form-control-sm" name="laytime" value="${laytime}" title="Default dari data Shipper, bisa diubah"></td>
+    <td><input class="form-control form-control-sm" name="ltc_rate" value="${ltcRate}"></td>
+
     <td class="d-flex gap-2">
       <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
     </td>
   </tr>`;
+}
+
+let shipperList = []; // list of shipper codes from Operation/2shipper.php
+let shipperLaytimeMap = {}; // shipper code -> laytime from Operation/2shipper.php
+
+function shipperOptionsHtml(selected){
+  const esc = (s)=> (s ?? '').toString()
+    .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  let html = `<option value="">-- pilih shipper --</option>`;
+  html += shipperList.map(s=>{
+    const val = esc(s);
+    const isSel = s === selected ? ' selected' : '';
+    return `<option value="${val}"${isSel}>${val}</option>`;
+  }).join('');
+  if (selected && !shipperList.includes(selected)) {
+    html += `<option value="${esc(selected)}" selected>${esc(selected)}</option>`;
+  }
+  return html;
+}
+
+function computeFreightClient(shipper){
+  switch ((shipper || '').toUpperCase().trim()) {
+    case 'MHU': return 51500;
+    case 'CAM': return 85000;
+    default: return 0;
+  }
+}
+
+function computeContractClient(shipper){
+  switch ((shipper || '').toUpperCase().trim()) {
+    case 'MHU': return 3;
+    case 'CAM': return 2;
+    default: return '';
+  }
+}
+
+function parseNumClient(s){
+  const n = parseFloat((s ?? '').toString().replace(/,/g, ''));
+  return isNaN(n) ? 0 : n;
+}
+
+const shipperSelect = document.getElementById('shipperSelect');
+const freightDisplay = document.getElementById('freightDisplay');
+const contractDisplay = document.getElementById('contractDisplay');
+const laytimeDisplay = document.getElementById('laytimeDisplay');
+const tonnageInput = document.getElementById('tonnageInput');
+const ltcRateDisplay = document.getElementById('ltcRateDisplay');
+
+function recomputeLtcRateDefault(){
+  if (!ltcRateDisplay) return;
+  const freight  = parseNumClient(freightDisplay ? freightDisplay.value : 0);
+  const tonnage  = parseNumClient(tonnageInput ? tonnageInput.value : 0);
+  const contract = parseNumClient(contractDisplay ? contractDisplay.value : 0);
+  ltcRateDisplay.value = Math.round(freight * tonnage * contract / 30);
+}
+
+if (shipperSelect && freightDisplay) {
+  shipperSelect.addEventListener('change', ()=>{
+    freightDisplay.value = computeFreightClient(shipperSelect.value);
+    if (contractDisplay) contractDisplay.value = computeContractClient(shipperSelect.value);
+    if (laytimeDisplay) laytimeDisplay.value = shipperLaytimeMap[shipperSelect.value] ?? '';
+    recomputeLtcRateDefault();
+  });
+}
+if (freightDisplay) freightDisplay.addEventListener('input', recomputeLtcRateDefault);
+if (tonnageInput) tonnageInput.addEventListener('input', recomputeLtcRateDefault);
+if (contractDisplay) contractDisplay.addEventListener('input', recomputeLtcRateDefault);
+
+async function loadShipperOptions(){
+  try {
+    const r = await fetch(`/logistic/Operation/2shipper.php?ajax=1&action=list`);
+    const res = await r.json();
+    if (res.ok) {
+      shipperList = res.data.map(s => s.shipper);
+      shipperLaytimeMap = {};
+      res.data.forEach(s => { shipperLaytimeMap[s.shipper] = s.laytime ?? ''; });
+      const sel = document.getElementById('shipperSelect');
+      if (sel) sel.innerHTML = shipperOptionsHtml('');
+    }
+  } catch (e) {}
 }
 
 let originalData = []; // as-loaded (insertion) order, per current search
@@ -487,6 +742,9 @@ function getSortValue(r, key, type){
 
 // display value shown in the table cell for a given column (matches rowTemplate)
 function columnDisplayValue(r, key){
+  if (key === 'freight' || key === 'tonnage' || key === 'discount' || key === 'laytime' || key === 'ltc_rate'){
+    return (r[key] ?? '0').toString();
+  }
   return (r[key] ?? '').toString();
 }
 
@@ -557,7 +815,7 @@ function renderTable(){
   const data = computeDisplayData();
   tbody.innerHTML = data.length
     ? data.map(rowTemplate).join('')
-    : `<tr><td colspan="3" class="text-center text-muted">No data</td></tr>`;
+    : `<tr><td colspan="11" class="text-center text-muted">No data</td></tr>`;
   applyFreezeStyling();
   applyHiddenColumns();
 }
@@ -1142,7 +1400,7 @@ async function loadTable(){
   const kw = q.value.trim();
   const res = await api('list', null, `&q=${encodeURIComponent(kw)}`);
   if (!res.ok){
-    tbody.innerHTML = `<tr><td colspan="3" class="text-danger">Error: ${res.msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="text-danger">Error: ${res.msg}</td></tr>`;
     return;
   }
   originalData = res.data;
@@ -1157,6 +1415,10 @@ formCreate.addEventListener('submit', async (e)=>{
   if (res.ok){
     showAlert('success', res.msg);
     formCreate.reset();
+    freightDisplay.value = '0';
+    if (contractDisplay) contractDisplay.value = '';
+    if (laytimeDisplay) laytimeDisplay.value = '';
+    if (ltcRateDisplay) ltcRateDisplay.value = '0';
     await loadTable();
   } else {
     showAlert('danger', res.msg);
@@ -1166,24 +1428,36 @@ formCreate.addEventListener('submit', async (e)=>{
 tbody.addEventListener('click', async (e)=>{
   const tr = e.target.closest('tr');
   if (!tr) return;
-  const jetty = tr.getAttribute('data-jetty');
+  const id = tr.getAttribute('data-id');
 
   if (e.target.classList.contains('btnDelete')){
-    if (!confirm(`Hapus jetty ${jetty}?`)) return;
-    const res = await api('delete', { jetty });
+    if (!confirm(`Hapus data vendor ini?`)) return;
+    const res = await api('delete', { id });
     if (res.ok){
       showAlert('success', res.msg);
-      originalData = originalData.filter(r => r.jetty !== jetty);
+      originalData = originalData.filter(r => String(r.id) !== id);
       tr.remove();
-      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No data</td></tr>`;
+      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted">No data</td></tr>`;
     } else {
       showAlert('danger', res.msg);
     }
   }
 
   if (e.target.classList.contains('btnUpdate')){
-    const nama = tr.querySelector(`[name="nama_panjang"]`)?.value ?? '';
-    const payload = { jetty, nama_panjang: nama };
+    const getVal = (name)=> tr.querySelector(`[name="${name}"]`)?.value ?? '';
+    const payload = {
+      id,
+      vendor: getVal('vendor'),
+      shipper: getVal('shipper'),
+      freight: getVal('freight'),
+      tonnage: getVal('tonnage'),
+      penalty: getVal('penalty'),
+      discount: getVal('discount'),
+      contract: getVal('contract'),
+      lookup: getVal('lookup'),
+      laytime: getVal('laytime'),
+      ltc_rate: getVal('ltc_rate'),
+    };
     const res = await api('update', payload);
     if (res.ok){
       showAlert('success', res.msg);
@@ -1194,16 +1468,19 @@ tbody.addEventListener('click', async (e)=>{
   }
 });
 
+// auto search (oninput) + debounce
 let t = null;
 q.addEventListener('input', ()=>{
   clearTimeout(t);
   t = setTimeout(loadTable, 200);
 });
+
 btnClearQ.addEventListener('click', ()=>{
   q.value = "";
   loadTable();
 });
 
+// IMPORT CSV (AJAX)
 formImport.addEventListener('submit', async (e)=>{
   e.preventDefault();
   if (!csvFile.files.length){
@@ -1229,7 +1506,7 @@ formImport.addEventListener('submit', async (e)=>{
 
 if (btnDeleteAll){
   btnDeleteAll.addEventListener('click', async ()=>{
-    if (!confirm('Hapus SEMUA data jetty? Tindakan ini tidak bisa dibatalkan.')) return;
+    if (!confirm('Hapus SEMUA data vendor? Tindakan ini tidak bisa dibatalkan.')) return;
     const res = await api('delete_all');
     if (res.ok){
       showAlert('success', res.msg);
@@ -1240,7 +1517,8 @@ if (btnDeleteAll){
   });
 }
 
-loadTable();
+// first load
+(async () => { await loadShipperOptions(); await loadTable(); })();
 </script>
 
 <?php include __DIR__ . "/../includes/footer.php"; ?>

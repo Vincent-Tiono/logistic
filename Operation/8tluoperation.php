@@ -468,7 +468,7 @@ function decodeOperationDataWithVesselDefaults(array $row) {
     }
   }
 
-  // Laytime defaults to the matching Shipper's Laytime (Operation/4shipper.php),
+  // Laytime defaults to the matching Shipper's Laytime (Operation/2shipper.php),
   // unless this row already has its own manually-saved Laytime.
   if (trim((string)($data['laytime'] ?? '')) === '') {
     $shipperLaytime = trim((string)($row['shipper_laytime'] ?? ''));
@@ -2272,7 +2272,7 @@ downloadGroupedExport.addEventListener('click', () => {
   if (['vessel', 'month'].includes(scope)) params.set('month', month);
   if (scope === 'vessel') params.set('no_pk', noPk);
 
-  window.location.href = `7tluoperation.php?${params.toString()}`;
+  window.location.href = `8tluoperation.php?${params.toString()}`;
 });
 
 const siBargesDetailFields = [
@@ -2464,7 +2464,7 @@ function formatCargoReadinessPercent(value) {
   return `${Math.round(Number(normalized))}%`;
 }
 
-/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/6sibarges.php convention) ===== */
+/* ===== display format dd/Mon/yy [HH:MM] (matches Operation/7sibarges.php convention) ===== */
 const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function fmtDDMonYY(val, withTime = false) {
@@ -3123,7 +3123,17 @@ const FORMULA_INFO_RULES = {
     'SUM(QTY Actual sampai baris ini, urutan Completed Disch) ÷ SUM(QTY Actual semua baris) × 100%'
   ],
   laytime: [
-    'Diambil dari Laytime Shipper (Operation/4shipper.php) sesuai Shipper baris ini'
+    'Diambil dari Laytime Shipper (Operation/2shipper.php) sesuai Shipper baris ini'
+  ],
+  ltc_rate: [
+    'Input manual'
+  ],
+  ltc_day: [
+    '(Laytime − (Total CT LTC − Barges Arrival Early)) > 0 → 0',
+    'Lainnya → Laytime − (Total CT LTC − Barges Arrival Early)'
+  ],
+  ltc_total: [
+    'LTC Rate × LTC Day'
   ]
 };
 
@@ -4480,14 +4490,14 @@ function createOperationWorkflow(cfg) {
     }
 
     downloadCsv.href =
-      `7tluoperation.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
+      `8tluoperation.php?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
     box.classList.remove('d-none');
     exportCsvButton.disabled = true;
     body.innerHTML = '<tr><td colspan="99" class="text-center text-muted py-3">Loading...</td></tr>';
 
     try {
       const response = await fetch(
-        `7tluoperation.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
+        `8tluoperation.php?action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`,
         { headers: { 'X-Requested-With': 'XMLHttpRequest' } }
       );
       const result = await response.json();
@@ -4533,7 +4543,7 @@ function createOperationWorkflow(cfg) {
     csvStatus.className = 'alert d-none mt-3 mb-0';
 
     try {
-      const response = await fetch('7tluoperation.php?action=import_operation_csv', {
+      const response = await fetch('8tluoperation.php?action=import_operation_csv', {
         method: 'POST',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
         body: formData
@@ -4695,7 +4705,7 @@ function createOperationWorkflow(cfg) {
     saveStatus.textContent = '';
 
     try {
-      const response = await fetch('7tluoperation.php?action=save_operation_data', {
+      const response = await fetch('8tluoperation.php?action=save_operation_data', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

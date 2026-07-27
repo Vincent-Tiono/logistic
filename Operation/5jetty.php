@@ -8,13 +8,12 @@ if (!isset($_SESSION['username'])) {
 }
 
 /* ========= SELF PATH ========= */
-$SELF = "/logistic/Operation/4shipper.php";
+$SELF = "/logistic/Operation/5jetty.php";
 
 require_once __DIR__ . '/../config/database.php';
 
 try {
   $koneksi = db_connect('databarging');
-  ensure_shipper_laytime_column($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
@@ -23,11 +22,6 @@ try {
 /* ========= HELPERS ========= */
 function clean($s){ return trim((string)$s); }
 
-function toNullableFloat($s){
-  $s = trim((string)$s);
-  return ($s === '' || !is_numeric($s)) ? null : (float)$s;
-}
-
 function jsonOut($arr){
   header('Content-Type: application/json; charset=utf-8');
   echo json_encode($arr);
@@ -35,16 +29,16 @@ function jsonOut($arr){
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
-if (isset($_GET['download']) && $_GET['download'] === 'shipper_template') {
+if (isset($_GET['download']) && $_GET['download'] === 'jetty_template') {
   header('Content-Type: text/csv; charset=utf-8');
-  header('Content-Disposition: attachment; filename="shipper_template.csv"');
+  header('Content-Disposition: attachment; filename="jetty_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['shipper','pt','nama_lengkap','laytime']);
+  fputcsv($out, ['jetty','nama_panjang']);
 
   // contoh baris
-  fputcsv($out, ['MHU','PT. MULTI HARAPAN UTAMA',"PT MULTI HARAPAN UTAMA\nCFX TOWER LANTAI 3-4, JALAN JENDERAL GATOT SUBROTO,\nKAVELING 35-36,\nKUNINGAN TIMUR, SETIABUDI, KOTA ADM. JAKARTA SELATAN,\nDKI JAKARTA, INDONESIA, 12950", '9']);
-  fputcsv($out, ['CDI','PT. CITRA DAYAK INDAH',"PT CITRA DAYAK INDAH\nJL. RAPAK INDAH PERMAI\nBLOK F NO. 21 LOK BAHU, SUNGAI KUNJANG,\nSAMARINDA, KALIMANTAN TIMUR", '5']);
+  fputcsv($out, ['ABK','JETTY PT ANUGERAH BARA KALTIM, EAST KALIMANTAN, INDONESIA']);
+  fputcsv($out, ['LKCT','JETTY LOA KULU COAL TERMINAL, EAST KALIMANTAN, INDONESIA']);
   fclose($out);
   exit;
 }
@@ -58,18 +52,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
 
-    $sql = "SELECT shipper, pt, nama_lengkap, laytime FROM shipper";
+    $sql = "SELECT jetty, nama_panjang FROM jetty";
     $types = "";
     $params = [];
 
     if ($q !== "") {
-      $sql .= " WHERE shipper LIKE ? OR pt LIKE ? OR nama_lengkap LIKE ?";
+      $sql .= " WHERE jetty LIKE ? OR nama_panjang LIKE ?";
       $kw = "%{$q}%";
-      $types = "sss";
-      $params = [$kw,$kw,$kw];
+      $types = "ss";
+      $params = [$kw,$kw];
     }
 
-    $sql .= " ORDER BY shipper ASC LIMIT 500";
+    $sql .= " ORDER BY jetty ASC LIMIT 500";
 
     $stmt = $koneksi->prepare($sql);
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
@@ -84,74 +78,70 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   // ===== CREATE =====
   if ($action === 'create') {
-    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
-    $pt      = clean($_POST['pt'] ?? '');
-    $nama    = clean($_POST['nama_lengkap'] ?? '');
-    $laytime = toNullableFloat($_POST['laytime'] ?? '');
+    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
+    $nama  = clean($_POST['nama_panjang'] ?? '');
 
-    if ($shipper === "" || $pt === "" || $nama === "") {
-      jsonOut(["ok"=>false,"msg"=>"Shipper, PT, dan Nama Lengkap wajib diisi."]);
+    if ($jetty === "" || $nama === "") {
+      jsonOut(["ok"=>false,"msg"=>"Jetty & Nama Panjang wajib diisi."]);
     }
 
     // duplicate check
-    $stmt = $koneksi->prepare("SELECT COUNT(*) c FROM shipper WHERE shipper=?");
+    $stmt = $koneksi->prepare("SELECT COUNT(*) c FROM jetty WHERE jetty=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $shipper);
+    $stmt->bind_param("s", $jetty);
     $stmt->execute();
     $c = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
     $stmt->close();
-    if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Kode Shipper sudah ada (harus unik)."]);
+    if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Kode Jetty sudah ada (harus unik)."]);
 
-    $stmt = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
+    $stmt = $koneksi->prepare("INSERT INTO jetty (jetty, nama_panjang) VALUES (?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("sssd", $shipper, $pt, $nama, $laytime);
+    $stmt->bind_param("ss", $jetty, $nama);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== UPDATE =====
   if ($action === 'update') {
-    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
-    $pt      = clean($_POST['pt'] ?? '');
-    $nama    = clean($_POST['nama_lengkap'] ?? '');
-    $laytime = toNullableFloat($_POST['laytime'] ?? '');
+    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
+    $nama  = clean($_POST['nama_panjang'] ?? '');
 
-    if ($shipper === "" || $pt === "" || $nama === "") {
+    if ($jetty === "" || $nama === "") {
       jsonOut(["ok"=>false,"msg"=>"Data update tidak valid."]);
     }
 
-    $stmt = $koneksi->prepare("UPDATE shipper SET pt=?, nama_lengkap=?, laytime=? WHERE shipper=?");
+    $stmt = $koneksi->prepare("UPDATE jetty SET nama_panjang=? WHERE jetty=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("ssds", $pt, $nama, $laytime, $shipper);
+    $stmt->bind_param("ss", $nama, $jetty);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== DELETE =====
   if ($action === 'delete') {
-    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
-    if ($shipper === "") jsonOut(["ok"=>false,"msg"=>"Kode Shipper kosong."]);
+    $jetty = strtoupper(clean($_POST['jetty'] ?? ''));
+    if ($jetty === "") jsonOut(["ok"=>false,"msg"=>"Kode Jetty kosong."]);
 
-    $stmt = $koneksi->prepare("DELETE FROM shipper WHERE shipper=?");
+    $stmt = $koneksi->prepare("DELETE FROM jetty WHERE jetty=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $shipper);
+    $stmt->bind_param("s", $jetty);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data jetty berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
-  // ===== IMPORT CSV (SKIP DUPLICATE shipper) =====
+  // ===== IMPORT CSV (SKIP DUPLICATE jetty) =====
   if ($action === 'import_csv') {
     $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
     if (strtoupper(trim((string)$divisi)) !== 'IT') {
@@ -173,43 +163,40 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $header = array_map(fn($h)=> strtolower(trim((string)$h)), $header);
-    $required = ['shipper','pt','nama_lengkap'];
+    $required = ['jetty','nama_panjang'];
 
     foreach ($required as $col) {
       if (!in_array($col, $header, true)) {
         fclose($fh);
-        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: shipper, pt, nama_lengkap"]);
+        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: jetty, nama_panjang"]);
       }
     }
 
     $idx = array_flip($header);
-    $hasLaytime = isset($idx['laytime']);
 
     $inserted = 0;
     $skipped  = 0;
     $errors   = 0;
 
-    $stmtIns = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
+    $stmtIns = $koneksi->prepare("INSERT INTO jetty (jetty, nama_panjang) VALUES (?,?)");
     if (!$stmtIns) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]); }
 
-    $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM shipper WHERE shipper=?");
+    $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM jetty WHERE jetty=?");
     if (!$stmtChk) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare check gagal: ".$koneksi->error]); }
 
     while (($row = fgetcsv($fh)) !== false) {
-      $shipper = strtoupper(clean($row[$idx['shipper']] ?? ''));
-      $pt      = clean($row[$idx['pt']] ?? '');
-      $nama    = clean($row[$idx['nama_lengkap']] ?? '');
-      $laytime = $hasLaytime ? toNullableFloat($row[$idx['laytime']] ?? '') : null;
+      $jetty = strtoupper(clean($row[$idx['jetty']] ?? ''));
+      $nama  = clean($row[$idx['nama_panjang']] ?? '');
 
-      if ($shipper === "" || $pt === "" || $nama === "") { $errors++; continue; }
+      if ($jetty === "" || $nama === "") { $errors++; continue; }
 
       // duplicate check
-      $stmtChk->bind_param("s", $shipper);
+      $stmtChk->bind_param("s", $jetty);
       $stmtChk->execute();
       $c = (int)($stmtChk->get_result()->fetch_assoc()['c'] ?? 0);
       if ($c > 0) { $skipped++; continue; }
 
-      $stmtIns->bind_param("sssd", $shipper, $pt, $nama, $laytime);
+      $stmtIns->bind_param("ss", $jetty, $nama);
       if ($stmtIns->execute()) $inserted++;
       else $errors++;
     }
@@ -228,17 +215,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh menghapus semua data."]);
     }
 
-    $ok = $koneksi->query("DELETE FROM shipper");
+    $ok = $koneksi->query("DELETE FROM jetty");
     $err = $koneksi->error;
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data shipper berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data jetty berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
   jsonOut(["ok"=>false,"msg"=>"Unknown action"]);
 }
 
 /* ========= NORMAL PAGE ========= */
-$pageTitle = "Shipper";
+$pageTitle = "Jetty";
 include __DIR__ . "/../includes/header.php";
 include __DIR__ . "/../includes/sidebar.php";
 ?>
@@ -246,7 +233,7 @@ include __DIR__ . "/../includes/sidebar.php";
 <div class="content">
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h4 class="m-0">Shipper</h4>
+    <h4 class="m-0">Jetty</h4>
   </div>
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
@@ -259,12 +246,12 @@ include __DIR__ . "/../includes/sidebar.php";
         <div>
           <h6 class="mb-1">Import CSV</h6>
           <div class="small text-muted">
-            Download template dulu, isi datanya, lalu upload. Duplicate <b>Shipper</b> akan <b>di-skip</b>.
+            Download template dulu, isi datanya, lalu upload. Duplicate <b>Jetty</b> akan <b>di-skip</b>.
           </div>
         </div>
 
         <div class="d-flex gap-2 align-items-center">
-          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=shipper_template">
+          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=jetty_template">
             Download Template CSV
           </a>
 
@@ -282,33 +269,22 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="m-0">Input Shipper</h6>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputShipperBody">
+        <h6 class="m-0">Input Jetty</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputJettyBody">
           <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
         </button>
       </div>
 
-      <div id="inputShipperBody">
+      <div id="inputJettyBody">
       <form id="formCreate" class="row g-2">
         <div class="col-md-2">
-          <label class="form-label">Shipper</label>
-          <input name="shipper" class="form-control" placeholder="MHU" required>
+          <label class="form-label">Jetty</label>
+          <input name="jetty" class="form-control" placeholder="ABK" required>
         </div>
 
-        <div class="col-md-4">
-          <label class="form-label">PT</label>
-          <input name="pt" class="form-control" placeholder="PT. MULTI HARAPAN UTAMA" required>
-        </div>
-
-        <div class="col-md-4">
-          <label class="form-label">Nama Lengkap</label>
-          <textarea name="nama_lengkap" class="form-control" rows="3"
-            placeholder="Alamat / nama lengkap shipper..." required></textarea>
-        </div>
-
-        <div class="col-md-2">
-          <label class="form-label">Laytime</label>
-          <input type="number" step="any" name="laytime" class="form-control" placeholder="9">
+        <div class="col-md-10">
+          <label class="form-label">Nama Panjang</label>
+          <input name="nama_panjang" class="form-control" placeholder="JETTY PT ...." required>
         </div>
 
         <div class="col-12">
@@ -324,7 +300,7 @@ include __DIR__ . "/../includes/sidebar.php";
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div class="d-flex align-items-center gap-2">
-          <h6 class="m-0">Data Shipper</h6>
+          <h6 class="m-0">Data Jetty</h6>
           <div class="hidden-columns-indicator d-none">
             <span class="badge text-bg-secondary hidden-columns-badge">
               <span class="hidden-columns-count">0</span> columns hidden
@@ -338,7 +314,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="position-relative" style="width:320px;">
           <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
-                 placeholder="Search (Shipper / PT / Nama Lengkap)..." />
+                 placeholder="Search (Jetty / Nama Panjang)..." />
           <button type="button" id="btnClearQ" title="Clear search"
                   style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
         </div>
@@ -392,15 +368,13 @@ include __DIR__ . "/../includes/sidebar.php";
         <table class="table table-sm table-bordered align-middle" id="tbl">
           <thead class="table-light">
             <tr>
-              <th style="min-width:110px;" class="sortable" data-key="shipper" data-type="text" data-label="Shipper"></th>
-              <th style="min-width:260px;" class="sortable" data-key="pt" data-type="text" data-label="PT"></th>
-              <th class="sortable" data-key="nama_lengkap" data-type="text" data-label="Nama Lengkap"></th>
-              <th style="min-width:100px;" class="sortable" data-key="laytime" data-type="number" data-label="Laytime"></th>
+              <th style="min-width:90px;" class="sortable" data-key="jetty" data-type="text" data-label="Jetty"></th>
+              <th class="sortable" data-key="nama_panjang" data-type="text" data-label="Nama Panjang"></th>
               <th style="width:190px;">Action</th>
             </tr>
           </thead>
           <tbody id="tbody">
-            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+            <tr><td colspan="3" class="text-center text-muted">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -429,15 +403,15 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
-const inputShipperBody = document.getElementById('inputShipperBody');
+const inputJettyBody = document.getElementById('inputJettyBody');
 const btnToggleInputForm = document.getElementById('btnToggleInputForm');
 const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
 const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
-const INPUT_FORM_COLLAPSE_KEY = 'shipper_input_form_collapsed';
+const INPUT_FORM_COLLAPSE_KEY = 'jetty_input_form_collapsed';
 
 function setInputFormCollapsed(collapsed){
-  if (!inputShipperBody || !btnToggleInputForm) return;
-  inputShipperBody.style.display = collapsed ? 'none' : '';
+  if (!inputJettyBody || !btnToggleInputForm) return;
+  inputJettyBody.style.display = collapsed ? 'none' : '';
   btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
   if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
@@ -449,7 +423,7 @@ if (btnToggleInputForm) {
   try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
   setInputFormCollapsed(startCollapsed);
   btnToggleInputForm.addEventListener('click', () => {
-    const collapsed = inputShipperBody.style.display !== 'none';
+    const collapsed = inputJettyBody.style.display !== 'none';
     setInputFormCollapsed(collapsed);
   });
 }
@@ -479,17 +453,13 @@ function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 
-  const shipper = esc(r.shipper);
-  const pt = esc(r.pt);
-  const nama = esc(r.nama_lengkap);
-  const laytime = esc(r.laytime);
+  const jetty = esc(r.jetty);
+  const nama  = esc(r.nama_panjang);
 
   return `
-  <tr data-shipper="${shipper}">
-    <td><input class="form-control form-control-sm" value="${shipper}" disabled></td>
-    <td><input class="form-control form-control-sm" name="pt" value="${pt}"></td>
-    <td><textarea class="form-control form-control-sm" name="nama_lengkap" rows="3">${nama}</textarea></td>
-    <td><input type="number" step="any" class="form-control form-control-sm" name="laytime" value="${laytime}"></td>
+  <tr data-jetty="${jetty}">
+    <td><input class="form-control form-control-sm" value="${jetty}" disabled></td>
+    <td><input class="form-control form-control-sm" name="nama_panjang" value="${nama}"></td>
     <td class="d-flex gap-2">
       <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
@@ -587,7 +557,7 @@ function renderTable(){
   const data = computeDisplayData();
   tbody.innerHTML = data.length
     ? data.map(rowTemplate).join('')
-    : `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
+    : `<tr><td colspan="3" class="text-center text-muted">No data</td></tr>`;
   applyFreezeStyling();
   applyHiddenColumns();
 }
@@ -1172,7 +1142,7 @@ async function loadTable(){
   const kw = q.value.trim();
   const res = await api('list', null, `&q=${encodeURIComponent(kw)}`);
   if (!res.ok){
-    tbody.innerHTML = `<tr><td colspan="5" class="text-danger">Error: ${res.msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" class="text-danger">Error: ${res.msg}</td></tr>`;
     return;
   }
   originalData = res.data;
@@ -1196,29 +1166,24 @@ formCreate.addEventListener('submit', async (e)=>{
 tbody.addEventListener('click', async (e)=>{
   const tr = e.target.closest('tr');
   if (!tr) return;
-  const shipper = tr.getAttribute('data-shipper');
+  const jetty = tr.getAttribute('data-jetty');
 
   if (e.target.classList.contains('btnDelete')){
-    if (!confirm(`Hapus shipper ${shipper}?`)) return;
-    const res = await api('delete', { shipper });
+    if (!confirm(`Hapus jetty ${jetty}?`)) return;
+    const res = await api('delete', { jetty });
     if (res.ok){
       showAlert('success', res.msg);
-      originalData = originalData.filter(r => r.shipper !== shipper);
+      originalData = originalData.filter(r => r.jetty !== jetty);
       tr.remove();
-      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
+      if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="3" class="text-center text-muted">No data</td></tr>`;
     } else {
       showAlert('danger', res.msg);
     }
   }
 
   if (e.target.classList.contains('btnUpdate')){
-    const getVal = (name)=> tr.querySelector(`[name="${name}"]`)?.value ?? '';
-    const payload = {
-      shipper,
-      pt: getVal('pt'),
-      nama_lengkap: getVal('nama_lengkap'),
-      laytime: getVal('laytime')
-    };
+    const nama = tr.querySelector(`[name="nama_panjang"]`)?.value ?? '';
+    const payload = { jetty, nama_panjang: nama };
     const res = await api('update', payload);
     if (res.ok){
       showAlert('success', res.msg);
@@ -1264,7 +1229,7 @@ formImport.addEventListener('submit', async (e)=>{
 
 if (btnDeleteAll){
   btnDeleteAll.addEventListener('click', async ()=>{
-    if (!confirm('Hapus SEMUA data shipper? Tindakan ini tidak bisa dibatalkan.')) return;
+    if (!confirm('Hapus SEMUA data jetty? Tindakan ini tidak bisa dibatalkan.')) return;
     const res = await api('delete_all');
     if (res.ok){
       showAlert('success', res.msg);

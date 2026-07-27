@@ -8,12 +8,13 @@ if (!isset($_SESSION['username'])) {
 }
 
 /* ========= SELF PATH ========= */
-$SELF = "/logistic/Operation/5flf.php";
+$SELF = "/logistic/Operation/2shipper.php";
 
 require_once __DIR__ . '/../config/database.php';
 
 try {
   $koneksi = db_connect('databarging');
+  ensure_shipper_laytime_column($koneksi);
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
@@ -22,6 +23,11 @@ try {
 /* ========= HELPERS ========= */
 function clean($s){ return trim((string)$s); }
 
+function toNullableFloat($s){
+  $s = trim((string)$s);
+  return ($s === '' || !is_numeric($s)) ? null : (float)$s;
+}
+
 function jsonOut($arr){
   header('Content-Type: application/json; charset=utf-8');
   echo json_encode($arr);
@@ -29,16 +35,16 @@ function jsonOut($arr){
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
-if (isset($_GET['download']) && $_GET['download'] === 'flf_template') {
+if (isset($_GET['download']) && $_GET['download'] === 'shipper_template') {
   header('Content-Type: text/csv; charset=utf-8');
-  header('Content-Disposition: attachment; filename="flf_template.csv"');
+  header('Content-Disposition: attachment; filename="shipper_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['floating_crane','vendor_flf','pbm','anchorage']);
+  fputcsv($out, ['shipper','pt','nama_lengkap','laytime']);
 
   // contoh baris
-  fputcsv($out, ['FC RATU DEWATA','PSS','FLOATING CRANE','M.BERAU']);
-  fputcsv($out, ['STV MAESTRO','MLS','STEVEDORE','M.JAWA']);
+  fputcsv($out, ['MHU','PT. MULTI HARAPAN UTAMA',"PT MULTI HARAPAN UTAMA\nCFX TOWER LANTAI 3-4, JALAN JENDERAL GATOT SUBROTO,\nKAVELING 35-36,\nKUNINGAN TIMUR, SETIABUDI, KOTA ADM. JAKARTA SELATAN,\nDKI JAKARTA, INDONESIA, 12950", '9']);
+  fputcsv($out, ['CDI','PT. CITRA DAYAK INDAH',"PT CITRA DAYAK INDAH\nJL. RAPAK INDAH PERMAI\nBLOK F NO. 21 LOK BAHU, SUNGAI KUNJANG,\nSAMARINDA, KALIMANTAN TIMUR", '5']);
   fclose($out);
   exit;
 }
@@ -52,18 +58,18 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   if ($action === 'list') {
     $q = clean($_GET['q'] ?? '');
 
-    $sql = "SELECT floating_crane, vendor_flf, pbm, anchorage FROM flf";
+    $sql = "SELECT shipper, pt, nama_lengkap, laytime FROM shipper";
     $types = "";
     $params = [];
 
     if ($q !== "") {
-      $sql .= " WHERE floating_crane LIKE ? OR vendor_flf LIKE ? OR pbm LIKE ? OR anchorage LIKE ?";
+      $sql .= " WHERE shipper LIKE ? OR pt LIKE ? OR nama_lengkap LIKE ?";
       $kw = "%{$q}%";
-      $types = "ssss";
-      $params = [$kw,$kw,$kw,$kw];
+      $types = "sss";
+      $params = [$kw,$kw,$kw];
     }
 
-    $sql .= " ORDER BY floating_crane ASC LIMIT 500";
+    $sql .= " ORDER BY shipper ASC LIMIT 500";
 
     $stmt = $koneksi->prepare($sql);
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
@@ -78,74 +84,74 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
   // ===== CREATE =====
   if ($action === 'create') {
-    $floating = strtoupper(clean($_POST['floating_crane'] ?? ''));
-    $vendor   = clean($_POST['vendor_flf'] ?? '');
-    $pbm      = clean($_POST['pbm'] ?? '');
-    $anch     = clean($_POST['anchorage'] ?? '');
+    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
+    $pt      = clean($_POST['pt'] ?? '');
+    $nama    = clean($_POST['nama_lengkap'] ?? '');
+    $laytime = toNullableFloat($_POST['laytime'] ?? '');
 
-    if ($floating === "" || $vendor === "" || $pbm === "" || $anch === "") {
-      jsonOut(["ok"=>false,"msg"=>"Floating Crane, Vendor, PBM, dan Anchorage wajib diisi."]);
+    if ($shipper === "" || $pt === "" || $nama === "") {
+      jsonOut(["ok"=>false,"msg"=>"Shipper, PT, dan Nama Lengkap wajib diisi."]);
     }
 
     // duplicate check
-    $stmt = $koneksi->prepare("SELECT COUNT(*) c FROM flf WHERE floating_crane=?");
+    $stmt = $koneksi->prepare("SELECT COUNT(*) c FROM shipper WHERE shipper=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $floating);
+    $stmt->bind_param("s", $shipper);
     $stmt->execute();
     $c = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
     $stmt->close();
-    if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Floating Crane sudah ada (harus unik)."]);
+    if ($c > 0) jsonOut(["ok"=>false,"msg"=>"Kode Shipper sudah ada (harus unik)."]);
 
-    $stmt = $koneksi->prepare("INSERT INTO flf (floating_crane, vendor_flf, pbm, anchorage) VALUES (?,?,?,?)");
+    $stmt = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("ssss", $floating, $vendor, $pbm, $anch);
+    $stmt->bind_param("sssd", $shipper, $pt, $nama, $laytime);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data FLF berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil ditambah."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== UPDATE =====
   if ($action === 'update') {
-    $floating = strtoupper(clean($_POST['floating_crane'] ?? ''));
-    $vendor   = clean($_POST['vendor_flf'] ?? '');
-    $pbm      = clean($_POST['pbm'] ?? '');
-    $anch     = clean($_POST['anchorage'] ?? '');
+    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
+    $pt      = clean($_POST['pt'] ?? '');
+    $nama    = clean($_POST['nama_lengkap'] ?? '');
+    $laytime = toNullableFloat($_POST['laytime'] ?? '');
 
-    if ($floating === "" || $vendor === "" || $pbm === "" || $anch === "") {
+    if ($shipper === "" || $pt === "" || $nama === "") {
       jsonOut(["ok"=>false,"msg"=>"Data update tidak valid."]);
     }
 
-    $stmt = $koneksi->prepare("UPDATE flf SET vendor_flf=?, pbm=?, anchorage=? WHERE floating_crane=?");
+    $stmt = $koneksi->prepare("UPDATE shipper SET pt=?, nama_lengkap=?, laytime=? WHERE shipper=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("ssss", $vendor, $pbm, $anch, $floating);
+    $stmt->bind_param("ssds", $pt, $nama, $laytime, $shipper);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data FLF berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil diupdate."] : ["ok"=>false,"msg"=>$err]);
   }
 
   // ===== DELETE =====
   if ($action === 'delete') {
-    $floating = strtoupper(clean($_POST['floating_crane'] ?? ''));
-    if ($floating === "") jsonOut(["ok"=>false,"msg"=>"Floating Crane kosong."]);
+    $shipper = strtoupper(clean($_POST['shipper'] ?? ''));
+    if ($shipper === "") jsonOut(["ok"=>false,"msg"=>"Kode Shipper kosong."]);
 
-    $stmt = $koneksi->prepare("DELETE FROM flf WHERE floating_crane=?");
+    $stmt = $koneksi->prepare("DELETE FROM shipper WHERE shipper=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
-    $stmt->bind_param("s", $floating);
+    $stmt->bind_param("s", $shipper);
 
     $ok = $stmt->execute();
     $err = $stmt->error;
     $stmt->close();
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Data FLF berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Data shipper berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
-  // ===== IMPORT CSV (SKIP DUPLICATE floating_crane) =====
+  // ===== IMPORT CSV (SKIP DUPLICATE shipper) =====
   if ($action === 'import_csv') {
     $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''));
     if (strtoupper(trim((string)$divisi)) !== 'IT') {
@@ -167,41 +173,43 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     }
 
     $header = array_map(fn($h)=> strtolower(trim((string)$h)), $header);
-    $required = ['floating_crane','vendor_flf','pbm','anchorage'];
+    $required = ['shipper','pt','nama_lengkap'];
 
     foreach ($required as $col) {
       if (!in_array($col, $header, true)) {
         fclose($fh);
-        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: floating_crane, vendor_flf, pbm, anchorage"]);
+        jsonOut(["ok"=>false,"msg"=>"Header CSV salah. Wajib ada kolom: shipper, pt, nama_lengkap"]);
       }
     }
 
     $idx = array_flip($header);
+    $hasLaytime = isset($idx['laytime']);
 
     $inserted = 0;
     $skipped  = 0;
     $errors   = 0;
 
-    $stmtIns = $koneksi->prepare("INSERT INTO flf (floating_crane, vendor_flf, pbm, anchorage) VALUES (?,?,?,?)");
+    $stmtIns = $koneksi->prepare("INSERT INTO shipper (shipper, pt, nama_lengkap, laytime) VALUES (?,?,?,?)");
     if (!$stmtIns) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare insert gagal: ".$koneksi->error]); }
 
-    $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM flf WHERE floating_crane=?");
+    $stmtChk = $koneksi->prepare("SELECT COUNT(*) c FROM shipper WHERE shipper=?");
     if (!$stmtChk) { fclose($fh); jsonOut(["ok"=>false,"msg"=>"Prepare check gagal: ".$koneksi->error]); }
 
     while (($row = fgetcsv($fh)) !== false) {
-      $floating = strtoupper(clean($row[$idx['floating_crane']] ?? ''));
-      $vendor   = clean($row[$idx['vendor_flf']] ?? '');
-      $pbm      = clean($row[$idx['pbm']] ?? '');
-      $anch     = clean($row[$idx['anchorage']] ?? '');
+      $shipper = strtoupper(clean($row[$idx['shipper']] ?? ''));
+      $pt      = clean($row[$idx['pt']] ?? '');
+      $nama    = clean($row[$idx['nama_lengkap']] ?? '');
+      $laytime = $hasLaytime ? toNullableFloat($row[$idx['laytime']] ?? '') : null;
 
-      if ($floating === "" || $vendor === "" || $pbm === "" || $anch === "") { $errors++; continue; }
+      if ($shipper === "" || $pt === "" || $nama === "") { $errors++; continue; }
 
-      $stmtChk->bind_param("s", $floating);
+      // duplicate check
+      $stmtChk->bind_param("s", $shipper);
       $stmtChk->execute();
       $c = (int)($stmtChk->get_result()->fetch_assoc()['c'] ?? 0);
       if ($c > 0) { $skipped++; continue; }
 
-      $stmtIns->bind_param("ssss", $floating, $vendor, $pbm, $anch);
+      $stmtIns->bind_param("sssd", $shipper, $pt, $nama, $laytime);
       if ($stmtIns->execute()) $inserted++;
       else $errors++;
     }
@@ -220,17 +228,17 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
       jsonOut(["ok"=>false,"msg"=>"Akses ditolak. Hanya Divisi IT yang boleh menghapus semua data."]);
     }
 
-    $ok = $koneksi->query("DELETE FROM flf");
+    $ok = $koneksi->query("DELETE FROM shipper");
     $err = $koneksi->error;
 
-    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data flf berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
+    jsonOut($ok ? ["ok"=>true,"msg"=>"Semua data shipper berhasil dihapus."] : ["ok"=>false,"msg"=>$err]);
   }
 
   jsonOut(["ok"=>false,"msg"=>"Unknown action"]);
 }
 
 /* ========= NORMAL PAGE ========= */
-$pageTitle = "FLF";
+$pageTitle = "Shipper";
 include __DIR__ . "/../includes/header.php";
 include __DIR__ . "/../includes/sidebar.php";
 ?>
@@ -238,7 +246,7 @@ include __DIR__ . "/../includes/sidebar.php";
 <div class="content">
 
   <div class="d-flex align-items-center justify-content-between mb-3">
-    <h4 class="m-0">FLF</h4>
+    <h4 class="m-0">Shipper</h4>
   </div>
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
@@ -249,14 +257,14 @@ include __DIR__ . "/../includes/sidebar.php";
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
-          <h6 class="mb-1">Export / Import CSV</h6>
+          <h6 class="mb-1">Import CSV</h6>
           <div class="small text-muted">
-            Download template dulu, isi datanya, lalu upload. Duplicate <b>Floating Crane</b> akan <b>di-skip</b>.
+            Download template dulu, isi datanya, lalu upload. Duplicate <b>Shipper</b> akan <b>di-skip</b>.
           </div>
         </div>
 
         <div class="d-flex gap-2 align-items-center">
-          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=flf_template">
+          <a class="btn btn-sm btn-outline-primary" href="<?= $SELF ?>?download=shipper_template">
             Download Template CSV
           </a>
 
@@ -274,32 +282,33 @@ include __DIR__ . "/../includes/sidebar.php";
   <div class="card mb-3">
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
-        <h6 class="m-0">Input FLF</h6>
-        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputFlfBody">
+        <h6 class="m-0">Input Shipper</h6>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnToggleInputForm" aria-expanded="true" aria-controls="inputShipperBody">
           <span id="btnToggleInputFormIcon">&#9650;</span> <span id="btnToggleInputFormLabel">Collapse</span>
         </button>
       </div>
 
-      <div id="inputFlfBody">
+      <div id="inputShipperBody">
       <form id="formCreate" class="row g-2">
+        <div class="col-md-2">
+          <label class="form-label">Shipper</label>
+          <input name="shipper" class="form-control" placeholder="MHU" required>
+        </div>
+
         <div class="col-md-4">
-          <label class="form-label">Floating Crane</label>
-          <input name="floating_crane" class="form-control" placeholder="FC RATU DEWATA" required>
+          <label class="form-label">PT</label>
+          <input name="pt" class="form-control" placeholder="PT. MULTI HARAPAN UTAMA" required>
+        </div>
+
+        <div class="col-md-4">
+          <label class="form-label">Nama Lengkap</label>
+          <textarea name="nama_lengkap" class="form-control" rows="3"
+            placeholder="Alamat / nama lengkap shipper..." required></textarea>
         </div>
 
         <div class="col-md-2">
-          <label class="form-label">Vendor FLF</label>
-          <input name="vendor_flf" class="form-control" placeholder="PSS" required>
-        </div>
-
-        <div class="col-md-3">
-          <label class="form-label">PBM</label>
-          <input name="pbm" class="form-control" placeholder="FLOATING CRANE" required>
-        </div>
-
-        <div class="col-md-3">
-          <label class="form-label">Anchorage</label>
-          <input name="anchorage" class="form-control" placeholder="M.BERAU" required>
+          <label class="form-label">Laytime</label>
+          <input type="number" step="any" name="laytime" class="form-control" placeholder="9">
         </div>
 
         <div class="col-12">
@@ -315,7 +324,7 @@ include __DIR__ . "/../includes/sidebar.php";
     <div class="card-body">
       <div class="d-flex align-items-center justify-content-between mb-3">
         <div class="d-flex align-items-center gap-2">
-          <h6 class="m-0">Data FLF</h6>
+          <h6 class="m-0">Data Shipper</h6>
           <div class="hidden-columns-indicator d-none">
             <span class="badge text-bg-secondary hidden-columns-badge">
               <span class="hidden-columns-count">0</span> columns hidden
@@ -329,7 +338,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="position-relative" style="width:320px;">
           <input id="q" type="text" class="form-control form-control-sm" style="width:100%; padding-right:26px;"
-                 placeholder="Search (Floating Crane / Vendor)..." />
+                 placeholder="Search (Shipper / PT / Nama Lengkap)..." />
           <button type="button" id="btnClearQ" title="Clear search"
                   style="position:absolute; right:4px; top:50%; transform:translateY(-50%); width:18px; height:18px; padding:0; line-height:1; font-size:12px; color:#6c757d; background:#fff; border:1px solid #ced4da; border-radius:3px; cursor:pointer;">&times;</button>
         </div>
@@ -383,10 +392,10 @@ include __DIR__ . "/../includes/sidebar.php";
         <table class="table table-sm table-bordered align-middle" id="tbl">
           <thead class="table-light">
             <tr>
-              <th style="min-width:220px;" class="sortable" data-key="floating_crane" data-type="text" data-label="Floating Crane"></th>
-              <th style="min-width:120px;" class="sortable" data-key="vendor_flf" data-type="text" data-label="Vendor"></th>
-              <th style="min-width:180px;" class="sortable" data-key="pbm" data-type="text" data-label="PBM"></th>
-              <th style="min-width:140px;" class="sortable" data-key="anchorage" data-type="text" data-label="Anchorage"></th>
+              <th style="min-width:110px;" class="sortable" data-key="shipper" data-type="text" data-label="Shipper"></th>
+              <th style="min-width:260px;" class="sortable" data-key="pt" data-type="text" data-label="PT"></th>
+              <th class="sortable" data-key="nama_lengkap" data-type="text" data-label="Nama Lengkap"></th>
+              <th style="min-width:100px;" class="sortable" data-key="laytime" data-type="number" data-label="Laytime"></th>
               <th style="width:190px;">Action</th>
             </tr>
           </thead>
@@ -420,15 +429,15 @@ const formCreate = document.getElementById('formCreate');
 const formImport = document.getElementById('formImport');
 const csvFile = document.getElementById('csvFile');
 const btnDeleteAll = document.getElementById('btnDeleteAll');
-const inputFlfBody = document.getElementById('inputFlfBody');
+const inputShipperBody = document.getElementById('inputShipperBody');
 const btnToggleInputForm = document.getElementById('btnToggleInputForm');
 const btnToggleInputFormIcon = document.getElementById('btnToggleInputFormIcon');
 const btnToggleInputFormLabel = document.getElementById('btnToggleInputFormLabel');
-const INPUT_FORM_COLLAPSE_KEY = 'flf_input_form_collapsed';
+const INPUT_FORM_COLLAPSE_KEY = 'shipper_input_form_collapsed';
 
 function setInputFormCollapsed(collapsed){
-  if (!inputFlfBody || !btnToggleInputForm) return;
-  inputFlfBody.style.display = collapsed ? 'none' : '';
+  if (!inputShipperBody || !btnToggleInputForm) return;
+  inputShipperBody.style.display = collapsed ? 'none' : '';
   btnToggleInputForm.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
   if (btnToggleInputFormIcon) btnToggleInputFormIcon.innerHTML = collapsed ? '&#9660;' : '&#9650;';
   if (btnToggleInputFormLabel) btnToggleInputFormLabel.textContent = collapsed ? 'Expand' : 'Collapse';
@@ -440,7 +449,7 @@ if (btnToggleInputForm) {
   try { startCollapsed = localStorage.getItem(INPUT_FORM_COLLAPSE_KEY) === '1'; } catch (e) {}
   setInputFormCollapsed(startCollapsed);
   btnToggleInputForm.addEventListener('click', () => {
-    const collapsed = inputFlfBody.style.display !== 'none';
+    const collapsed = inputShipperBody.style.display !== 'none';
     setInputFormCollapsed(collapsed);
   });
 }
@@ -470,17 +479,17 @@ function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 
-  const floating = esc(r.floating_crane);
-  const vendor   = esc(r.vendor_flf);
-  const pbm      = esc(r.pbm);
-  const anch     = esc(r.anchorage);
+  const shipper = esc(r.shipper);
+  const pt = esc(r.pt);
+  const nama = esc(r.nama_lengkap);
+  const laytime = esc(r.laytime);
 
   return `
-  <tr data-floating="${floating}">
-    <td><input class="form-control form-control-sm" value="${floating}" disabled></td>
-    <td><input class="form-control form-control-sm" name="vendor_flf" value="${vendor}"></td>
-    <td><input class="form-control form-control-sm" name="pbm" value="${pbm}"></td>
-    <td><input class="form-control form-control-sm" name="anchorage" value="${anch}"></td>
+  <tr data-shipper="${shipper}">
+    <td><input class="form-control form-control-sm" value="${shipper}" disabled></td>
+    <td><input class="form-control form-control-sm" name="pt" value="${pt}"></td>
+    <td><textarea class="form-control form-control-sm" name="nama_lengkap" rows="3">${nama}</textarea></td>
+    <td><input type="number" step="any" class="form-control form-control-sm" name="laytime" value="${laytime}"></td>
     <td class="d-flex gap-2">
       <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
@@ -1187,14 +1196,14 @@ formCreate.addEventListener('submit', async (e)=>{
 tbody.addEventListener('click', async (e)=>{
   const tr = e.target.closest('tr');
   if (!tr) return;
-  const floating_crane = tr.getAttribute('data-floating');
+  const shipper = tr.getAttribute('data-shipper');
 
   if (e.target.classList.contains('btnDelete')){
-    if (!confirm(`Hapus FLF ${floating_crane}?`)) return;
-    const res = await api('delete', { floating_crane });
+    if (!confirm(`Hapus shipper ${shipper}?`)) return;
+    const res = await api('delete', { shipper });
     if (res.ok){
       showAlert('success', res.msg);
-      originalData = originalData.filter(r => r.floating_crane !== floating_crane);
+      originalData = originalData.filter(r => r.shipper !== shipper);
       tr.remove();
       if (!tbody.children.length) tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
     } else {
@@ -1205,10 +1214,10 @@ tbody.addEventListener('click', async (e)=>{
   if (e.target.classList.contains('btnUpdate')){
     const getVal = (name)=> tr.querySelector(`[name="${name}"]`)?.value ?? '';
     const payload = {
-      floating_crane,
-      vendor_flf: getVal('vendor_flf'),
-      pbm: getVal('pbm'),
-      anchorage: getVal('anchorage')
+      shipper,
+      pt: getVal('pt'),
+      nama_lengkap: getVal('nama_lengkap'),
+      laytime: getVal('laytime')
     };
     const res = await api('update', payload);
     if (res.ok){
@@ -1255,7 +1264,7 @@ formImport.addEventListener('submit', async (e)=>{
 
 if (btnDeleteAll){
   btnDeleteAll.addEventListener('click', async ()=>{
-    if (!confirm('Hapus SEMUA data FLF? Tindakan ini tidak bisa dibatalkan.')) return;
+    if (!confirm('Hapus SEMUA data shipper? Tindakan ini tidak bisa dibatalkan.')) return;
     const res = await api('delete_all');
     if (res.ok){
       showAlert('success', res.msg);
