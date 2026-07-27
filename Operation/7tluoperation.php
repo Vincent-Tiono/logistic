@@ -2812,14 +2812,31 @@ function sumQtyActual(allRows) {
   }, 0);
 }
 
+// Sorts rows by Completed Disch ascending (same date field driving Disch Time for Loading Rate's
+// discharge-sequence order). Rows with an empty/invalid Completed Disch sort last, original order preserved for ties.
+function sortRowsByCompletedDisch(allRows) {
+  return [...(allRows || [])].sort((a, b) => {
+    const aTime = Date.parse(String(parseOperationData(a.operation_data).completed_disch ?? '').trim().replace(' ', 'T'));
+    const bTime = Date.parse(String(parseOperationData(b.operation_data).completed_disch ?? '').trim().replace(' ', 'T'));
+    const aValid = Number.isFinite(aTime);
+    const bValid = Number.isFinite(bTime);
+    if (aValid && bValid) return aTime - bTime;
+    if (aValid) return -1;
+    if (bValid) return 1;
+    return 0;
+  });
+}
+
 // Default for % Cargo Readiness (P3): (sum of QTY Actual up to and including this row) / (sum of QTY Actual
-// across all rows of the vessel), as a percentage. Row order follows allRows (same order used by
-// Disch Time for Loading Rate / Loading Rate). Returns the raw (unrounded) percentage number —
-// rounding to a whole percent happens at display time via formatCargoReadinessPercent.
+// across all rows of the vessel), as a percentage. Rows are first sorted by Completed Disch ascending
+// (matching Disch Time for Loading Rate's discharge-sequence order) so the percentage increases row by row.
+// Returns the raw (unrounded) percentage number — rounding to a whole percent happens at display time via
+// formatCargoReadinessPercent.
 function calculateCargoReadinessP3(row, allRows) {
   const rows = allRows && allRows.length ? allRows : [row];
-  const idx = rows.findIndex(r => Number(r.id) === Number(row.id));
-  const upToRows = idx >= 0 ? rows.slice(0, idx + 1) : [row];
+  const sortedRows = sortRowsByCompletedDisch(rows);
+  const idx = sortedRows.findIndex(r => Number(r.id) === Number(row.id));
+  const upToRows = idx >= 0 ? sortedRows.slice(0, idx + 1) : [row];
 
   const cumulativeQtyActual = upToRows.reduce((sum, r) => {
     return sum + (parseOperationNumber(getFieldValue(r, 'qty_actual', allRows)) ?? 0);
@@ -2938,7 +2955,8 @@ const FORMULA_INFO_RULES = {
     'IFERROR(Stowage Plan ÷ SUM(Disch Time for Loading Rate), 0)'
   ],
   cargo_readiness_p3: [
-    'SUM(QTY Actual sampai baris ini) ÷ SUM(QTY Actual semua baris) × 100%'
+    'Urutkan baris ascending berdasarkan Completed Disch (sama seperti Disch Time for Loading Rate)',
+    'SUM(QTY Actual sampai baris ini, urutan Completed Disch) ÷ SUM(QTY Actual semua baris) × 100%'
   ],
   laytime: [
     'Diambil dari Laytime Shipper (Operation/4shipper.php) sesuai Shipper baris ini'
