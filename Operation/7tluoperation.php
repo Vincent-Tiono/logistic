@@ -2474,13 +2474,28 @@ function calculateLoadingTimeJetty(data) {
 }
 
 // Default for Disch Time for Loading Rate: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
+// Exception: if the immediately preceding row (in discharge-sequence order) has the same Start Disch and
+// Completed Disch as this row, this row's value is forced to 0 (repeated disch window shouldn't double-count).
 // Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateDischTimeLoadingRate(data) {
+function calculateDischTimeLoadingRate(row, data, allRows) {
   const completedDischRaw = String(data.completed_disch ?? '').trim();
   if (!completedDischRaw) return 0;
 
+  const startDischRaw = String(data.start_disch ?? '').trim();
+
+  const rows = allRows || [row];
+  const idx = rows.findIndex(r => Number(r.id) === Number(row.id));
+  if (idx > 0) {
+    const prevData = parseOperationData(rows[idx - 1].operation_data);
+    const prevCompletedDischRaw = String(prevData.completed_disch ?? '').trim();
+    const prevStartDischRaw = String(prevData.start_disch ?? '').trim();
+    if (prevCompletedDischRaw && prevCompletedDischRaw === completedDischRaw && prevStartDischRaw === startDischRaw) {
+      return 0;
+    }
+  }
+
   const completedDisch = Date.parse(completedDischRaw.replace(' ', 'T'));
-  const startDisch = Date.parse(String(data.start_disch ?? '').trim().replace(' ', 'T'));
+  const startDisch = Date.parse(startDischRaw.replace(' ', 'T'));
   if (!Number.isFinite(completedDisch) || !Number.isFinite(startDisch)) return '';
 
   return (completedDisch - startDisch) / 86400000;
@@ -2741,7 +2756,7 @@ function calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, wai
 // Sum of Disch Time for Loading Rate across every barge row of the vessel (not just the filtered/sorted rows shown).
 function sumDischTimeLoadingRate(allRows) {
   return (allRows || []).reduce((sum, r) => {
-    return sum + (parseOperationNumber(getFieldValue(r, 'disch_time_loading_rate')) ?? 0);
+    return sum + (parseOperationNumber(getFieldValue(r, 'disch_time_loading_rate', allRows)) ?? 0);
   }, 0);
 }
 
@@ -2771,6 +2786,7 @@ const FORMULA_INFO_RULES = {
   ],
   disch_time_loading_rate: [
     'Completed Disch kosong → 0',
+    'Baris sebelumnya (urutan discharge sequence) punya Start Disch & Completed Disch sama → 0',
     'Lainnya -> Completed Disch − Start Disch'
   ],
   disch_time_percent: [
@@ -2955,7 +2971,7 @@ function getFieldValue(row, key, allRows = [row]) {
     return calculateLoadingTimeJetty(operationData);
   }
   if (key === 'disch_time_loading_rate' && !String(operationData.disch_time_loading_rate ?? '').trim()) {
-    return calculateDischTimeLoadingRate(operationData);
+    return calculateDischTimeLoadingRate(row, operationData, allRows);
   }
   if (key === 'disch_time_percent' && !String(operationData.disch_time_percent ?? '').trim()) {
     return calculateDischTimePercent(operationData);
@@ -3180,7 +3196,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [r
     operationData.loading_time_jetty = calculateLoadingTimeJetty(operationData);
   }
   if (!String(operationData.disch_time_loading_rate ?? '').trim()) {
-    operationData.disch_time_loading_rate = calculateDischTimeLoadingRate(operationData);
+    operationData.disch_time_loading_rate = calculateDischTimeLoadingRate(row, operationData, allRows);
   }
   if (!String(operationData.disch_time_percent ?? '').trim()) {
     operationData.disch_time_percent = calculateDischTimePercent(operationData);
