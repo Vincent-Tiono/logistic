@@ -517,7 +517,7 @@ include __DIR__ . "/../includes/sidebar.php";
         </div>
 
         <div class="col-md-2">
-          <label class="form-label">Stowageplan (MT)</label>
+          <label class="form-label">Stowage Plan (MT)</label>
           <input name="stowageplan_mt" class="form-control" placeholder="auto=Single+Blending">
           <!-- <div class="small text-muted">Kalau kosong, auto=Single+Blending</div> -->
         </div>
@@ -623,7 +623,7 @@ include __DIR__ . "/../includes/sidebar.php";
               <th style="min-width:120px;" class="sortable" data-key="rkbm" data-type="date" data-label="RKBM"></th>
               <th style="min-width:110px;" class="sortable" data-key="single_mt" data-type="number" data-label="Single"></th>
               <th style="min-width:110px;" class="sortable" data-key="blending_mt" data-type="number" data-label="Blending"></th>
-              <th style="min-width:120px;" class="sortable" data-key="stowageplan_mt" data-type="number" data-label="Stowageplan"></th>
+              <th style="min-width:120px;" class="sortable" data-key="stowageplan_mt" data-type="number" data-label="Stowage Plan"></th>
               <th style="min-width:150px;" class="sortable" data-key="loading_rate_kontrak" data-type="number" data-label="Loading Rate Kontrak"></th>
               <th style="width:190px;">Action</th>
             </tr>

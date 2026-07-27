@@ -1098,6 +1098,7 @@ if (($_GET['action'] ?? '') === 'si_barges_by_vessel') {
       s.created_by, s.created_at, s.updated_at,
       v.pkk AS vessel_pkk,
       v.rkbm AS vessel_rkbm,
+      v.stowageplan_mt,
       sh.laytime AS shipper_laytime,
       o.id AS operation_id,
       o.arrival_jetty,
@@ -1518,6 +1519,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th class="sortable" data-key="no_pk" data-type="text" data-label="No. Reff" data-field="no_pk">No. Reff</th>
                 <th class="sortable" data-key="buyer" data-type="text" data-label="Buyer" data-field="buyer">Buyer</th>
                 <th class="sortable" data-key="mothervessel" data-type="text" data-label="Mother Vessel" data-field="mothervessel">Mother Vessel</th>
+                <th class="sortable" data-key="stowageplan_mt" data-type="number" data-label="Stowage Plan" data-field="stowageplan_mt">Stowage Plan</th>
                 <th class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty" data-field="jetty_code">Jetty</th>
                 <th class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper" data-field="shipper_code">Shipper</th>
                 <th class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat" data-field="tugboat">Tugboat</th>
@@ -2723,6 +2725,24 @@ function calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, wai
   return Math.abs(pureTime - sum) < 1e-9 ? 'True' : 'False';
 }
 
+// Sum of Disch Time for Loading Rate across every barge row of the vessel (not just the filtered/sorted rows shown).
+function sumDischTimeLoadingRate(allRows) {
+  return (allRows || []).reduce((sum, r) => {
+    return sum + (parseOperationNumber(getFieldValue(r, 'disch_time_loading_rate')) ?? 0);
+  }, 0);
+}
+
+// Default for Loading Rate: IFERROR(Stowage Plan / SUM(Disch Time for Loading Rate), 0).
+// Stowage Plan is a vessel-level value shared by every barge row; the sum runs over all barge rows of the vessel.
+function calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate) {
+  const numerator = stowageplanMt ?? 0;
+  const denominator = totalDischTimeLoadingRate ?? 0;
+  if (!denominator) return 0;
+
+  const result = numerator / denominator;
+  return Number.isFinite(result) ? result : 0;
+}
+
 // Cycle time header columns that show a formula info icon/popover; value is the ordered list of rules shown in the popover.
 const FORMULA_INFO_RULES = {
   waiting_loading_jetty: [
@@ -2821,6 +2841,9 @@ const FORMULA_INFO_RULES = {
   check_waiting_time_disch_mv: [
     'Pure Time == Waiting Cargo Readiness (P3) + Waiting MV (P3) + Waiting FLF (P3) + Waiting Queueing (P3) + Waiting Sequence (P3) + Other Factor (P3)'
   ],
+  loading_rate: [
+    'IFERROR(Stowage Plan ÷ SUM(Disch Time for Loading Rate), 0)'
+  ],
   laytime: [
     'Diambil dari Laytime Shipper (Operation/4shipper.php) sesuai Shipper baris ini'
   ]
@@ -2890,7 +2913,7 @@ const DIRECT_ROW_FIELDS = new Set([
   'created_by', 'created_at', 'updated_at'
 ]);
 
-function getFieldValue(row, key) {
+function getFieldValue(row, key, allRows = [row]) {
   if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
   const operationData = parseOperationData(row.operation_data);
   if (key === 'qty_actual') return calculateQtyActual(operationData);
@@ -3016,12 +3039,17 @@ function getFieldValue(row, key) {
     const otherFactorP3 = parseOperationNumber(getFieldValue(row, 'other_factor_p3'));
     return calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3);
   }
+  if (key === 'loading_rate' && !String(operationData.loading_rate ?? '').trim()) {
+    const stowageplanMt = parseOperationNumber(row.stowageplan_mt);
+    const totalDischTimeLoadingRate = sumDischTimeLoadingRate(allRows);
+    return calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate);
+  }
   return operationData[key] ?? '';
 }
 
 // display value shown in the table cell for a given column (matches rowMarkup)
-function columnDisplayValue(row, key) {
-  const raw = getFieldValue(row, key);
+function columnDisplayValue(row, key, allRows = [row]) {
+  const raw = getFieldValue(row, key, allRows);
   if (key === 'laycan_start' || key === 'laycan_end') return fmtLaycanDateTime(raw);
   if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
   if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
@@ -3030,8 +3058,8 @@ function columnDisplayValue(row, key) {
   return (raw ?? '').toString();
 }
 
-function getSortValue(row, key, type) {
-  const value = getFieldValue(row, key);
+function getSortValue(row, key, type, allRows = [row]) {
+  const value = getFieldValue(row, key, allRows);
   if (type === 'number') {
     const n = parseFloat(String(value).replaceAll(',', '').replaceAll(' ', ''));
     return isNaN(n) ? -Infinity : n;
@@ -3106,7 +3134,7 @@ const CYCLE_TIME_COLUMN_FIELDS_PART3 = [
   'ltc_total'
 ];
 
-function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
+function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [row]) {
   const operationData = parseOperationData(row.operation_data);
   operationData.qty_actual = calculateQtyActual(operationData);
   if (!String(operationData.waiting_loading_jetty ?? '').trim()) {
@@ -3235,6 +3263,12 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       parseOperationNumber(operationData.clear_pass_time)
     );
   }
+  if (!String(operationData.loading_rate ?? '').trim()) {
+    operationData.loading_rate = calculateLoadingRate(
+      parseOperationNumber(row.stowageplan_mt),
+      sumDischTimeLoadingRate(allRows)
+    );
+  }
 
   return `
     <tr data-row-id="${row.id}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
@@ -3242,6 +3276,7 @@ function rowMarkup(row, displayIndex, showCycleTimeColumns = false) {
       <td>${displayValue(row.no_pk)}</td>
       <td>${displayValue(row.buyer)}</td>
       <td>${displayValue(row.mothervessel)}</td>
+      ${showCycleTimeColumns ? `<td>${displayValue(formatDisplayNumber(row.stowageplan_mt))}</td>` : ''}
       <td title="${esc(row.jetty_name)}">${displayValue(row.jetty_code)}</td>
       <td title="${esc(row.shipper_name)}">${displayValue(row.shipper_code)}</td>
       <td>${displayValue(row.tugboat)}</td>
@@ -3500,7 +3535,7 @@ function createOperationWorkflow(cfg) {
     const seen = new Set();
     const values = [];
     currentRows.forEach(row => {
-      const v = columnDisplayValue(row, key);
+      const v = columnDisplayValue(row, key, currentRows);
       if (!seen.has(v)) { seen.add(v); values.push(v); }
     });
     return values;
@@ -3510,7 +3545,7 @@ function createOperationWorkflow(cfg) {
     for (const key in filters) {
       const f = filters[key];
       if (!f || !isFilterActive(key)) continue;
-      const display = columnDisplayValue(row, key);
+      const display = columnDisplayValue(row, key, currentRows);
 
       if (f.condition && f.condition !== 'none') {
         const fn = FILTER_CONDITIONS[f.condition];
@@ -3529,8 +3564,8 @@ function createOperationWorkflow(cfg) {
     const type = th ? th.getAttribute('data-type') : 'text';
     const dir = sortState.dir;
     return filtered.sort((a, b) => {
-      const va = getSortValue(a, sortState.key, type);
-      const vb = getSortValue(b, sortState.key, type);
+      const va = getSortValue(a, sortState.key, type, currentRows);
+      const vb = getSortValue(b, sortState.key, type, currentRows);
       if (va < vb) return -1 * dir;
       if (va > vb) return 1 * dir;
       return 0;
@@ -3540,7 +3575,7 @@ function createOperationWorkflow(cfg) {
   function renderTable() {
     const displayData = computeDisplayData();
     body.innerHTML = displayData.length
-      ? displayData.map((row, index) => rowMarkup(row, index, cfg.showCycleTimeColumns)).join('')
+      ? displayData.map((row, index) => rowMarkup(row, index, cfg.showCycleTimeColumns, currentRows)).join('')
       : '<tr><td colspan="99" class="text-center text-muted py-3">Data Barges tidak ditemukan.</td></tr>';
     applyHiddenColumns();
     applyFreezeStyling();
