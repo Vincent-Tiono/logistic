@@ -247,51 +247,6 @@ const TLU_CSV_COLUMNS = [
   'remarks'
 ];
 
-const TLU_TABLE_EXPORT_HEADERS = [
-  'No. Reff',
-  'Buyer',
-  'Mother Vessel',
-  'Jetty',
-  'Tugboat',
-  'Barge',
-  'Barge Vendor',
-  'QTY',
-  'QTY DISC',
-  'RC',
-  'QTY Actual',
-  'PBM Vendor',
-  'Floating Crane',
-  'Laycan Start',
-  'Laycan End',
-  'Arrival Jetty',
-  'Start Loading',
-  'Completed Loading',
-  'LHV',
-  'SPOG ZONA 2',
-  'PKK',
-  'RKBM',
-  'STS/SPB',
-  'Start Mooring',
-  'End Mooring',
-  'Mooring Place 1',
-  'Clear Pass',
-  'Start Mooring Clear Pass',
-  'Cast Off Mooring Clear Pass',
-  'Mooring Place 2',
-  'TA Barges Actual',
-  'TA MV',
-  'TA FLF',
-  'Cargo Readiness Actual',
-  'Start Disch',
-  'Completed Disch',
-  'Discharge Sequence',
-  'Back to Jetty',
-  'Remarks',
-  'Created By',
-  'Created At',
-  'Updated At'
-];
-
 function parseOperationNumber($value, $label) {
   $value = trim((string)$value);
   if ($value === '') return null;
@@ -514,64 +469,6 @@ function decodeOperationDataWithVesselDefaults(array $row, $koneksi = null) {
   return $data;
 }
 
-function tableExportRow($row, $koneksi = null) {
-  $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
-  $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
-  $rc = trim((string)($data['rc'] ?? ''));
-  $qtyActual = '';
-  if ($qtyDisc !== '' || $rc !== '') {
-    $qtyActual = formatOperationNumber(
-      (float)str_replace(',', '', $qtyDisc) +
-      (float)str_replace(',', '', $rc)
-    );
-  }
-
-  return [
-    $row['no_pk'] ?? '',
-    $row['buyer'] ?? '',
-    $row['mothervessel'] ?? '',
-    $row['jetty_code'] ?? '',
-    $row['tugboat'] ?? '',
-    $row['barge'] ?? '',
-    $data['barge_vendor'] ?? '',
-    formatOperationDisplayNumber($data['qty'] ?? ''),
-    formatOperationDisplayNumber($qtyDisc),
-    formatOperationDisplayNumber($rc),
-    formatOperationDisplayNumber($qtyActual),
-    $data['pbm_vendor'] ?? '',
-    $data['floating_crane'] ?? '',
-    formatDisplayDateTime($row['laycan_start'] ?? '', true),
-    formatDisplayDateTime($row['laycan_end'] ?? '', true),
-    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
-    formatDisplayDateTime($data['start_loading'] ?? ''),
-    formatDisplayDateTime($data['completed_loading'] ?? ''),
-    formatDisplayDateTime($data['lhv'] ?? ''),
-    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
-    formatDisplayDateTime($data['pkk'] ?? ''),
-    formatDisplayDateTime($data['rkbm'] ?? ''),
-    formatDisplayDateTime($data['sts_spb'] ?? ''),
-    formatDisplayDateTime($data['start_mooring'] ?? ''),
-    formatDisplayDateTime($data['end_mooring'] ?? ''),
-    $data['mooring_place_1'] ?? '',
-    formatDisplayDateTime($data['clear_pass'] ?? ''),
-    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
-    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
-    $data['mooring_place_2'] ?? '',
-    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
-    formatDisplayDateTime($data['ta_mv'] ?? ''),
-    formatDisplayDateTime($data['ta_flf'] ?? ''),
-    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
-    formatDisplayDateTime($data['start_disch'] ?? ''),
-    formatDisplayDateTime($data['completed_disch'] ?? ''),
-    $data['discharge_sequence'] ?? '',
-    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
-    $row['operation_remarks'] ?? '',
-    $row['created_by'] ?? '',
-    formatDisplayDateTime($row['created_at'] ?? ''),
-    formatDisplayDateTime($row['updated_at'] ?? '')
-  ];
-}
-
 /* Column order/labels mirror the Cycle Time submodule table (#cycleTimeTable) headers. */
 const TLU_CYCLE_TIME_EXPORT_HEADERS = [
   'No. Reff', 'Buyer', 'Mother Vessel', 'Stowage Plan', 'Jetty', 'Shipper',
@@ -594,6 +491,41 @@ const TLU_CYCLE_TIME_EXPORT_HEADERS = [
   'Waiting Queuing (P3)', 'Waiting Sequence (P3)', 'Other Factor (P3)',
   'Check Waiting Time Disch MV', 'Total CT LTC', 'Laytime', 'LTC Rate', 'LTC Day', 'LTC Total',
   'Remarks', 'Created By', 'Created At', 'Updated At'
+];
+
+/* Header color classes, positionally aligned with TLU_CYCLE_TIME_EXPORT_HEADERS, mirroring #cycleTimeTable thead th classes. */
+const TLU_CYCLE_TIME_HEADER_CLASSES = [
+  '', '', '', '', '', '',
+  '', '', '', '', '', '', '', '', '',
+  'cycle-time-editable-col', 'cycle-time-editable-col', 'cycle-time-editable-col',
+  'cycle-time-editable-col', 'cycle-time-editable-col',
+  '', '', '', '', '',
+  'cycle-time-editable-col cycle-time-part1-col', 'cycle-time-editable-col cycle-time-part1-col',
+  'cycle-time-editable-col cycle-time-part1-col', 'cycle-time-editable-col cycle-time-part1-col',
+  'cycle-time-editable-col cycle-time-part1-col',
+  '', '', '', '', '', '', '',
+  '', '', '', '',
+  '',
+  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
+  'cycle-time-editable-col cycle-time-part2-col',
+  '', '', '', '', '',
+  '', '', '',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
+  '', '', '', ''
 ];
 
 function cycleTimeExportRow($row, $isFirstInVessel = true, $koneksi = null) {
@@ -1401,11 +1333,12 @@ if ($res) {
 $allOperationsRows = [];
 $res = $koneksi->query("
   SELECT
-    s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
+    s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code, s.shipper_code,
     s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
     s.created_by, s.created_at, s.updated_at,
-    v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
+    v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm, v.stowageplan_mt,
     p.earliest_laycan_start,
+    sh.laytime AS shipper_laytime,
     o.operation_data, o.remarks AS operation_remarks
   FROM sibarges s
   INNER JOIN (
@@ -1419,6 +1352,7 @@ $res = $koneksi->query("
   ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
   INNER JOIN vessel v ON v.no_pk = s.no_pk
   LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+  LEFT JOIN shipper sh ON sh.shipper = s.shipper_code
   WHERE s.record_status = 'ACT'
 ");
 if ($res) {
@@ -1430,10 +1364,11 @@ if ($res) {
   $previousVessel = null;
   foreach ($allOperationsRawRows as $row) {
     $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
-    if ($previousVessel !== null && $vesselKey !== $previousVessel) {
+    $isFirstInVessel = $vesselKey !== $previousVessel;
+    if ($previousVessel !== null && $isFirstInVessel) {
       $allOperationsRows[] = null;
     }
-    $allOperationsRows[] = tableExportRow($row, $koneksi);
+    $allOperationsRows[] = cycleTimeExportRow($row, $isFirstInVessel, $koneksi);
     $previousVessel = $vesselKey;
   }
 }
@@ -2037,18 +1972,22 @@ include __DIR__ . "/../includes/sidebar.php";
   }
 
   /* Cycle Time module: editable columns between Floating Crane and Laycan Start get a distinct header color. */
-  #cycleTimeTable thead th.cycle-time-editable-col {
+  #cycleTimeTable thead th.cycle-time-editable-col,
+  #allOperationsTable thead th.cycle-time-editable-col {
     background-color: #fff3cd;
   }
 
   /* Distinct light header colors for each editable column group, different from each other and from the default (#fff3cd). */
-  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part1-col {
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part1-col,
+  #allOperationsTable thead th.cycle-time-editable-col.cycle-time-part1-col {
     background-color: #d0ebff;
   }
-  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part2-col {
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part2-col,
+  #allOperationsTable thead th.cycle-time-editable-col.cycle-time-part2-col {
     background-color: #d3f9d8;
   }
-  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col {
+  #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col,
+  #allOperationsTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col {
     background-color: #e5d4f5;
   }
 
@@ -2182,7 +2121,8 @@ const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICO
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const bargeVendorOptions = <?= json_encode($bargeVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const allOperationsHeaders = <?= json_encode(TLU_TABLE_EXPORT_HEADERS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const allOperationsHeaders = <?= json_encode(TLU_CYCLE_TIME_EXPORT_HEADERS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+const allOperationsHeaderClasses = <?= json_encode(TLU_CYCLE_TIME_HEADER_CLASSES, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const allOperationsData = <?= json_encode($allOperationsRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const ALL_OPERATIONS_PAGE_SIZE = 100;
 let allOperationsCurrentPage = 1;
@@ -2426,7 +2366,10 @@ const allOperationsPageInfo = document.getElementById('allOperationsPageInfo');
 const allOperationsPrev = document.getElementById('allOperationsPrev');
 const allOperationsNext = document.getElementById('allOperationsNext');
 
-allOperationsHeaderRow.innerHTML = allOperationsHeaders.map(label => `<th>${esc(label)}</th>`).join('');
+allOperationsHeaderRow.innerHTML = allOperationsHeaders.map((label, i) => {
+  const cls = allOperationsHeaderClasses[i];
+  return `<th${cls ? ` class="${cls}"` : ''}>${esc(label)}</th>`;
+}).join('');
 
 function renderAllOperationsPage(page) {
   const totalRows = allOperationsData.length;
