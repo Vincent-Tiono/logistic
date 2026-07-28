@@ -590,6 +590,14 @@ async function api(action, data=null, qs=""){
   return r.json();
 }
 
+function formatThousands(v){
+  const n = parseFloat(v);
+  if (isNaN(n)) return (v ?? '0').toString();
+  const parts = n.toString().split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+
 function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -600,8 +608,8 @@ function rowTemplate(r){
   const vendor   = esc(r.vendor);
   const shipper  = esc(r.shipper ?? '');
   const shipperOptions = shipperOptionsHtml(shipper);
-  const freight  = esc(r.freight ?? '0');
-  const tonnage  = esc(r.tonnage ?? '0');
+  const freight  = esc(formatThousands(r.freight ?? '0'));
+  const tonnage  = esc(formatThousands(r.tonnage ?? '0'));
   const penalty  = esc(r.penalty ?? '');
   const penaltyOptions = ['', 'DF', 'CQD'].map(v=>{
     const sel = v === penalty ? ' selected' : '';
@@ -637,7 +645,7 @@ let shipperLaytimeMap = {}; // shipper code -> laytime from Operation/2shipper.p
 function shipperOptionsHtml(selected){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
-  let html = `<option value="">-- pilih shipper --</option>`;
+  let html = `<option value="">-- pilih --</option>`;
   html += shipperList.map(s=>{
     const val = esc(s);
     const isSel = s === selected ? ' selected' : '';
@@ -735,7 +743,10 @@ function getSortValue(r, key, type){
 
 // display value shown in the table cell for a given column (matches rowTemplate)
 function columnDisplayValue(r, key){
-  if (key === 'freight' || key === 'tonnage' || key === 'discount' || key === 'laytime' || key === 'ltc_rate'){
+  if (key === 'freight' || key === 'tonnage'){
+    return formatThousands(r[key] ?? '0');
+  }
+  if (key === 'discount' || key === 'laytime' || key === 'ltc_rate'){
     return (r[key] ?? '0').toString();
   }
   return (r[key] ?? '').toString();

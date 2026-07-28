@@ -156,7 +156,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     if ($stowage == 0) $stowage = $single + $blending;
 
     if ($no_pk === "" || $no_si_vessel === "" || $buyer === "" || $mothervessel === "" || $anchorage === "" || $term === "") {
-      jsonOut(["ok"=>false,"msg"=>"No PK, No SI Vessel, Buyer, MotherVessel, Anchorage, dan Term wajib diisi."]);
+      jsonOut(["ok"=>false,"msg"=>"No. Reff, No SI Vessel, Buyer, MotherVessel, Anchorage, dan Term wajib diisi."]);
     }
 
     // duplicate check
@@ -167,7 +167,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     $c = (int)($stmt->get_result()->fetch_assoc()['c'] ?? 0);
     $stmt->close();
     if ($c > 0) {
-      jsonOut(["ok"=>false,"msg"=>"No PK sudah ada. Harus unik."]);
+      jsonOut(["ok"=>false,"msg"=>"No. Reff sudah ada. Harus unik."]);
     }
 
     $stmt = $koneksi->prepare("INSERT INTO vessel
@@ -237,7 +237,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
   // ===== DELETE =====
   if ($action === 'delete') {
     $no_pk = clean($_POST['no_pk'] ?? '');
-    if ($no_pk === "") jsonOut(["ok"=>false,"msg"=>"No PK kosong."]);
+    if ($no_pk === "") jsonOut(["ok"=>false,"msg"=>"No. Reff kosong."]);
 
     $stmt = $koneksi->prepare("DELETE FROM vessel WHERE no_pk=?");
     if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
@@ -368,7 +368,7 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
 
     jsonOut([
       "ok"=>true,
-      "msg"=>"Import selesai. Inserted: {$inserted}, Skipped (duplicate No PK): {$skipped}, Error: {$errors}"
+      "msg"=>"Import selesai. Inserted: {$inserted}, Skipped (duplicate No. Reff): {$skipped}, Error: {$errors}"
     ]);
   }
 
@@ -410,7 +410,7 @@ include __DIR__ . "/../includes/sidebar.php";
         <div>
           <h6 class="mb-1">Import CSV</h6>
           <div class="small text-muted">
-            Download template dulu, isi datanya, lalu upload. Duplicate <b>No PK</b> akan <b>di-skip</b>.
+            Download template dulu, isi datanya, lalu upload. Duplicate <b>No. Reff</b> akan <b>di-skip</b>.
           </div>
         </div>
 
@@ -704,6 +704,14 @@ async function api(action, data=null, qs=""){
   return r.json();
 }
 
+function formatThousands(v){
+  const n = parseFloat(v);
+  if (isNaN(n)) return (v ?? '0').toString();
+  const parts = n.toString().split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+
 function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -723,10 +731,10 @@ function rowTemplate(r){
   const pkk = esc(toDatetimeLocal(r.pkk));
   const rkbm = esc(toDatetimeLocal(r.rkbm));
 
-  const single = esc(r.single_mt ?? '0');
-  const blend  = esc(r.blending_mt ?? '0');
-  const stow   = esc(r.stowageplan_mt ?? '0');
-  const loadingRateKontrak = esc(r.loading_rate_kontrak ?? '0');
+  const single = esc(formatThousands(r.single_mt ?? '0'));
+  const blend  = esc(formatThousands(r.blending_mt ?? '0'));
+  const stow   = esc(formatThousands(r.stowageplan_mt ?? '0'));
+  const loadingRateKontrak = esc(formatThousands(r.loading_rate_kontrak ?? '0'));
 
   return `
   <tr data-pk="${no_pk}">
@@ -793,7 +801,7 @@ function columnDisplayValue(r, key){
     return (r[key] ?? '').toString().trim().replace(' ', 'T').slice(0, 16);
   }
   if (key === 'single_mt' || key === 'blending_mt' || key === 'stowageplan_mt' || key === 'loading_rate_kontrak'){
-    return (r[key] ?? '0').toString();
+    return formatThousands(r[key] ?? '0');
   }
   return (r[key] ?? '').toString();
 }

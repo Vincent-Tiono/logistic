@@ -856,6 +856,29 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     jsonOut(["ok"=>true,"data"=>$row]);
   }
 
+  // ===== Vessel suggestions (search dari master) =====
+  if ($action === 'vessel_list') {
+    $q = clean($_GET['q'] ?? '');
+    $sql = "SELECT no_pk, mothervessel FROM vessel WHERE no_pk IS NOT NULL AND no_pk<>''";
+    $types = "";
+    $params = [];
+    if ($q !== "") {
+      $sql .= " AND (no_pk LIKE ? OR mothervessel LIKE ? OR buyer LIKE ? OR no_si_vessel LIKE ?)";
+      $kw = "%{$q}%";
+      $types = "ssss";
+      $params = [$kw, $kw, $kw, $kw];
+    }
+    $sql .= " ORDER BY no_pk DESC LIMIT 60";
+    $stmt = $koneksi->prepare($sql);
+    if (!$stmt) jsonOut(["ok"=>false,"msg"=>$koneksi->error]);
+    if ($types !== "") $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $res = $stmt->get_result();
+    $rows = $res ? $res->fetch_all(MYSQLI_ASSOC) : [];
+    $stmt->close();
+    jsonOut(["ok"=>true,"data"=>$rows]);
+  }
+
   // ===== Tugboat suggestions (distinct) =====
   if ($action === 'tug_list') {
     $q = clean($_GET['q'] ?? '');
@@ -1732,32 +1755,20 @@ include __DIR__ . "/../includes/sidebar.php";
           <form id="formCreate" class="row g-2">
 
           <!-- Row 1 -->
-          <div class="col-lg-3">
-            <label class="form-label mb-1">Cari Vessel (No. Reff / Nama)</label>
-            <input id="vesselSearch" class="form-control form-control-sm" placeholder="Ex: M.25-283 / SAKURA" autocomplete="off">
-            <!-- <div class="form-text small">Ketik → dropdown “Vessel (No PK)” terfilter. Enter → auto pilih hasil pertama.</div> -->
-          </div>
-
-          <div class="col-lg-3">
+          <div class="col-lg-4">
             <label class="form-label mb-1">Vessel (No. Reff)</label>
-            <select name="no_pk" id="no_pk" class="form-select form-select-sm" required>
-              <option value="">-- pilih --</option>
-              <?php foreach ($vesselRows as $v): ?>
-                <option
-                  value="<?= htmlspecialchars($v['no_pk']) ?>"
-                  data-text="<?= htmlspecialchars(strtolower($v['no_pk'].' '.$v['mothervessel'].' '.$v['buyer'].' '.$v['no_si_vessel'])) ?>">
-                  <?= htmlspecialchars($v['no_pk']) ?> — <?= htmlspecialchars($v['mothervessel']) ?>
-                </option>
-              <?php endforeach; ?>
-            </select>
+            <input id="no_pk_display" class="form-control form-control-sm" required placeholder="M. ..."
+                   list="dlVessel" autocomplete="off">
+            <input type="hidden" name="no_pk" id="no_pk">
+            <datalist id="dlVessel"></datalist>
           </div>
 
-          <div class="col-lg-3 col-6">
+          <div class="col-lg-4 col-6">
             <label class="form-label mb-1">Anchorage</label>
             <input id="anchorage" class="form-control form-control-sm" disabled>
           </div>
 
-          <div class="col-lg-1 col-6">
+          <div class="col-lg-2 col-6">
             <label class="form-label mb-1">No. SI Vessel</label>
             <input name="no_si_vessel" id="no_si_vessel" class="form-control form-control-sm" disabled>
           </div>
@@ -1804,9 +1815,9 @@ include __DIR__ . "/../includes/sidebar.php";
             </select>
           </div>
 
-          <div class="col-12">
+          <!-- <div class="col-12">
             <div class="form-text small col-lg-8">Bisa pilih dari saran, tapi tetap bebas edit (TB bisa gandeng BG mana pun).</div>
-          </div>
+          </div> -->
 
           <!-- Row 3 -->
           <div class="col-lg-3 col-6">
@@ -1899,7 +1910,7 @@ include __DIR__ . "/../includes/sidebar.php";
                 <th style="min-width:170px;" class="sortable" data-key="tugboat" data-type="text" data-label="Tugboat"></th>
                 <th style="min-width:210px;" class="sortable" data-key="barge" data-type="text" data-label="Barge"></th>
                 <th style="min-width:150px;" class="sortable" data-key="anchorage" data-type="text" data-label="Anchorage"></th>
-                <th style="min-width:90px;" class="sortable" data-key="qty_plan" data-type="number" data-label="Qty"></th>
+                <th style="min-width:90px;" class="sortable" data-key="qty_plan" data-type="number" data-label="Qty Plan"></th>
                 <th style="min-width:95px;" class="sortable" data-key="jetty_code" data-type="text" data-label="Jetty"></th>
                 <th style="min-width:80px;" class="sortable" data-key="shipper_code" data-type="text" data-label="Shipper"></th>
                 <th style="min-width:120px;" class="sortable" data-key="laycan_start" data-type="date" data-label="Laycan Start"></th>
@@ -2018,7 +2029,8 @@ const anchorage = document.getElementById('anchorage');
 const buyerHidden = document.getElementById('buyer');
 const mothervesselHidden = document.getElementById('mothervessel');
 
-const vesselSearch = document.getElementById('vesselSearch');
+const no_pk_display = document.getElementById('no_pk_display');
+const dlVessel = document.getElementById('dlVessel');
 
 const tugboat = document.getElementById('tugboat');
 const barge = document.getElementById('barge');
@@ -2062,6 +2074,14 @@ async function apiPost(action, data){
 function esc(s){
   return (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+}
+
+function formatThousands(v){
+  const n = parseFloat(v);
+  if (isNaN(n)) return (v ?? '0').toString();
+  const parts = n.toString().split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
 }
 
 /* ===== format date dd/Mon/yy (display) ===== */
@@ -2163,7 +2183,7 @@ function rowTemplate(r){
         <option value="PRIMA ANCHORAGE" ${r.anchorage==='PRIMA ANCHORAGE'?'selected':''}>PRIMA ANCHORAGE</option>
       </select>
     </td>
-    <td><input class="form-control form-control-sm" name="qty_plan" value="${esc(r.qty_plan)}"></td>
+    <td><input class="form-control form-control-sm" name="qty_plan" value="${esc(formatThousands(r.qty_plan))}"></td>
 
     <td>${renderJettySelect(r.jetty_code)}</td>
 
@@ -2203,7 +2223,7 @@ function getSortValue(r, key, type){
 // display value shown in the table cell for a given column (matches rowTemplate)
 function columnDisplayValue(r, key){
   if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(r[key]);
-  if (key === 'qty_plan') return (r.qty_plan ?? '0').toString();
+  if (key === 'qty_plan') return formatThousands(r.qty_plan ?? '0');
   return (r[key] ?? '').toString();
 }
 
@@ -2920,16 +2940,17 @@ async function loadTable(){
   renderTable();
 }
 
-/* ===== Vessel dropdown change → auto fill ===== */
-no_pk.addEventListener('change', async ()=>{
-  const v = no_pk.value.trim();
+/* ===== Vessel pick → auto fill ===== */
+function vesselLabel(v){ return `${v.no_pk} — ${v.mothervessel}`; }
+
+async function fillVesselFields(pk){
   no_si_vessel.value = "";
   anchorage.value = "";
   buyerHidden.value = "";
   mothervesselHidden.value = "";
-  if (!v) return;
+  if (!pk) return;
 
-  const res = await apiGet('vessel_get', `&no_pk=${encodeURIComponent(v)}`);
+  const res = await apiGet('vessel_get', `&no_pk=${encodeURIComponent(pk)}`);
   if (!res.ok){
     showAlert('danger', res.msg);
     return;
@@ -2938,32 +2959,26 @@ no_pk.addEventListener('change', async ()=>{
   anchorage.value = res.data.anchorage ?? '';
   buyerHidden.value = res.data.buyer ?? '';
   mothervesselHidden.value = res.data.mothervessel ?? '';
-});
-
-/* ===== Vessel Search filter + Enter auto-select ===== */
-function filterVesselOptions(){
-  const kw = vesselSearch.value.trim().toLowerCase();
-  const opts = no_pk.querySelectorAll('option');
-  let firstVisibleValue = "";
-  opts.forEach((opt, idx)=>{
-    if (idx === 0) return;
-    const text = opt.getAttribute('data-text') || '';
-    const show = (!kw || text.includes(kw));
-    opt.style.display = show ? '' : 'none';
-    if (show && !firstVisibleValue) firstVisibleValue = opt.value;
-  });
-  return firstVisibleValue;
 }
-vesselSearch.addEventListener('input', filterVesselOptions);
-vesselSearch.addEventListener('keydown', (e)=>{
-  if (e.key === 'Enter'){
-    e.preventDefault();
-    const v = filterVesselOptions();
-    if (v){
-      no_pk.value = v;
-      no_pk.dispatchEvent(new Event('change'));
+
+/* ===== Vessel suggestions (datalist, search dari master) ===== */
+let vesT=null, vesselPkByLabel={};
+no_pk_display.addEventListener('input', ()=>{
+  no_pk.value = "";
+  clearTimeout(vesT);
+  vesT=setTimeout(async ()=>{
+    const kw = no_pk_display.value.trim();
+    const res = await apiGet('vessel_list', `&q=${encodeURIComponent(kw)}`);
+    if (!res.ok) return;
+    vesselPkByLabel = {};
+    res.data.forEach(v=> vesselPkByLabel[vesselLabel(v)] = v.no_pk);
+    dlVessel.innerHTML = res.data.map(v=> `<option value="${esc(vesselLabel(v))}"></option>`).join('');
+    const matchedPk = vesselPkByLabel[no_pk_display.value.trim()];
+    if (matchedPk){
+      no_pk.value = matchedPk;
+      fillVesselFields(matchedPk);
     }
-  }
+  }, 180);
 });
 
 changeVesselSearch.addEventListener('input', ()=>{
@@ -3055,7 +3070,7 @@ formCreate.addEventListener('submit', async (e)=>{
     laycanEnd.value = "";
 
     await loadTable();
-    no_pk.focus();
+    no_pk_display.focus();
   } else {
     showAlert('danger', res.msg);
   }

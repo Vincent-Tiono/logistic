@@ -490,6 +490,14 @@ async function api(action, data=null, qs=""){
   return r.json();
 }
 
+function formatThousands(v){
+  const n = parseFloat(v);
+  if (isNaN(n)) return (v ?? '0').toString();
+  const parts = n.toString().split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
+}
+
 function rowTemplate(r){
   const esc = (s)=> (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
@@ -501,7 +509,7 @@ function rowTemplate(r){
   const barge = esc(r.barge);
   const vendor = esc(r.vendor ?? '');
   const kontrak = esc(r.kontrak ?? '');
-  const muatan = esc(r.muatan ?? '0');
+  const muatan = esc(formatThousands(r.muatan ?? '0'));
   const penalty = esc(r.penalty ?? '');
 
   return `
@@ -541,7 +549,7 @@ function getSortValue(r, key, type){
 // display value shown in the table cell for a given column (matches rowTemplate)
 function columnDisplayValue(r, key){
   if (key === 'muatan'){
-    return (r[key] ?? '0').toString();
+    return formatThousands(r[key] ?? '0');
   }
   return (r[key] ?? '').toString();
 }
