@@ -7,6 +7,10 @@ if (!isset($_SESSION['username'])) {
   exit;
 }
 
+$isDivisiIT = strtoupper(trim((string)(
+  $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''))
+))) === 'IT';
+
 require_once __DIR__ . '/../config/database.php';
 
 try {
@@ -773,47 +777,94 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
 if (($_GET['download'] ?? '') === 'tlu_operation_template') {
+  $scope = trim((string)($_GET['scope'] ?? 'vessel'));
   $noPk = trim((string)($_GET['no_pk'] ?? ''));
-  if ($noPk === '') {
+  $year = filter_var($_GET['year'] ?? null, FILTER_VALIDATE_INT);
+
+  if (!in_array($scope, ['vessel', 'year'], true)) {
+    http_response_code(400);
+    exit('Pilihan template tidak valid.');
+  }
+  if ($scope === 'vessel' && $noPk === '') {
     http_response_code(400);
     exit('No PK wajib dipilih.');
   }
+  if ($scope === 'year' && (!$year || $year < 1900 || $year > 2100)) {
+    http_response_code(400);
+    exit('Tahun tidak valid.');
+  }
+  if ($scope === 'year' && !$isDivisiIT) {
+    http_response_code(403);
+    exit('Akses ditolak. Hanya Divisi IT yang boleh mengunduh template 1 tahun.');
+  }
 
-  $stmt = $koneksi->prepare("
+  $sql = "
     SELECT
       s.no_pk, s.buyer, s.mothervessel, s.si_barges,
       s.jetty_code, s.tugboat, s.barge, s.laycan_start, s.laycan_end,
       v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
       o.operation_data, o.remarks AS operation_remarks
-    FROM sibarges s
+    FROM sibarges s";
+  if ($scope === 'year') {
+    /* one row per (no_pk, mothervessel) group, keyed by its earliest Laycan Start, so the whole year's vessels can be ordered and grouped for the blank-line separator below */
+    $sql .= "
+    INNER JOIN (
+      SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
+      FROM sibarges
+      WHERE no_pk <> '' AND mothervessel <> '' AND record_status = 'ACT'
+      GROUP BY no_pk, mothervessel
+      HAVING MIN(laycan_start) IS NOT NULL
+    ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel";
+  }
+  $sql .= "
     INNER JOIN vessel v ON v.no_pk = s.no_pk
     LEFT JOIN barge_operations o ON o.sibarges_id = s.id
-    WHERE s.no_pk = ? AND s.record_status = 'ACT'
-    ORDER BY s.barge_seq ASC, s.id ASC
-  ");
+    WHERE s.record_status = 'ACT'";
+  $sql .= $scope === 'vessel'
+    ? " AND s.no_pk = ? ORDER BY s.barge_seq ASC, s.id ASC"
+    : " AND YEAR(p.earliest_laycan_start) = ? ORDER BY p.earliest_laycan_start ASC, s.no_pk ASC, s.mothervessel ASC, s.barge_seq ASC, s.id ASC";
+
+  $stmt = $koneksi->prepare($sql);
   if (!$stmt) {
     http_response_code(500);
     exit($koneksi->error);
   }
-  $stmt->bind_param('s', $noPk);
+  if ($scope === 'vessel') {
+    $stmt->bind_param('s', $noPk);
+  } else {
+    $stmt->bind_param('i', $year);
+  }
   $stmt->execute();
   $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
   $stmt->close();
   if (!$rows) {
     http_response_code(404);
-    exit('Data SI Barges tidak ditemukan untuk vessel ini.');
+    exit('Data SI Barges tidak ditemukan untuk pilihan ini.');
   }
 
-  $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
-  $motherVessel = $rows[0]['mothervessel'] ?? '';
-  $safeMotherVessel = trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '_', $motherVessel));
+  if ($scope === 'vessel') {
+    $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
+    $motherVessel = $rows[0]['mothervessel'] ?? '';
+    $safeMotherVessel = trim(preg_replace('/[^A-Za-z0-9 ._-]+/', '_', $motherVessel));
+    $filename = "template_tlu_{$safeNoPk}—{$safeMotherVessel}.csv";
+  } else {
+    $filename = "template_tlu_{$year}.csv";
+  }
   header('Content-Type: text/csv; charset=utf-8');
-  header("Content-Disposition: attachment; filename=\"template_tlu_{$safeNoPk}—{$safeMotherVessel}.csv\"");
+  header("Content-Disposition: attachment; filename=\"{$filename}\"");
   echo "\xEF\xBB\xBF";
 
   $out = fopen('php://output', 'w');
   fputcsv($out, TLU_CSV_COLUMNS, ',', '"', '');
+  $previousVessel = null;
   foreach ($rows as $row) {
+    if ($scope === 'year') {
+      $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
+      if ($previousVessel !== null && $vesselKey !== $previousVessel) {
+        fputcsv($out, [], ',', '"', '');
+      }
+      $previousVessel = $vesselKey;
+    }
     $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
     $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
     $rc = trim((string)($data['rc'] ?? ''));
@@ -1013,8 +1064,12 @@ if (($_GET['action'] ?? '') === 'save_operation_data' && $_SERVER['REQUEST_METHO
 
 /* ========= AJAX: IMPORT TLU OPERATION CSV ========= */
 if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METHOD'] === 'POST') {
-  $noPk = trim((string)($_POST['no_pk'] ?? ''));
-  if ($noPk === '') jsonOut(['ok' => false, 'msg' => 'Pilih Mother Vessel terlebih dahulu.']);
+  if (!$isDivisiIT) {
+    jsonOut(['ok' => false, 'msg' => 'Akses ditolak. Hanya Divisi IT yang boleh import CSV.']);
+  }
+
+  /* no_pk column lives in each CSV row (see TLU_CSV_COLUMNS), so a single upload can
+     cover one vessel or every vessel/month in a year — matching is always per-row. */
   if (!isset($_FILES['csv']) || $_FILES['csv']['error'] !== UPLOAD_ERR_OK) {
     jsonOut(['ok' => false, 'msg' => 'File CSV tidak valid atau gagal diunggah.']);
   }
@@ -1078,11 +1133,7 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
     fclose($fh);
     jsonOut(['ok' => false, 'msg' => 'Gagal menghitung jumlah TB: ' . $koneksi->error]);
   }
-  $countStmt->bind_param('s', $noPk);
-  $countStmt->execute();
-  $countStmt->bind_result($maxDischargeSequence);
-  $countStmt->fetch();
-  $countStmt->close();
+  $maxDischargeSequenceByVessel = []; // no_pk -> barge count, filled lazily as rows for that vessel are seen
 
   $createdBy = (string)$_SESSION['username'];
   $updated = 0;
@@ -1097,19 +1148,26 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
 
     $value = fn($column) => trim((string)($row[$idx[$column]] ?? ''));
     $siBarges = $value('si_barges');
+    $rowNoPk = $value('no_pk');
     $rowErrors = [];
 
+    if ($rowNoPk === '') $rowErrors[] = 'no_pk kosong';
+
+    $rowKey = $siBarges . "\0" . $rowNoPk;
     if ($siBarges === '') {
       $rowErrors[] = 'si_barges kosong';
-    } elseif (isset($seenReferences[$siBarges])) {
+    } elseif (isset($seenReferences[$rowKey])) {
       $rowErrors[] = 'si_barges duplikat dalam file';
     }
-    $seenReferences[$siBarges] = true;
+    $seenReferences[$rowKey] = true;
 
-    $stmtFind->bind_param('ss', $siBarges, $noPk);
-    $stmtFind->execute();
-    $matched = $stmtFind->get_result()->fetch_assoc();
-    if (!$matched) $rowErrors[] = 'SI Barges tidak ditemukan pada vessel yang dipilih';
+    $matched = null;
+    if ($siBarges !== '' && $rowNoPk !== '') {
+      $stmtFind->bind_param('ss', $siBarges, $rowNoPk);
+      $stmtFind->execute();
+      $matched = $stmtFind->get_result()->fetch_assoc();
+      if (!$matched) $rowErrors[] = 'SI Barges tidak ditemukan untuk vessel ini';
+    }
 
     $operationData = [];
     foreach (TLU_OPERATION_FIELDS as $field) {
@@ -1146,9 +1204,21 @@ if (($_GET['action'] ?? '') === 'import_operation_csv' && $_SERVER['REQUEST_METH
 
     $rowErrors = array_merge($rowErrors, operationTimelineErrors($operationData));
 
+    $maxDischargeSequence = 0;
+    if ($rowNoPk !== '') {
+      if (!array_key_exists($rowNoPk, $maxDischargeSequenceByVessel)) {
+        $countStmt->bind_param('s', $rowNoPk);
+        $countStmt->execute();
+        $countStmt->bind_result($vesselBargeCount);
+        $countStmt->fetch();
+        $maxDischargeSequenceByVessel[$rowNoPk] = (int)$vesselBargeCount;
+      }
+      $maxDischargeSequence = $maxDischargeSequenceByVessel[$rowNoPk];
+    }
+
     $sequence = $value('discharge_sequence');
     if ($sequence !== '') {
-      if (!ctype_digit($sequence) || (int)$sequence < 1 || (int)$sequence > (int)$maxDischargeSequence) {
+      if (!ctype_digit($sequence) || (int)$sequence < 1 || (int)$sequence > $maxDischargeSequence) {
         $rowErrors[] = "discharge_sequence harus antara 1 dan {$maxDischargeSequence}";
       } else {
         $operationData['discharge_sequence'] = (string)(int)$sequence;
@@ -1440,7 +1510,38 @@ include __DIR__ . "/../includes/sidebar.php";
         </button>
       </div>
 
-      <div class="card">
+      <?php if ($isDivisiIT): ?>
+      <div class="card" id="tluBulkYearBox">
+        <div class="card-body">
+          <h6 class="mb-1">Input 1 Tahun (Semua Bulan &amp; Mother Vessel)</h6>
+          <div class="small text-muted mb-3">
+            Download data satu tahun penuh (semua bulan, semua Mother Vessel — dipisah baris kosong per vessel), edit di Excel, lalu import kembali. Jangan mengubah kolom si_barges dan no_pk.
+          </div>
+          <div class="row g-3 align-items-end">
+            <div class="col-md-3">
+              <label for="tlu_bulk_year" class="form-label fw-semibold">Pilih Tahun</label>
+              <select id="tlu_bulk_year" class="form-select">
+                <option value="">-- Pilih Tahun --</option>
+              </select>
+            </div>
+            <div class="col-md-9">
+              <div class="d-flex align-items-center flex-wrap gap-2">
+                <a class="btn btn-sm btn-outline-primary disabled" id="downloadBulkYearCsv" href="#" aria-disabled="true">
+                  Download CSV
+                </a>
+                <form id="importBulkYearForm" class="d-flex align-items-center flex-nowrap gap-2">
+                  <input type="file" class="form-control form-control-sm" id="bulkYearCsvFile" accept=".csv,text/csv" required>
+                  <button type="submit" class="btn btn-sm btn-primary flex-shrink-0" id="importBulkYearButton" disabled>Import CSV</button>
+                </form>
+              </div>
+            </div>
+          </div>
+          <div class="alert d-none mt-3 mb-0" id="bulkYearCsvStatus" role="alert" style="white-space: pre-line;"></div>
+        </div>
+      </div>
+      <?php endif; ?>
+
+      <div class="card mt-3">
         <div class="card-body">
           <div class="row g-3">
             <div class="col-md-3">
@@ -2117,6 +2218,12 @@ const exportMonthSelect = document.getElementById('export_month');
 const exportNoPkSelect = document.getElementById('export_no_pk');
 const downloadGroupedExport = document.getElementById('downloadGroupedExport');
 const groupedExportStatus = document.getElementById('groupedExportStatus');
+const tluBulkYearSelect = document.getElementById('tlu_bulk_year');
+const downloadBulkYearCsv = document.getElementById('downloadBulkYearCsv');
+const importBulkYearForm = document.getElementById('importBulkYearForm');
+const bulkYearCsvFile = document.getElementById('bulkYearCsvFile');
+const importBulkYearButton = document.getElementById('importBulkYearButton');
+const bulkYearCsvStatus = document.getElementById('bulkYearCsvStatus');
 const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const bargeVendorOptions = <?= json_encode($bargeVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
@@ -2151,6 +2258,13 @@ replaceSelectOptions(
   '-- Pilih Tahun --',
   availableYears.map(year => ({ value: year, label: year }))
 );
+if (tluBulkYearSelect) {
+  replaceSelectOptions(
+    tluBulkYearSelect,
+    '-- Pilih Tahun --',
+    availableYears.map(year => ({ value: year, label: year }))
+  );
+}
 
 function selectedExportScope() {
   return exportScopeInputs.find(input => input.checked)?.value || 'vessel';
@@ -2275,6 +2389,66 @@ downloadGroupedExport.addEventListener('click', () => {
 
   window.location.href = `8tluoperation.php?${params.toString()}`;
 });
+
+/* tluBulkYearBox (and its children) render server-side only for Divisi=IT; guard the whole block so non-IT users don't hit null-element errors. */
+if (tluBulkYearSelect) {
+  const updateBulkYearCsvStatus = (message = '', variant = 'danger') => {
+    bulkYearCsvStatus.textContent = message;
+    bulkYearCsvStatus.className = `alert mt-3 mb-0 ${message ? `alert-${variant}` : 'd-none'}`;
+  };
+
+  const updateBulkYearControls = () => {
+    const year = tluBulkYearSelect.value;
+    if (year) {
+      downloadBulkYearCsv.href =
+        `8tluoperation.php?download=tlu_operation_template&scope=year&year=${encodeURIComponent(year)}`;
+      downloadBulkYearCsv.classList.remove('disabled');
+      downloadBulkYearCsv.removeAttribute('aria-disabled');
+      importBulkYearButton.disabled = false;
+    } else {
+      downloadBulkYearCsv.href = '#';
+      downloadBulkYearCsv.classList.add('disabled');
+      downloadBulkYearCsv.setAttribute('aria-disabled', 'true');
+      importBulkYearButton.disabled = true;
+    }
+    updateBulkYearCsvStatus();
+  };
+  updateBulkYearControls();
+
+  tluBulkYearSelect.addEventListener('change', updateBulkYearControls);
+
+  importBulkYearForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    if (!tluBulkYearSelect.value || !bulkYearCsvFile.files.length) return;
+
+    const formData = new FormData();
+    formData.append('csv', bulkYearCsvFile.files[0]);
+
+    importBulkYearButton.disabled = true;
+    importBulkYearButton.textContent = 'Importing...';
+    updateBulkYearCsvStatus();
+
+    try {
+      const response = await fetch('8tluoperation.php?action=import_operation_csv', {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData
+      });
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.msg || 'Import CSV gagal.');
+
+      updateBulkYearCsvStatus(result.msg, result.partial ? 'warning' : 'success');
+      bulkYearCsvFile.value = '';
+      const noPkSelect = document.getElementById('no_pk');
+      if (noPkSelect.value) noPkSelect.dispatchEvent(new Event('change'));
+    } catch (error) {
+      updateBulkYearCsvStatus(error.message);
+    } finally {
+      importBulkYearButton.disabled = !tluBulkYearSelect.value;
+      importBulkYearButton.textContent = 'Import CSV';
+    }
+  });
+}
 
 const siBargesDetailFields = [
   ['No. Reff', 'no_pk'],

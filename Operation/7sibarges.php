@@ -1677,7 +1677,7 @@ include __DIR__ . "/../includes/sidebar.php";
   #tbl th.sortable.filter-active .sort-toggle { opacity:1; font-weight:bold; }
   #tbl .freeze-toggle.active { background-color:#0d6efd; border-color:#0d6efd; color:#fff; }
   #tbl th.frozen-col, #tbl td.frozen-col { position: sticky; z-index: 2; background-color: #fff; }
-  #tbl .action-btns { display:grid; grid-template-columns: auto auto; gap:.5rem; }
+  #tbl .action-btns { display:grid; grid-template-columns: 1fr 1fr; gap:.5rem; }
   #tbl .action-btns .btn { width:100%; white-space:nowrap; font-size:inherit; }
   #tbl thead th.frozen-col { background-color: #f8f9fa; z-index: 3; }
   #tbl th.frozen-col-last, #tbl td.frozen-col-last { box-shadow: 2px 0 4px -2px rgba(0,0,0,.35); }
