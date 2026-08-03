@@ -108,8 +108,8 @@ if (isset($_GET['download']) && $_GET['download'] === 'vendor_template') {
   header('Content-Disposition: attachment; filename="vendor_template.csv"');
 
   $out = fopen('php://output', 'w');
-  fputcsv($out, ['vendor','shipper','tonnage','penalty','discount','contract','laytime','ltc_rate']);
-  fputcsv($out, ['BMC','MHU','8200','DF','0','3','LK-001','9','1500']);
+  fputcsv($out, ['vendor','shipper','freight','tonnage','penalty','discount','contract','laytime','ltc_rate']);
+  fputcsv($out, ['BMC','MHU','51500','8200','DF','0','3','9','1500']);
   fclose($out);
   exit;
 }
