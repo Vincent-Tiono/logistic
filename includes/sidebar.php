@@ -27,6 +27,12 @@ $isOperationPage = (strpos($pathLower, '/logistic/operation/') === 0);
 /* auto-open submenu when in Operation pages */
 $opSubDisplay = $isOperationPage ? 'block' : 'none';
 
+/* VM&FAT area? */
+$isVmFatPage = (strpos($pathLower, '/logistic/vm&fat/') === 0);
+
+/* auto-open submenu when in VM&FAT pages */
+$vmSubDisplay = $isVmFatPage ? 'block' : 'none';
+
 /* active helper (case-insensitive) */
 function isActive($needle){
   $path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '';
@@ -117,10 +123,44 @@ function canAccess($divisi, $target){
   <?php endif; ?>
 
   <?php if ($isIT || canAccess($divisi, 'VM&FAT')): ?>
-    <a class="nav-item-link<?= isActive('/logistic/VM/') ?>" href="/logistic/VM/">
+    <!-- VM&FAT (PARENT) -->
+    <button type="button"
+            class="nav-item-link nav-parent<?= $isVmFatPage ? ' active' : '' ?>"
+            onclick="toggleSubmenu('vmSub')"
+            style="cursor:pointer; border:0; background:transparent; width:100%; text-align:left;">
       <span class="nav-icon">📊</span>
       <span class="nav-text">VM & FAT</span>
-    </a>
+      <span class="chev">▾</span>
+    </button>
+
+    <!-- SUBMENU -->
+    <div id="vmSub" class="submenu" style="display:<?= $vmSubDisplay ?>; padding-left:6px;">
+
+      <!-- KURS (SUB-PARENT) -->
+      <button type="button"
+              class="nav-item-link nav-parent<?= $isVmFatPage ? ' active' : '' ?>"
+              onclick="toggleSubmenu('kursSub')"
+              style="cursor:pointer; border:0; background:transparent; width:100%; text-align:left;">
+        <span class="nav-icon">💱</span>
+        <span class="nav-text">Kurs</span>
+        <span class="chev">▾</span>
+      </button>
+
+      <div id="kursSub" class="submenu" style="display:<?= $vmSubDisplay ?>; padding-left:6px;">
+
+        <a class="nav-item-link<?= isActive('/logistic/VM&FAT/1jisdor.php') ?>" href="/logistic/VM&FAT/1jisdor.php">
+          <span class="nav-icon">📈</span>
+          <span class="nav-text">Jisdor</span>
+        </a>
+
+        <a class="nav-item-link<?= isActive('/logistic/VM&FAT/2kurstengah.php') ?>" href="/logistic/VM&FAT/2kurstengah.php">
+          <span class="nav-icon">⚖️</span>
+          <span class="nav-text">Kurs Tengah</span>
+        </a>
+
+      </div>
+
+    </div>
   <?php endif; ?>
 
   <?php if ($isIT || canAccess($divisi, 'Finance&Accounting') || canAccess($divisi, 'Finance & Accounting')): ?>
