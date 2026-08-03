@@ -283,7 +283,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     while (($row = fgetcsv($fh)) !== false) {
       $vendor   = clean($row[$idx['vendor']] ?? '');
       $shipper  = clean($row[$idx['shipper']] ?? '');
-      $freight  = computeFreight($shipper);
+      $freightRaw = isset($idx['freight']) ? clean($row[$idx['freight']] ?? '') : '';
+      $freight  = ($freightRaw !== '') ? toDecimal($freightRaw) : computeFreight($shipper);
       $tonnage  = toDecimal($row[$idx['tonnage']] ?? '');
       $penalty  = normalizePenalty($row[$idx['penalty']] ?? '');
       $discount = toDecimal($row[$idx['discount']] ?? '');
