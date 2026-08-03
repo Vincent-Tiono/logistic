@@ -407,7 +407,10 @@ include __DIR__ . "/../includes/sidebar.php";
 
         <div class="col-md-2">
           <label class="form-label">Discount</label>
-          <input name="discount" class="form-control" placeholder="0">
+          <div class="input-group">
+            <input name="discount" class="form-control" placeholder="0">
+            <span class="input-group-text">%</span>
+          </div>
         </div>
 
         <div class="col-md-2">
@@ -627,7 +630,7 @@ function rowTemplate(r){
     <td><input class="form-control form-control-sm" name="freight" value="${freight}" title="Default dari Shipper, bisa diubah"></td>
     <td><input class="form-control form-control-sm" name="tonnage" value="${tonnage}"></td>
     <td><select class="form-select form-select-sm" name="penalty">${penaltyOptions}</select></td>
-    <td><input class="form-control form-control-sm" name="discount" value="${discount}"></td>
+    <td><div class="input-group input-group-sm"><input class="form-control" name="discount" value="${discount}"><span class="input-group-text">%</span></div></td>
     <td><input class="form-control form-control-sm" name="contract" value="${contract}" title="Default dari Shipper, bisa diubah"></td>
     <td><input class="form-control form-control-sm" name="laytime" value="${laytime}" title="Default dari data Shipper, bisa diubah"></td>
     <td><input class="form-control form-control-sm" name="ltc_rate" value="${ltcRate}"></td>
