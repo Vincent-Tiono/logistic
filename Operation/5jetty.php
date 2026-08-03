@@ -1204,7 +1204,7 @@ btnClearQ.addEventListener('click', ()=>{
   loadTable();
 });
 
-formImport.addEventListener('submit', async (e)=>{
+if (formImport) formImport.addEventListener('submit', async (e)=>{
   e.preventDefault();
   if (!csvFile.files.length){
     showAlert('warning', 'Pilih file CSV dulu.');
