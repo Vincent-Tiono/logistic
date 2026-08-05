@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <title>Logistics - MLP</title>
+  <link rel="icon" type="image/png" href="assets/img/logo/favicon.png?v=3">
+  <link rel="shortcut icon" href="assets/img/logo/favicon.ico?v=3">
   <style>
     body { font-family: Arial, sans-serif; padding: 40px; }
     .logo { margin-right: 20px; vertical-align: middle; }
