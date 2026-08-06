@@ -75,7 +75,7 @@ $divisi = $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['departm
       padding-left: 2px;
     }
     .brand img{
-      height: 42px;
+      height: 25px;
       width: auto;
       display: block;
     }
