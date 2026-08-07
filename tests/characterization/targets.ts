@@ -11,6 +11,7 @@ export interface Target {
     vessel: string;
     shipper: string;
     vendor: string;
+    barges: string;
   };
 }
 
@@ -26,6 +27,7 @@ export const targets: Target[] = [
       vessel: "/Operation/1vessel.php",
       shipper: "/Operation/2shipper.php",
       vendor: "/Operation/3vendor.php",
+      barges: "/Operation/4barges.php",
     },
   },
   {
@@ -39,6 +41,7 @@ export const targets: Target[] = [
       vessel: "/vessel",
       shipper: "/shipper",
       vendor: "/vendor",
+      barges: "/barges",
     },
   },
 ];
