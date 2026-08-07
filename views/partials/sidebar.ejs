@@ -1,0 +1,17 @@
+<nav class="sidebar">
+  <div class="menu-group-title">Main</div>
+  <a class="nav-item-link" href="/home">
+    <span>🏠</span><span>Home</span>
+  </a>
+
+  <% if ((divisi || '').toUpperCase() === 'IT') { %>
+    <div class="menu-group-title">IT</div>
+    <a class="nav-item-link" href="/create-user">
+      <span>👤</span><span>Create User</span>
+    </a>
+  <% } %>
+
+  <div class="menu-group-title text-muted small px-3">
+    Other modules still on the PHP app during migration.
+  </div>
+</nav>

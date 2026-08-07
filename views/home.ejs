@@ -1,0 +1,16 @@
+<%- include('partials/header', { pageTitle: 'Home - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <h5 class="mb-1">Welcome, <%= username %></h5>
+      <div class="text-muted">
+        Divisi: <%= divisi || '-' %> |
+        Jabatan: <%= jabatan || '-' %>
+      </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>
