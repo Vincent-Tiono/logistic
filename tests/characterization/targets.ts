@@ -10,6 +10,7 @@ export interface Target {
     logout: string;
     vessel: string;
     shipper: string;
+    vendor: string;
   };
 }
 
@@ -24,6 +25,7 @@ export const targets: Target[] = [
       logout: "/logout.php",
       vessel: "/Operation/1vessel.php",
       shipper: "/Operation/2shipper.php",
+      vendor: "/Operation/3vendor.php",
     },
   },
   {
@@ -36,6 +38,7 @@ export const targets: Target[] = [
       logout: "/logout",
       vessel: "/vessel",
       shipper: "/shipper",
+      vendor: "/vendor",
     },
   },
 ];

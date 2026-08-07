@@ -109,3 +109,29 @@ export async function ensureShipperLaytimeColumn(
     );
   }
 }
+
+/**
+ * Ports Operation/3vendor.php's `CREATE TABLE IF NOT EXISTS vendor (...)`
+ * self-heal. The `vendor` table isn't in the base schema dump at all (it
+ * only ever existed via this PHP-embedded DDL), so unlike vessel/shipper
+ * there's no evidence of a pre-migration schema to guard against — the
+ * legacy `mhu`/`kontrak`/`ltc_day` column-rename ALTERs are intentionally
+ * not ported here.
+ */
+export async function ensureVendorTable(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vendor (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      vendor VARCHAR(150) DEFAULT NULL,
+      shipper VARCHAR(150) DEFAULT NULL,
+      freight DECIMAL(15,2) DEFAULT NULL,
+      tonnage DECIMAL(15,2) DEFAULT NULL,
+      penalty VARCHAR(10) DEFAULT NULL,
+      discount DECIMAL(15,2) DEFAULT NULL,
+      contract VARCHAR(150) DEFAULT NULL,
+      lookup VARCHAR(150) DEFAULT NULL,
+      laytime DECIMAL(15,2) DEFAULT NULL,
+      ltc_rate DECIMAL(15,2) DEFAULT NULL
+    )
+  `);
+}

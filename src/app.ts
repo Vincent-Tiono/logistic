@@ -9,12 +9,14 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   dbPool,
   ensureShipperLaytimeColumn,
+  ensureVendorTable,
   ensureVesselScheduleColumns,
 } from "./config/database.js";
 import { registerSession } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { shipperRoutes } from "./routes/shipper.js";
 import { userRoutes } from "./routes/users.js";
+import { vendorRoutes } from "./routes/vendor.js";
 import { vesselRoutes } from "./routes/vessel.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +44,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(userRoutes);
   await app.register(vesselRoutes);
   await app.register(shipperRoutes);
+  await app.register(vendorRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
   await ensureShipperLaytimeColumn(dbPool("databarging"));
+  await ensureVendorTable(dbPool("databarging"));
 
   return app;
 }
