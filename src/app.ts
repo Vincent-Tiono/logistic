@@ -15,6 +15,7 @@ import {
 import { registerSession } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
 import { bargesRoutes } from "./routes/barges.js";
+import { jettyRoutes } from "./routes/jetty.js";
 import { shipperRoutes } from "./routes/shipper.js";
 import { userRoutes } from "./routes/users.js";
 import { vendorRoutes } from "./routes/vendor.js";
@@ -47,6 +48,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(shipperRoutes);
   await app.register(vendorRoutes);
   await app.register(bargesRoutes);
+  await app.register(jettyRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
   await ensureShipperLaytimeColumn(dbPool("databarging"));
