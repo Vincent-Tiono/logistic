@@ -6,9 +6,14 @@ import fastifyStatic from "@fastify/static";
 import fastifyView from "@fastify/view";
 import ejs from "ejs";
 import Fastify, { type FastifyInstance } from "fastify";
-import { dbPool, ensureVesselScheduleColumns } from "./config/database.js";
+import {
+  dbPool,
+  ensureShipperLaytimeColumn,
+  ensureVesselScheduleColumns,
+} from "./config/database.js";
 import { registerSession } from "./plugins/session.js";
 import { authRoutes } from "./routes/auth.js";
+import { shipperRoutes } from "./routes/shipper.js";
 import { userRoutes } from "./routes/users.js";
 import { vesselRoutes } from "./routes/vessel.js";
 
@@ -36,8 +41,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes);
   await app.register(userRoutes);
   await app.register(vesselRoutes);
+  await app.register(shipperRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
+  await ensureShipperLaytimeColumn(dbPool("databarging"));
 
   return app;
 }

@@ -79,3 +79,33 @@ export async function ensureVesselScheduleColumns(
     await pool.query(`ALTER TABLE vessel ${alterParts.join(", ")}`);
   }
 }
+
+/**
+ * Ports config/database.php's ensure_shipper_laytime_column(): the base
+ * schema dump has no `laytime` column on `shipper`, added lazily by the
+ * legacy app. Called once at startup instead of per-request.
+ */
+export async function ensureShipperLaytimeColumn(
+  pool: mysql.Pool
+): Promise<void> {
+  const [dbRows] = await pool.query<mysql.RowDataPacket[]>(
+    "SELECT DATABASE() AS db_name"
+  );
+  const database = String(dbRows[0]?.db_name ?? "");
+  if (!database) return;
+
+  const [columns] = await pool.query<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_NAME
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'shipper'
+       AND COLUMN_NAME = 'laytime'`,
+    [database]
+  );
+
+  if (columns.length === 0) {
+    await pool.query(
+      "ALTER TABLE shipper ADD COLUMN laytime DECIMAL(10,2) DEFAULT NULL AFTER nama_lengkap"
+    );
+  }
+}

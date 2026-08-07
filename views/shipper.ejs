@@ -1,0 +1,269 @@
+<%- include('partials/header', { pageTitle: 'Shipper', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="m-0">Shipper</h4>
+    <div class="d-flex gap-2" style="max-width:420px; width:100%;">
+      <input id="searchBox" type="text" class="form-control form-control-sm"
+             placeholder="Search (Shipper / PT / Nama Lengkap)">
+      <button id="btnReset" class="btn btn-sm btn-outline-secondary" type="button">Reset</button>
+    </div>
+  </div>
+
+  <div id="alertBox" class="alert d-none" role="alert"></div>
+
+  <% if ((divisi || '').toUpperCase() === 'IT') { %>
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-2">Import CSV</h6>
+      <div class="small text-muted mb-2">Duplicate Shipper akan di-skip.</div>
+      <form id="formImport" class="d-flex gap-2 align-items-center">
+        <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
+        <button class="btn btn-sm btn-primary" type="submit">Import</button>
+      </form>
+    </div>
+  </div>
+  <% } %>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-3">Input Shipper</h6>
+
+      <form id="formCreate" class="row g-2">
+        <div class="col-md-2">
+          <label class="form-label">Shipper</label>
+          <input name="shipper" class="form-control" placeholder="MHU" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">PT</label>
+          <input name="pt" class="form-control" placeholder="PT. MULTI HARAPAN UTAMA" required>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Nama Lengkap</label>
+          <textarea name="nama_lengkap" class="form-control" rows="3"
+            placeholder="Alamat / nama lengkap shipper..." required></textarea>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Laytime</label>
+          <input type="number" step="any" name="laytime" class="form-control" placeholder="9">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-success" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-3">Data Shipper</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:110px;">Shipper</th>
+              <th style="min-width:260px;">PT</th>
+              <th>Nama Lengkap</th>
+              <th style="min-width:100px;">Laytime</th>
+              <th style="width:190px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="5" class="text-center text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <% if ((divisi || '').toUpperCase() === 'IT') { %>
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+      </div>
+      <% } %>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const alertBox = document.getElementById('alertBox');
+
+function showAlert(type, msg){
+  alertBox.className = 'alert alert-' + type;
+  alertBox.textContent = msg;
+  alertBox.classList.remove('d-none');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function hideAlert(){
+  alertBox.classList.add('d-none');
+}
+
+function escapeHtml(s){
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function postAjax(payload){
+  const form = new URLSearchParams(payload);
+  const res = await fetch('/shipper', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body: form.toString()
+  });
+  return await res.json();
+}
+
+const tbody = document.getElementById('tbody');
+
+function rowTemplate(r){
+  const shipper = escapeHtml(r.shipper);
+
+  return `
+  <tr data-shipper="${shipper}">
+    <td><input class="form-control form-control-sm" value="${shipper}" disabled></td>
+    <td><input class="form-control form-control-sm" name="pt" value="${escapeHtml(r.pt)}"></td>
+    <td><textarea class="form-control form-control-sm" name="nama_lengkap" rows="3">${escapeHtml(r.nama_lengkap)}</textarea></td>
+    <td><input type="number" step="any" class="form-control form-control-sm" name="laytime" value="${escapeHtml(r.laytime)}"></td>
+    <td class="d-flex gap-2">
+      <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
+      <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
+    </td>
+  </tr>`;
+}
+
+async function loadShippers(q=''){
+  const res = await fetch('/shipper?ajax=1&action=list&q=' + encodeURIComponent(q));
+  const r = await res.json();
+  if (!r.ok){
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    return;
+  }
+  if (!r.data || r.data.length === 0){
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted">No data</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = r.data.map(rowTemplate).join('');
+}
+
+const searchBox = document.getElementById('searchBox');
+const btnReset  = document.getElementById('btnReset');
+
+let t = null;
+searchBox.addEventListener('input', () => {
+  hideAlert();
+  clearTimeout(t);
+  t = setTimeout(() => loadShippers(searchBox.value.trim()), 250);
+});
+
+btnReset.addEventListener('click', () => {
+  searchBox.value = '';
+  hideAlert();
+  loadShippers('');
+});
+
+const formCreate = document.getElementById('formCreate');
+formCreate.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hideAlert();
+
+  const fd = new FormData(formCreate);
+  const payload = { action: 'create' };
+  for (const [k, v] of fd.entries()) payload[k] = v.toString().trim();
+
+  const r = await postAjax(payload);
+  if (r.ok){
+    showAlert('success', r.msg || 'OK');
+    formCreate.reset();
+    loadShippers(searchBox.value.trim());
+  } else {
+    showAlert('danger', r.msg || 'Gagal');
+  }
+});
+
+tbody.addEventListener('click', async (e) => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const shipper = tr.getAttribute('data-shipper') || '';
+
+  if (e.target.classList.contains('btnUpdate')){
+    hideAlert();
+    const payload = { action: 'update', shipper };
+    tr.querySelectorAll('input[name], textarea[name]').forEach(el => {
+      payload[el.name] = el.value.trim();
+    });
+
+    const r = await postAjax(payload);
+    if (r.ok){
+      showAlert('success', r.msg || 'Updated');
+      loadShippers(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal update');
+    }
+  }
+
+  if (e.target.classList.contains('btnDelete')){
+    hideAlert();
+    if (!shipper) return;
+    if (!confirm('Hapus shipper ' + shipper + ' ?')) return;
+
+    const r = await postAjax({ action: 'delete', shipper });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadShippers(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal delete');
+    }
+  }
+});
+
+const formImport = document.getElementById('formImport');
+if (formImport) {
+  formImport.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const csvFile = document.getElementById('csvFile');
+    if (!csvFile.files.length) return;
+
+    const fd = new FormData();
+    fd.append('action', 'import_csv');
+    fd.append('csv', csvFile.files[0]);
+
+    const res = await fetch('/shipper', { method: 'POST', body: fd });
+    const r = await res.json();
+    if (r.ok){
+      showAlert('success', r.msg || 'Import selesai');
+      formImport.reset();
+      loadShippers(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal import');
+    }
+  });
+}
+
+const btnDeleteAll = document.getElementById('btnDeleteAll');
+if (btnDeleteAll) {
+  btnDeleteAll.addEventListener('click', async () => {
+    hideAlert();
+    if (!confirm('Hapus SEMUA data shipper? Tindakan ini tidak bisa dibatalkan.')) return;
+
+    const r = await postAjax({ action: 'delete_all' });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadShippers(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal');
+    }
+  });
+}
+
+loadShippers('');
+</script>
+
+<%- include('partials/footer') %>
