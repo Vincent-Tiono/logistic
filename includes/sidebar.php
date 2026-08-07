@@ -160,6 +160,11 @@ function canAccess($divisi, $target){
 
       </div>
 
+      <a class="nav-item-link<?= isActive('/logistic/VM&FAT/3fuel.php') ?>" href="/logistic/VM&FAT/3fuel.php">
+        <span class="nav-icon">⛽</span>
+        <span class="nav-text">Fuel</span>
+      </a>
+
     </div>
   <?php endif; ?>
 

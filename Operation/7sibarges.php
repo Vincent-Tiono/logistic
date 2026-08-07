@@ -1,11 +1,5 @@
 <?php
-session_start();
-
-/* ========= AUTH (minimal) ========= */
-if (!isset($_SESSION['username'])) {
-  header("Location: /logistic/login.php");
-  exit;
-}
+require_once __DIR__ . '/../includes/operation_bootstrap.php';
 
 /* ========= SELF PATH ========= */
 $SELF = "/logistic/Operation/7sibarges.php";
@@ -87,12 +81,6 @@ function addDaysYmd($ymd, $days){
 function romawiBulan($month){
   $arr = [1=>'I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII'];
   return $arr[(int)$month] ?? '';
-}
-
-function jsonOut($arr){
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($arr);
-  exit;
 }
 
 function ensureDiscardStatusAllowed(mysqli $koneksi){
@@ -1968,6 +1956,7 @@ include __DIR__ . "/../includes/sidebar.php";
   </div>
 </div>
 
+<script src="../assets/js/format-thousands.js"></script>
 <script>
 const SELF = "<?= $SELF ?>";
 const JETTY_OPTIONS = <?= json_encode($jettyRows, JSON_UNESCAPED_UNICODE); ?>;
@@ -2074,14 +2063,6 @@ async function apiPost(action, data){
 function esc(s){
   return (s ?? '').toString()
     .replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
-}
-
-function formatThousands(v){
-  const n = parseFloat(v);
-  if (isNaN(n)) return (v ?? '0').toString();
-  const parts = n.toString().split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return parts.join('.');
 }
 
 /* ===== format date dd/Mon/yy (display) ===== */

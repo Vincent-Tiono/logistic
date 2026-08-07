@@ -1,11 +1,5 @@
 <?php
-session_start();
-
-/* ========= AUTH (minimal) ========= */
-if (!isset($_SESSION['username'])) {
-  header("Location: /logistic/login.php");
-  exit;
-}
+require_once __DIR__ . '/../includes/operation_bootstrap.php';
 
 /* ========= SELF PATH (penting untuk AJAX & download template) ========= */
 $SELF = "/logistic/Operation/4barges.php";
@@ -28,12 +22,6 @@ function toDecimal($s){
   $s = str_replace([",", " "], "", $s);      // "8,200" -> "8200"
   if (preg_match('/^\d{1,3}(\.\d{3})+$/', $s)) $s = str_replace(".", "", $s); // "8.200" -> "8200"
   return is_numeric($s) ? (float)$s : 0;
-}
-
-function jsonOut($arr){
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($arr);
-  exit;
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
@@ -434,6 +422,7 @@ include __DIR__ . "/../includes/sidebar.php";
 
 </div>
 
+<script src="../assets/js/format-thousands.js"></script>
 <script>
 const SELF = "<?= $SELF ?>";
 const alertBox = document.getElementById('alertBox');
@@ -488,14 +477,6 @@ async function api(action, data=null, qs=""){
 
   const r = await fetch(`${SELF}?ajax=1`, { method:'POST', body: fd });
   return r.json();
-}
-
-function formatThousands(v){
-  const n = parseFloat(v);
-  if (isNaN(n)) return (v ?? '0').toString();
-  const parts = n.toString().split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return parts.join('.');
 }
 
 function rowTemplate(r){

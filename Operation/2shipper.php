@@ -1,11 +1,5 @@
 <?php
-session_start();
-
-/* ========= AUTH (minimal) ========= */
-if (!isset($_SESSION['username'])) {
-  header("Location: /logistic/login.php");
-  exit;
-}
+require_once __DIR__ . '/../includes/operation_bootstrap.php';
 
 /* ========= SELF PATH ========= */
 $SELF = "/logistic/Operation/2shipper.php";
@@ -26,12 +20,6 @@ function clean($s){ return trim((string)$s); }
 function toNullableFloat($s){
   $s = trim((string)$s);
   return ($s === '' || !is_numeric($s)) ? null : (float)$s;
-}
-
-function jsonOut($arr){
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($arr);
-  exit;
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */

@@ -1,11 +1,5 @@
 <?php
-session_start();
-
-/* ========= AUTH (minimal) ========= */
-if (!isset($_SESSION['username'])) {
-  header("Location: /logistic/login.php");
-  exit;
-}
+require_once __DIR__ . '/../includes/operation_bootstrap.php';
 
 $isDivisiIT = strtoupper(trim((string)(
   $_SESSION['divisi'] ?? ($_SESSION['departemen'] ?? ($_SESSION['department'] ?? ''))
@@ -19,12 +13,6 @@ try {
 } catch (RuntimeException $exception) {
   http_response_code(500);
   die(htmlspecialchars($exception->getMessage(), ENT_QUOTES, 'UTF-8'));
-}
-
-function jsonOut($data){
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($data);
-  exit;
 }
 
 const TLU_OPERATION_FIELDS = [
@@ -251,22 +239,6 @@ const TLU_CSV_COLUMNS = [
   'remarks'
 ];
 
-function parseOperationNumber($value, $label) {
-  $value = trim((string)$value);
-  if ($value === '') return null;
-
-  $normalized = str_replace([',', ' '], ['', ''], $value);
-  if (!is_numeric($normalized)) {
-    jsonOut(['ok' => false, 'msg' => $label . ' harus berupa angka.']);
-  }
-
-  return (float)$normalized;
-}
-
-function formatOperationNumber($value) {
-  return rtrim(rtrim(number_format($value, 6, '.', ''), '0'), '.');
-}
-
 function formatOperationDisplayNumber($value) {
   $value = trim((string)$value);
   if ($value === '') return '';
@@ -275,46 +247,6 @@ function formatOperationDisplayNumber($value) {
   if (!is_numeric($normalized)) return $value;
 
   return rtrim(rtrim(number_format((float)$normalized, 6, '.', ','), '0'), '.');
-}
-
-/* Cycle Time number columns display at 4 decimal places (see formatCycleTimeNumber in JS). */
-function formatCycleTimeDisplayNumber($value) {
-  $value = trim((string)$value);
-  if ($value === '') return '';
-
-  $normalized = str_replace([',', ' '], ['', ''], $value);
-  if (!is_numeric($normalized)) return $value;
-
-  return rtrim(rtrim(number_format((float)$normalized, 4, '.', ','), '0'), '.');
-}
-
-/* % Cargo Readiness (P3) displays as a whole percent (see formatCargoReadinessPercent in JS). */
-function formatCargoReadinessPercentDisplay($value) {
-  $value = trim((string)$value);
-  if ($value === '') return '';
-
-  $normalized = str_replace([',', ' '], ['', ''], $value);
-  if (!is_numeric($normalized)) return $value;
-
-  return round((float)$normalized) . '%';
-}
-
-function validateFlfChoice($koneksi, $column, $value, $label) {
-  if ($value === '') return;
-
-  $allowedColumns = ['vendor_flf', 'floating_crane'];
-  if (!in_array($column, $allowedColumns, true)) {
-    jsonOut(['ok' => false, 'msg' => 'Kolom FLF tidak valid.']);
-  }
-
-  $stmt = $koneksi->prepare("SELECT 1 FROM flf WHERE {$column} = ? LIMIT 1");
-  if (!$stmt) jsonOut(['ok' => false, 'msg' => $koneksi->error]);
-  $stmt->bind_param('s', $value);
-  $stmt->execute();
-  $exists = $stmt->get_result()->fetch_assoc();
-  $stmt->close();
-
-  if (!$exists) jsonOut(['ok' => false, 'msg' => $label . ' tidak ditemukan pada data FLF.']);
 }
 
 function validateVendorChoice($koneksi, $value, $label) {
@@ -413,24 +345,6 @@ function operationTimelineErrors(array $operationData) {
   return $errors;
 }
 
-function detectCsvDelimiter($line) {
-  $delimiter = ',';
-  $bestCount = 0;
-  foreach ([',', ';', "\t"] as $candidate) {
-    $count = count(str_getcsv($line, $candidate, '"', '\\'));
-    if ($count > $bestCount) {
-      $bestCount = $count;
-      $delimiter = $candidate;
-    }
-  }
-  return $delimiter;
-}
-
-function decodeOperationData($value) {
-  if (is_array($value)) return $value;
-  $decoded = json_decode((string)$value, true);
-  return is_array($decoded) ? $decoded : [];
-}
 
 function decodeOperationDataWithVesselDefaults(array $row, $koneksi = null) {
   $data = decodeOperationData($row['operation_data'] ?? '');
@@ -473,163 +387,17 @@ function decodeOperationDataWithVesselDefaults(array $row, $koneksi = null) {
   return $data;
 }
 
-/* Column order/labels mirror the Cycle Time submodule table (#cycleTimeTable) headers. */
-const TLU_CYCLE_TIME_EXPORT_HEADERS = [
-  'No. Reff', 'Buyer', 'Mother Vessel', 'Stowage Plan', 'Jetty', 'Shipper',
-  'Tugboat', 'Barge', 'Barge Vendor', 'QTY', 'QTY DISC', 'RC', 'QTY Actual', 'PBM Vendor', 'Floating Crane',
-  'Waiting Loading Jetty', 'Check Waiting Loading Jetty', 'Barges Arrival Early',
-  'Waiting Plan Loading', 'Loading Time Jetty',
-  'Laycan Start', 'Laycan End', 'Arrival Jetty', 'Start Loading', 'Completed Loading',
-  'Part 1', 'Check Part 1', 'LHV Time', 'SPOG Time', 'Clear Pass Time',
-  'LHV', 'SPOG ZONA 2', 'PKK', 'RKBM', 'STS/SPB', 'Start Mooring', 'End Mooring',
-  'Mooring Place 1', 'Clear Pass', 'Start Mooring Clear Pass', 'Cast Off Mooring Clear Pass',
-  'Mooring Place 2',
-  'Part 2', 'Check Part 2', 'Mooring 2', 'Sailing Time', 'Total Waiting Disch MV',
-  'Check Total Waiting Disch MV', 'Waiting Cargo Readiness (P2)', 'Waiting MV (P2)',
-  'Waiting FLF (P2)', 'Waiting Queueing (P2)', 'Waiting Sequence (P2)', 'Other Factor (P2)',
-  'Back to Jetty Time',
-  'TA Barges Actual', 'TA MV', 'TA FLF', 'Cargo Readiness Actual', 'Start Disch',
-  'Completed Disch', 'Discharge Sequence', 'Back to Jetty',
-  'Loading Rate', 'Disch Time for Loading Rate', 'Disch Time', '% Cargo Readiness (P3)',
-  'Pure Time', 'Waiting Cargo Readiness (P3)', 'Waiting MV (P3)', 'Waiting FLF (P3)',
-  'Waiting Queuing (P3)', 'Waiting Sequence (P3)', 'Other Factor (P3)',
-  'Check Waiting Time Disch MV', 'Total CT LTC', 'Laytime', 'LTC Rate', 'LTC Day', 'LTC Total',
-  'Remarks', 'Created By', 'Created At', 'Updated At'
-];
-
-/* Header color classes, positionally aligned with TLU_CYCLE_TIME_EXPORT_HEADERS, mirroring #cycleTimeTable thead th classes. */
-const TLU_CYCLE_TIME_HEADER_CLASSES = [
-  '', '', '', '', '', '',
-  '', '', '', '', '', '', '', '', '',
-  'cycle-time-editable-col', 'cycle-time-editable-col', 'cycle-time-editable-col',
-  'cycle-time-editable-col', 'cycle-time-editable-col',
-  '', '', '', '', '',
-  'cycle-time-editable-col cycle-time-part1-col', 'cycle-time-editable-col cycle-time-part1-col',
-  'cycle-time-editable-col cycle-time-part1-col', 'cycle-time-editable-col cycle-time-part1-col',
-  'cycle-time-editable-col cycle-time-part1-col',
-  '', '', '', '', '', '', '',
-  '', '', '', '',
-  '',
-  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col', 'cycle-time-editable-col cycle-time-part2-col',
-  'cycle-time-editable-col cycle-time-part2-col',
-  '', '', '', '', '',
-  '', '', '',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  'cycle-time-editable-col cycle-time-loadingrate-col', 'cycle-time-editable-col cycle-time-loadingrate-col',
-  '', '', '', ''
-];
-
-function cycleTimeExportRow($row, $isFirstInVessel = true, $koneksi = null) {
-  $data = decodeOperationDataWithVesselDefaults($row, $koneksi);
-  $qtyDisc = trim((string)($data['qty_disc'] ?? ''));
-  $rc = trim((string)($data['rc'] ?? ''));
-  $qtyActual = '';
-  if ($qtyDisc !== '' || $rc !== '') {
-    $qtyActual = formatOperationNumber(
-      (float)str_replace(',', '', $qtyDisc) +
-      (float)str_replace(',', '', $rc)
-    );
-  }
-
-  return [
-    $row['no_pk'] ?? '',
-    $row['buyer'] ?? '',
-    $row['mothervessel'] ?? '',
-    $isFirstInVessel ? formatOperationDisplayNumber($row['stowageplan_mt'] ?? '') : '',
-    $row['jetty_code'] ?? '',
-    $row['shipper_code'] ?? '',
-    $row['tugboat'] ?? '',
-    $row['barge'] ?? '',
-    $data['barge_vendor'] ?? '',
-    formatOperationDisplayNumber($data['qty'] ?? ''),
-    formatOperationDisplayNumber($qtyDisc),
-    formatOperationDisplayNumber($rc),
-    formatOperationDisplayNumber($qtyActual),
-    $data['pbm_vendor'] ?? '',
-    $data['floating_crane'] ?? '',
-    formatCycleTimeDisplayNumber($data['waiting_loading_jetty'] ?? ''),
-    $data['check_waiting_loading_jetty'] ?? '',
-    formatCycleTimeDisplayNumber($data['barges_arrival_early'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_plan_loading'] ?? ''),
-    formatCycleTimeDisplayNumber($data['loading_time_jetty'] ?? ''),
-    formatDisplayDateTime($row['laycan_start'] ?? '', true),
-    formatDisplayDateTime($row['laycan_end'] ?? '', true),
-    formatDisplayDateTime($data['arrival_jetty'] ?? ''),
-    formatDisplayDateTime($data['start_loading'] ?? ''),
-    formatDisplayDateTime($data['completed_loading'] ?? ''),
-    formatCycleTimeDisplayNumber($data['part_1'] ?? ''),
-    $data['check_part_1'] ?? '',
-    formatCycleTimeDisplayNumber($data['lhv_time'] ?? ''),
-    formatCycleTimeDisplayNumber($data['spog_time'] ?? ''),
-    formatCycleTimeDisplayNumber($data['clear_pass_time'] ?? ''),
-    formatDisplayDateTime($data['lhv'] ?? ''),
-    formatDisplayDateTime($data['spog_zona_2'] ?? ''),
-    formatDisplayDateTime($data['pkk'] ?? ''),
-    formatDisplayDateTime($data['rkbm'] ?? ''),
-    formatDisplayDateTime($data['sts_spb'] ?? ''),
-    formatDisplayDateTime($data['start_mooring'] ?? ''),
-    formatDisplayDateTime($data['end_mooring'] ?? ''),
-    $data['mooring_place_1'] ?? '',
-    formatDisplayDateTime($data['clear_pass'] ?? ''),
-    formatDisplayDateTime($data['start_mooring_clear_pass'] ?? ''),
-    formatDisplayDateTime($data['cast_off_mooring_clear_pass'] ?? ''),
-    $data['mooring_place_2'] ?? '',
-    formatCycleTimeDisplayNumber($data['part_2'] ?? ''),
-    $data['check_part_2'] ?? '',
-    formatCycleTimeDisplayNumber($data['mooring_2'] ?? ''),
-    formatCycleTimeDisplayNumber($data['sailing_time'] ?? ''),
-    formatCycleTimeDisplayNumber($data['total_waiting_disch_mv'] ?? ''),
-    $data['check_total_waiting_disch_mv'] ?? '',
-    formatCycleTimeDisplayNumber($data['waiting_cargo_readiness'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_mv'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_flf'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_queueing'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_sequence'] ?? ''),
-    formatCycleTimeDisplayNumber($data['other_factor'] ?? ''),
-    formatCycleTimeDisplayNumber($data['back_to_jetty_time'] ?? ''),
-    formatDisplayDateTime($data['ta_barges_actual'] ?? ''),
-    formatDisplayDateTime($data['ta_mv'] ?? ''),
-    formatDisplayDateTime($data['ta_flf'] ?? ''),
-    formatDisplayDateTime($data['cargo_readiness_actual'] ?? ''),
-    formatDisplayDateTime($data['start_disch'] ?? ''),
-    formatDisplayDateTime($data['completed_disch'] ?? ''),
-    $data['discharge_sequence'] ?? '',
-    formatDisplayDateTime($data['back_to_jetty'] ?? ''),
-    formatCycleTimeDisplayNumber($data['loading_rate'] ?? ''),
-    formatCycleTimeDisplayNumber($data['disch_time_loading_rate'] ?? ''),
-    formatCycleTimeDisplayNumber($data['disch_time_percent'] ?? ''),
-    formatCargoReadinessPercentDisplay($data['cargo_readiness_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['pure_time'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_cargo_readiness_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_mv_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_flf_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_queuing_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['waiting_sequence_p3'] ?? ''),
-    formatCycleTimeDisplayNumber($data['other_factor_p3'] ?? ''),
-    $data['check_waiting_time_disch_mv'] ?? '',
-    formatCycleTimeDisplayNumber($data['total_ct_ltc'] ?? ''),
-    formatCycleTimeDisplayNumber($data['laytime'] ?? ''),
-    formatCycleTimeDisplayNumber($data['ltc_rate'] ?? ''),
-    formatCycleTimeDisplayNumber($data['ltc_day'] ?? ''),
-    formatCycleTimeDisplayNumber($data['ltc_total'] ?? ''),
-    $row['operation_remarks'] ?? '',
-    $row['created_by'] ?? '',
-    formatDisplayDateTime($row['created_at'] ?? ''),
-    formatDisplayDateTime($row['updated_at'] ?? '')
-  ];
+// Decodes operation_data with vessel defaults merged in and re-encodes it as a JSON
+// string, matching the shape the 'si_barges_by_vessel' action already returns. Used
+// wherever a raw row list needs to travel to the browser so cycle-time formulas
+// (assets/js/cycle-time.mjs) can compute defaults client-side instead of a PHP port —
+// see docs/adr/0001-tlu-grouped-export-computes-client-side.md.
+function withDecodedOperationData(array $row, $koneksi = null) {
+  $operationData = decodeOperationDataWithVesselDefaults($row, $koneksi);
+  $row['operation_data'] = $operationData
+    ? json_encode($operationData, JSON_UNESCAPED_UNICODE)
+    : null;
+  return $row;
 }
 
 function compareTluExportRows($left, $right) {
@@ -662,28 +430,29 @@ function compareTluExportRows($left, $right) {
     : (int)$left['id'] <=> (int)$right['id'];
 }
 
-/* ========= GROUPED DATA BARGES CSV EXPORT ========= */
-if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
+/* ========= GROUPED DATA BARGES EXPORT DATA (JSON) =========
+ * Returns raw rows (operation_data already vessel-defaulted, not cycle-time-computed)
+ * for the requested scope. The browser runs computeCycleTimeFields()/columnDisplayValue()
+ * (assets/js/cycle-time.mjs) over these to build the CSV client-side — see
+ * docs/adr/0001-tlu-grouped-export-computes-client-side.md for why this isn't a PHP port.
+ */
+if (($_GET['action'] ?? '') === 'tlu_grouped_export_data') {
   $scope = trim((string)($_GET['scope'] ?? ''));
   $year = filter_var($_GET['year'] ?? null, FILTER_VALIDATE_INT);
   $month = filter_var($_GET['month'] ?? null, FILTER_VALIDATE_INT);
   $noPk = trim((string)($_GET['no_pk'] ?? ''));
 
   if (!in_array($scope, ['vessel', 'month', 'year', 'all'], true)) {
-    http_response_code(400);
-    exit('Pilihan export tidak valid.');
+    jsonOut(['ok' => false, 'msg' => 'Pilihan export tidak valid.']);
   }
   if (in_array($scope, ['vessel', 'month', 'year'], true) && (!$year || $year < 1900 || $year > 2100)) {
-    http_response_code(400);
-    exit('Tahun export tidak valid.');
+    jsonOut(['ok' => false, 'msg' => 'Tahun export tidak valid.']);
   }
   if (in_array($scope, ['vessel', 'month'], true) && (!$month || $month < 1 || $month > 12)) {
-    http_response_code(400);
-    exit('Bulan export tidak valid.');
+    jsonOut(['ok' => false, 'msg' => 'Bulan export tidak valid.']);
   }
   if ($scope === 'vessel' && $noPk === '') {
-    http_response_code(400);
-    exit('Mother Vessel wajib dipilih.');
+    jsonOut(['ok' => false, 'msg' => 'Mother Vessel wajib dipilih.']);
   }
 
   $sql = "
@@ -721,8 +490,7 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
 
   $stmt = $koneksi->prepare($sql);
   if (!$stmt) {
-    http_response_code(500);
-    exit($koneksi->error);
+    jsonOut(['ok' => false, 'msg' => $koneksi->error]);
   }
   if ($scope === 'vessel') {
     $stmt->bind_param('sii', $noPk, $year, $month);
@@ -736,11 +504,11 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
   $stmt->close();
 
   if (!$rows) {
-    http_response_code(404);
-    exit('Data Barges tidak ditemukan untuk pilihan export ini.');
+    jsonOut(['ok' => false, 'msg' => 'Data Barges tidak ditemukan untuk pilihan export ini.']);
   }
 
   usort($rows, 'compareTluExportRows');
+  $rows = array_map(fn($row) => withDecodedOperationData($row, $koneksi), $rows);
 
   if ($scope === 'vessel') {
     $safeNoPk = preg_replace('/[^A-Za-z0-9._-]+/', '_', $noPk);
@@ -755,24 +523,7 @@ if (($_GET['download'] ?? '') === 'tlu_grouped_export') {
     $filename = 'tlu_all.csv';
   }
 
-  header('Content-Type: text/csv; charset=utf-8');
-  header('Content-Disposition: attachment; filename="' . $filename . '"');
-  echo "\xEF\xBB\xBF";
-
-  $out = fopen('php://output', 'w');
-  fputcsv($out, TLU_CYCLE_TIME_EXPORT_HEADERS, ',', '"', '');
-  $previousVessel = null;
-  foreach ($rows as $row) {
-    $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
-    $isFirstInVessel = $vesselKey !== $previousVessel;
-    if ($previousVessel !== null && $isFirstInVessel) {
-      fputcsv($out, [], ',', '"', '');
-    }
-    fputcsv($out, cycleTimeExportRow($row, $isFirstInVessel, $koneksi), ',', '"', '');
-    $previousVessel = $vesselKey;
-  }
-  fclose($out);
-  exit;
+  jsonOut(['ok' => true, 'filename' => $filename, 'rows' => $rows]);
 }
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
@@ -1426,21 +1177,11 @@ $res = $koneksi->query("
   WHERE s.record_status = 'ACT'
 ");
 if ($res) {
-  $allOperationsRawRows = $res->fetch_all(MYSQLI_ASSOC);
+  $allOperationsRows = $res->fetch_all(MYSQLI_ASSOC);
   $res->free();
 
-  usort($allOperationsRawRows, 'compareTluExportRows');
-
-  $previousVessel = null;
-  foreach ($allOperationsRawRows as $row) {
-    $vesselKey = $row['no_pk'] . "\0" . $row['mothervessel'];
-    $isFirstInVessel = $vesselKey !== $previousVessel;
-    if ($previousVessel !== null && $isFirstInVessel) {
-      $allOperationsRows[] = null;
-    }
-    $allOperationsRows[] = cycleTimeExportRow($row, $isFirstInVessel, $koneksi);
-    $previousVessel = $vesselKey;
-  }
+  usort($allOperationsRows, 'compareTluExportRows');
+  $allOperationsRows = array_map(fn($row) => withDecodedOperationData($row, $koneksi), $allOperationsRows);
 }
 
 /* ========= PAGE META ========= */
@@ -2200,7 +1941,9 @@ include __DIR__ . "/../includes/sidebar.php";
   }
 </style>
 
-<script>
+<script type="module">
+import { getFieldValue, formatCycleTimeNumber, calculateQtyActual, computeCycleTimeFields } from '../assets/js/cycle-time.mjs';
+
 const tluModeSelector = document.getElementById('tluModeSelector');
 const allOperationsCard = document.getElementById('allOperationsCard');
 const tluInputWorkflow = document.getElementById('tluInputWorkflow');
@@ -2228,9 +1971,10 @@ const pbmVendorOptions = <?= json_encode($pbmVendorOptions, JSON_UNESCAPED_UNICO
 const floatingCraneOptions = <?= json_encode($floatingCraneOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const bargeVendorOptions = <?= json_encode($bargeVendorOptions, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const tluVesselPeriods = <?= json_encode($vessels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const allOperationsHeaders = <?= json_encode(TLU_CYCLE_TIME_EXPORT_HEADERS, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const allOperationsHeaderClasses = <?= json_encode(TLU_CYCLE_TIME_HEADER_CLASSES, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
-const allOperationsData = <?= json_encode($allOperationsRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+// Raw rows (operation_data already vessel-defaulted, not cycle-time-computed) sorted by
+// compareTluExportRows on the PHP side. Grouped into per-vessel display rows further down,
+// once computeCycleTimeFields/columnDisplayValue are available (see cycleTimeExportHeaderCells).
+const allOperationsRawRows = <?= json_encode($allOperationsRows, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 const ALL_OPERATIONS_PAGE_SIZE = 100;
 let allOperationsCurrentPage = 1;
 const restrictedFloatingCranes = {
@@ -2270,9 +2014,11 @@ function selectedExportScope() {
   return exportScopeInputs.find(input => input.checked)?.value || 'vessel';
 }
 
-function updateGroupedExportStatus(message = '') {
+function updateGroupedExportStatus(message = '', variant = 'danger') {
   groupedExportStatus.textContent = message;
   groupedExportStatus.classList.toggle('d-none', message === '');
+  groupedExportStatus.classList.toggle('alert-danger', variant === 'danger');
+  groupedExportStatus.classList.toggle('alert-info', variant === 'info');
 }
 
 function updateExportScopeFields() {
@@ -2360,7 +2106,7 @@ exportMonthSelect.addEventListener('change', () => {
 });
 exportNoPkSelect.addEventListener('change', () => updateGroupedExportStatus());
 
-downloadGroupedExport.addEventListener('click', () => {
+downloadGroupedExport.addEventListener('click', async () => {
   const scope = selectedExportScope();
   const year = exportYearSelect.value;
   const month = exportMonthSelect.value;
@@ -2380,14 +2126,53 @@ downloadGroupedExport.addEventListener('click', () => {
   }
 
   const params = new URLSearchParams({
-    download: 'tlu_grouped_export',
+    action: 'tlu_grouped_export_data',
     scope
   });
   if (scope !== 'all') params.set('year', year);
   if (['vessel', 'month'].includes(scope)) params.set('month', month);
   if (scope === 'vessel') params.set('no_pk', noPk);
 
-  window.location.href = `8tluoperation.php?${params.toString()}`;
+  downloadGroupedExport.disabled = true;
+  updateGroupedExportStatus('Menyiapkan export...', 'info');
+
+  try {
+    const response = await fetch(`8tluoperation.php?${params.toString()}`, {
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal export.');
+
+    // Rows arrive already vessel-defaulted but NOT cycle-time-computed (see
+    // docs/adr/0001-tlu-grouped-export-computes-client-side.md) — compute here,
+    // grouped per vessel so cross-row formulas (loading rate, disch time) see
+    // only their own vessel's siblings, same as the Cycle Time tab.
+    const headerCells = cycleTimeExportHeaderCells();
+    const headerKeys = headerCells.map(cell => cell.key);
+    const csvLines = [headerCells.map(cell => csvCell(cell.label)).join(',')];
+
+    groupRowsByVessel(result.rows).forEach((group, groupIndex) => {
+      if (groupIndex > 0) csvLines.push('');
+      group.forEach((row, rowIndexInVessel) => {
+        csvLines.push(buildExportRowValues(row, group, rowIndexInVessel, headerKeys).map(csvCell).join(','));
+      });
+    });
+
+    const blob = new Blob([`\uFEFF${csvLines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = result.filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    updateGroupedExportStatus('');
+  } catch (error) {
+    updateGroupedExportStatus(error.message || 'Gagal export.', 'danger');
+  } finally {
+    downloadGroupedExport.disabled = false;
+  }
 });
 
 /* tluBulkYearBox (and its children) render server-side only for Divisi=IT; guard the whole block so non-IT users don't hit null-element errors. */
@@ -2532,33 +2317,33 @@ function displayValue(value) {
   return text === '' ? '-' : esc(text);
 }
 
-/* ===== All Years / All Vessels table (landing page, client-side paginated) ===== */
+/* ===== All Years / All Vessels table (landing page, client-side paginated) =====
+ * Populated further down (allOperationsHeaderCells / allOperationsDisplayEntries),
+ * once the field-classification Sets that columnDisplayValue() needs are defined. */
 const allOperationsHeaderRow = document.getElementById('allOperationsHeaderRow');
 const allOperationsBody = document.getElementById('allOperationsBody');
 const allOperationsSummary = document.getElementById('allOperationsSummary');
 const allOperationsPageInfo = document.getElementById('allOperationsPageInfo');
 const allOperationsPrev = document.getElementById('allOperationsPrev');
 const allOperationsNext = document.getElementById('allOperationsNext');
-
-allOperationsHeaderRow.innerHTML = allOperationsHeaders.map((label, i) => {
-  const cls = allOperationsHeaderClasses[i];
-  return `<th${cls ? ` class="${cls}"` : ''}>${esc(label)}</th>`;
-}).join('');
+let allOperationsHeaderCells = [];
+let allOperationsDisplayEntries = []; // flat list of {row, allRows, rowIndexInVessel} | null (vessel separator)
 
 function renderAllOperationsPage(page) {
-  const totalRows = allOperationsData.length;
+  const totalRows = allOperationsDisplayEntries.length;
   const totalPages = Math.max(1, Math.ceil(totalRows / ALL_OPERATIONS_PAGE_SIZE));
   allOperationsCurrentPage = Math.min(Math.max(page, 1), totalPages);
 
   const start = (allOperationsCurrentPage - 1) * ALL_OPERATIONS_PAGE_SIZE;
-  const pageRows = allOperationsData.slice(start, start + ALL_OPERATIONS_PAGE_SIZE);
+  const pageEntries = allOperationsDisplayEntries.slice(start, start + ALL_OPERATIONS_PAGE_SIZE);
+  const headerKeys = allOperationsHeaderCells.map(cell => cell.key);
 
-  allOperationsBody.innerHTML = pageRows.length
-    ? pageRows.map(row => row === null
-        ? `<tr class="all-operations-separator"><td colspan="${allOperationsHeaders.length}"></td></tr>`
-        : `<tr>${row.map(value => `<td>${displayValue(value)}</td>`).join('')}</tr>`
+  allOperationsBody.innerHTML = pageEntries.length
+    ? pageEntries.map(entry => entry === null
+        ? `<tr class="all-operations-separator"><td colspan="${allOperationsHeaderCells.length}"></td></tr>`
+        : `<tr>${buildExportRowValues(entry.row, entry.allRows, entry.rowIndexInVessel, headerKeys).map(value => `<td>${displayValue(value)}</td>`).join('')}</tr>`
       ).join('')
-    : `<tr><td colspan="${allOperationsHeaders.length}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+    : `<tr><td colspan="${allOperationsHeaderCells.length}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
 
   allOperationsSummary.textContent = totalRows ? `${totalRows} baris` : '';
   allOperationsPageInfo.textContent = totalRows
@@ -2571,8 +2356,6 @@ function renderAllOperationsPage(page) {
 
 allOperationsPrev.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage - 1));
 allOperationsNext.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage + 1));
-
-renderAllOperationsPage(1);
 
 const formattedNumberFields = new Set([
   'qty', 'qty_disc', 'rc', 'qty_actual',
@@ -2607,6 +2390,46 @@ const CYCLE_TIME_4DP_NUMBER_FIELDS = new Set([
   'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
 ]);
 
+// Shared by the landing table below and the downloadGroupedExport handler above: groups an
+// ALREADY-SORTED (compareTluExportRows, PHP) flat row list into per-vessel buckets,
+// because cycle-time cross-row formulas (loading rate, disch time prev/next) only compare a
+// row against its own vessel's siblings — never across vessels. See
+// docs/adr/0001-tlu-grouped-export-computes-client-side.md.
+function groupRowsByVessel(rows) {
+  const groups = [];
+  let current = null;
+  let currentKey = null;
+  for (const row of rows) {
+    const key = `${row.no_pk} ${row.mothervessel}`;
+    if (key !== currentKey) {
+      current = [];
+      groups.push(current);
+      currentKey = key;
+    }
+    current.push(row);
+  }
+  return groups;
+}
+
+// One export/display row: header key -> formatted text, matching what rowMarkup() shows in
+// the Cycle Time table (Stowage Plan is blank after each vessel's first row, same as there).
+function buildExportRowValues(row, allRows, rowIndexInVessel, headerKeys) {
+  return headerKeys.map(key => key === 'stowageplan_mt'
+    ? (rowIndexInVessel === 0 ? formatDisplayNumber(getFieldValue(row, 'stowageplan_mt', allRows)) : '')
+    : columnDisplayValue(row, key, allRows));
+}
+
+// Column order/labels/classes for both the landing table and the grouped CSV export come
+// straight from the live Cycle Time table markup — the single source of truth for "what a
+// cycle-time column is" — instead of a second array that has to be kept in sync with it.
+function cycleTimeExportHeaderCells() {
+  return [...document.querySelectorAll('#cycleTimeTable thead th[data-key]')].map(th => ({
+    key: th.dataset.key,
+    label: th.dataset.label || th.textContent.trim(),
+    className: th.className.split(' ').filter(cls => cls.startsWith('cycle-time')).join(' ')
+  }));
+}
+
 function formatDisplayNumber(value) {
   const text = String(value ?? '').trim();
   if (!text) return '';
@@ -2619,17 +2442,7 @@ function formatDisplayNumber(value) {
   }).format(Number(normalized));
 }
 
-function formatCycleTimeNumber(value) {
-  const text = String(value ?? '').trim();
-  if (!text) return '';
-
-  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
-  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
-
-  return new Intl.NumberFormat('en-US', {
-    maximumFractionDigits: 4
-  }).format(Number(normalized));
-}
+// formatCycleTimeNumber now lives in assets/js/cycle-time.mjs (imported above).
 
 // Whole-percent display (no decimal places), e.g. 45.6789 -> "46%".
 function formatCargoReadinessPercent(value) {
@@ -2722,472 +2535,10 @@ function operationCell(operationData, field) {
   return `<td>${displayValue(value)}</td>`;
 }
 
-function parseOperationNumber(value) {
-  const normalized = String(value ?? '').replaceAll(',', '').trim();
-  if (normalized === '') return null;
-
-  const number = Number(normalized);
-  return Number.isFinite(number) ? number : null;
-}
-
-function calculateQtyActual(data) {
-  const qtyDisc = parseOperationNumber(data.qty_disc);
-  const rc = parseOperationNumber(data.rc);
-  if (qtyDisc === null && rc === null) return '';
-
-  return formatDisplayNumber((qtyDisc ?? 0) + (rc ?? 0));
-}
-
-// Default for Waiting Loading Jetty: 0 if Laycan Start is empty, else (Start Loading - Arrival Jetty) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateWaitingLoadingJetty(laycanStart, data) {
-  if (!String(laycanStart ?? '').trim()) return 0;
-
-  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
-  const arrivalJetty = Date.parse(String(data.arrival_jetty ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(startLoading) || !Number.isFinite(arrivalJetty)) return '';
-
-  return (startLoading - arrivalJetty) / 86400000;
-}
-
-// Laycan Start/End are stored as bare "YYYY-MM-DD" dates. Date.parse() treats a
-// date-only string as UTC midnight but a "YYYY-MM-DD HH:MM:SS" string (once the
-// space is swapped for "T") as local midnight — mixing the two would shift Laycan
-// Start/End by the local UTC offset relative to Arrival Jetty/Start Loading. Anchor
-// the bare date to local midnight explicitly so all values share the same basis.
-function parseLaycanDateTime(raw) {
-  const s = String(raw ?? '').trim();
-  if (!s) return NaN;
-  return Date.parse(s.includes(' ') || s.includes('T') ? s.replace(' ', 'T') : `${s}T00:00:00`);
-}
-
-// Default for Barges Arrival Early: conditional formula comparing Arrival Jetty against Laycan Start/End.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateBargesArrivalEarly(row, data) {
-  const laycanStartRaw = String(row.laycan_start ?? '').trim();
-  if (!laycanStartRaw) return 0;
-
-  const laycanStart = parseLaycanDateTime(laycanStartRaw);
-  const laycanEnd = parseLaycanDateTime(row.laycan_end);
-  const arrivalJetty = Date.parse(String(data.arrival_jetty ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(laycanStart) || !Number.isFinite(arrivalJetty)) return '';
-
-  if (arrivalJetty > laycanStart && Number.isFinite(laycanEnd) && arrivalJetty >= laycanEnd) {
-    return 0;
-  }
-
-  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
-  const daysBetween = (end, start) => (end - start) / 86400000;
-
-  if (Number.isFinite(laycanEnd) && laycanStart < arrivalJetty && arrivalJetty < laycanEnd) {
-    return Number.isFinite(startLoading) ? daysBetween(startLoading, arrivalJetty) : '';
-  }
-
-  if (arrivalJetty < laycanStart && Number.isFinite(startLoading) && startLoading < laycanStart) {
-    return daysBetween(startLoading, arrivalJetty);
-  }
-
-  return daysBetween(laycanStart, arrivalJetty);
-}
-
-// Default for Waiting Plan Loading: (Waiting Loading Jetty - Barges Arrival Early), floored at 0.
-// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
-function calculateWaitingPlanLoading(bargesArrivalEarly, waitingLoadingJetty) {
-  if (bargesArrivalEarly === null || waitingLoadingJetty === null) return '';
-
-  const diff = waitingLoadingJetty - bargesArrivalEarly;
-  return diff < 0 ? 0 : diff;
-}
-
-// Default for Check Waiting Loading Jetty: True if Waiting Loading Jetty equals Barges Arrival Early + Waiting Plan Loading.
-// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
-function calculateCheckWaitingLoadingJetty(waitingLoadingJetty, bargesArrivalEarly, waitingPlanLoading) {
-  if (waitingLoadingJetty === null || bargesArrivalEarly === null || waitingPlanLoading === null) return '';
-
-  const sum = bargesArrivalEarly + waitingPlanLoading;
-  return Math.abs(waitingLoadingJetty - sum) < 1e-9 ? 'True' : 'False';
-}
-
-// Default for Loading Time Jetty: 0 if Completed Loading is empty, else (Completed Loading - Start Loading) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateLoadingTimeJetty(data) {
-  const completedLoadingRaw = String(data.completed_loading ?? '').trim();
-  if (!completedLoadingRaw) return 0;
-
-  const completedLoading = Date.parse(completedLoadingRaw.replace(' ', 'T'));
-  const startLoading = Date.parse(String(data.start_loading ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(completedLoading) || !Number.isFinite(startLoading)) return '';
-
-  return (completedLoading - startLoading) / 86400000;
-}
-
-// Default for Disch Time for Loading Rate: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
-// Rule priority (checked in order, first match wins), based on discharge-sequence order (allRows):
-//   1. Sandwich rule (top priority): this row's Start Disch equals the PREVIOUS row's Start Disch AND
-//      this row's Completed Disch equals the NEXT row's Completed Disch → 0. (Prev/next rows are not forced by
-//      this rule — each still resolves through this same cascade independently, e.g. rule 2 below.)
-//   2. Consecutive-pair rule: this row's Start Disch and Completed Disch both equal the PREVIOUS row's → 0.
-//   3. Default: Completed Disch − Start Disch (days).
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateDischTimeLoadingRate(row, data, allRows) {
-  const completedDischRaw = String(data.completed_disch ?? '').trim();
-  if (!completedDischRaw) return 0;
-
-  const startDischRaw = String(data.start_disch ?? '').trim();
-
-  const rows = allRows || [row];
-  const idx = rows.findIndex(r => Number(r.id) === Number(row.id));
-  const prevData = idx > 0 ? parseOperationData(rows[idx - 1].operation_data) : null;
-  const nextData = idx >= 0 && idx < rows.length - 1 ? parseOperationData(rows[idx + 1].operation_data) : null;
-
-  const prevStartDischRaw = prevData ? String(prevData.start_disch ?? '').trim() : '';
-  const prevCompletedDischRaw = prevData ? String(prevData.completed_disch ?? '').trim() : '';
-  const nextCompletedDischRaw = nextData ? String(nextData.completed_disch ?? '').trim() : '';
-
-  if (prevData && nextData && startDischRaw && prevStartDischRaw === startDischRaw
-      && nextCompletedDischRaw && nextCompletedDischRaw === completedDischRaw) {
-    return 0;
-  }
-
-  if (prevData && prevCompletedDischRaw && prevCompletedDischRaw === completedDischRaw && prevStartDischRaw === startDischRaw) {
-    return 0;
-  }
-
-  const completedDisch = Date.parse(completedDischRaw.replace(' ', 'T'));
-  const startDisch = Date.parse(startDischRaw.replace(' ', 'T'));
-  if (!Number.isFinite(completedDisch) || !Number.isFinite(startDisch)) return '';
-
-  return (completedDisch - startDisch) / 86400000;
-}
-
-// Default for Disch Time: 0 if Completed Disch is empty, else (Completed Disch - Start Disch) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateDischTimePercent(data) {
-  const completedDischRaw = String(data.completed_disch ?? '').trim();
-  if (!completedDischRaw) return 0;
-
-  const completedDisch = Date.parse(completedDischRaw.replace(' ', 'T'));
-  const startDisch = Date.parse(String(data.start_disch ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(completedDisch) || !Number.isFinite(startDisch)) return '';
-
-  return (completedDisch - startDisch) / 86400000;
-}
-
-// Default for Pure Time: 0 if Start Disch is empty, else (Start Disch - TA Barges Actual) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculatePureTime(data) {
-  const startDischRaw = String(data.start_disch ?? '').trim();
-  if (!startDischRaw) return 0;
-
-  const startDisch = Date.parse(startDischRaw.replace(' ', 'T'));
-  const taBargesActual = Date.parse(String(data.ta_barges_actual ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(startDisch) || !Number.isFinite(taBargesActual)) return '';
-
-  return (startDisch - taBargesActual) / 86400000;
-}
-
-// Default for Total CT LTC: 0 if Arrival Jetty is empty, else (Back to Jetty - Arrival Jetty) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateTotalCtLtc(data) {
-  const arrivalJettyRaw = String(data.arrival_jetty ?? '').trim();
-  if (!arrivalJettyRaw) return 0;
-
-  const arrivalJetty = Date.parse(arrivalJettyRaw.replace(' ', 'T'));
-  const backToJetty = Date.parse(String(data.back_to_jetty ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(arrivalJetty) || !Number.isFinite(backToJetty)) return '';
-
-  return (backToJetty - arrivalJetty) / 86400000;
-}
-
-// Default for LTC Day: Laytime - (Total CT LTC - Barges Arrival Early); capped at 0 when that result is positive.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateLtcDay(laytime, totalCtLtc, bargesArrivalEarly) {
-  if (laytime === null || totalCtLtc === null || bargesArrivalEarly === null) return '';
-
-  const diff = laytime - (totalCtLtc - bargesArrivalEarly);
-  return diff > 0 ? 0 : diff;
-}
-
-// Default for LTC Total: LTC Rate * LTC Day.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateLtcTotal(ltcRate, ltcDay) {
-  if (ltcRate === null || ltcDay === null) return '';
-
-  return ltcRate * ltcDay;
-}
-
-// Default for Back to Jetty Time: 0 if Back to Jetty is empty, else (Back to Jetty - Completed Disch) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateBackToJettyTime(data) {
-  const backToJettyRaw = String(data.back_to_jetty ?? '').trim();
-  if (!backToJettyRaw) return 0;
-
-  const backToJetty = Date.parse(backToJettyRaw.replace(' ', 'T'));
-  const completedDisch = Date.parse(String(data.completed_disch ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(backToJetty) || !Number.isFinite(completedDisch)) return '';
-
-  return (backToJetty - completedDisch) / 86400000;
-}
-
-// Default for Part 1: 0 if Clear Pass is empty, else (Clear Pass - Completed Loading) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculatePart1(data) {
-  const clearPassRaw = String(data.clear_pass ?? '').trim();
-  if (!clearPassRaw) return 0;
-
-  const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
-  const completedLoading = Date.parse(String(data.completed_loading ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(clearPass) || !Number.isFinite(completedLoading)) return '';
-
-  return (clearPass - completedLoading) / 86400000;
-}
-
-// Default for Part 2: 0 if Clear Pass is empty, else (TA Barges Actual - Clear Pass) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculatePart2(data) {
-  const clearPassRaw = String(data.clear_pass ?? '').trim();
-  if (!clearPassRaw) return 0;
-
-  const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
-  const taBargesActual = Date.parse(String(data.ta_barges_actual ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(clearPass) || !Number.isFinite(taBargesActual)) return '';
-
-  return (taBargesActual - clearPass) / 86400000;
-}
-
-// Default for Sailing Time: 0 if Clear Pass is empty; else if Cast Off Mooring Clear Pass is empty,
-// (TA Barges Actual - Clear Pass) in days; else (TA Barges Actual - Cast Off Mooring Clear Pass) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateSailingTime(data) {
-  const clearPassRaw = String(data.clear_pass ?? '').trim();
-  if (!clearPassRaw) return 0;
-
-  const taBargesActual = Date.parse(String(data.ta_barges_actual ?? '').trim().replace(' ', 'T'));
-  const castOffMooringClearPassRaw = String(data.cast_off_mooring_clear_pass ?? '').trim();
-
-  if (!castOffMooringClearPassRaw) {
-    const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
-    if (!Number.isFinite(clearPass) || !Number.isFinite(taBargesActual)) return '';
-    return (taBargesActual - clearPass) / 86400000;
-  }
-
-  const castOffMooringClearPass = Date.parse(castOffMooringClearPassRaw.replace(' ', 'T'));
-  if (!Number.isFinite(castOffMooringClearPass) || !Number.isFinite(taBargesActual)) return '';
-
-  return (taBargesActual - castOffMooringClearPass) / 86400000;
-}
-
-// Default for Mooring 2: 0 if Clear Pass is empty, else (Part 2 - Sailing Time) in days.
-// part2 and sailingTime are already-resolved raw (unrounded) numbers from getFieldValue/rowMarkup.
-function calculateMooring2(data, part2, sailingTime) {
-  const clearPassRaw = String(data.clear_pass ?? '').trim();
-  if (!clearPassRaw) return 0;
-
-  if (part2 === null || sailingTime === null) return '';
-
-  return part2 - sailingTime;
-}
-
-// Default for Check Part 2: True if Part 2 equals Mooring 2 + Sailing Time.
-// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
-function calculateCheckPart2(part2, mooring2, sailingTime) {
-  if (part2 === null || mooring2 === null || sailingTime === null) return '';
-
-  const sum = mooring2 + sailingTime;
-  return Math.abs(part2 - sum) < 1e-9 ? 'True' : 'False';
-}
-
-// Default for Total Waiting Disch MV: Mooring 2 + Pure Time.
-// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
-function calculateTotalWaitingDischMv(mooring2, pureTime) {
-  if (mooring2 === null || pureTime === null) return '';
-
-  return mooring2 + pureTime;
-}
-
-// Default for Waiting Cargo Readiness (P2): IFERROR(Waiting Cargo Readiness (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateWaitingCargoReadiness(waitingCargoReadinessP3, pureTime, totalWaitingDischMv) {
-  const numerator = waitingCargoReadinessP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for Waiting MV (P2): IFERROR(Waiting MV (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateWaitingMv(waitingMvP3, pureTime, totalWaitingDischMv) {
-  const numerator = waitingMvP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for Waiting FLF (P2): IFERROR(Waiting FLF (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateWaitingFlf(waitingFlfP3, pureTime, totalWaitingDischMv) {
-  const numerator = waitingFlfP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for Waiting Queueing (P2): IFERROR(Waiting Queuing (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateWaitingQueueing(waitingQueuingP3, pureTime, totalWaitingDischMv) {
-  const numerator = waitingQueuingP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for Other Factor (P2): IFERROR(Other Factor (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv) {
-  const numerator = otherFactorP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for Waiting Sequence (P2): IFERROR(Waiting Sequence (P3) / Pure Time * Total Waiting Disch MV, 0).
-// Mirrors spreadsheet IFERROR semantics: blank/non-numeric inputs and division-by-zero all fall back to 0.
-function calculateWaitingSequence(waitingSequenceP3, pureTime, totalWaitingDischMv) {
-  const numerator = waitingSequenceP3 ?? 0;
-  const denominator = pureTime ?? 0;
-  const multiplier = totalWaitingDischMv ?? 0;
-  if (!denominator) return 0;
-
-  const result = (numerator / denominator) * multiplier;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Default for LHV Time: 0 if LHV is empty, else (LHV - Completed Loading) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateLhvTime(data) {
-  const lhvRaw = String(data.lhv ?? '').trim();
-  if (!lhvRaw) return 0;
-
-  const lhv = Date.parse(lhvRaw.replace(' ', 'T'));
-  const completedLoading = Date.parse(String(data.completed_loading ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(lhv) || !Number.isFinite(completedLoading)) return '';
-
-  return (lhv - completedLoading) / 86400000;
-}
-
-// Default for Clear Pass Time: 0 if Clear Pass is empty, else (Clear Pass - End Mooring) in days.
-// Returns the raw (unrounded) number — rounding only happens at display time via formatCycleTimeNumber.
-function calculateClearPassTime(data) {
-  const clearPassRaw = String(data.clear_pass ?? '').trim();
-  if (!clearPassRaw) return 0;
-
-  const clearPass = Date.parse(clearPassRaw.replace(' ', 'T'));
-  const endMooring = Date.parse(String(data.end_mooring ?? '').trim().replace(' ', 'T'));
-  if (!Number.isFinite(clearPass) || !Number.isFinite(endMooring)) return '';
-
-  return (clearPass - endMooring) / 86400000;
-}
-
-// Default for SPOG Time: Part 1 - (LHV Time + Clear Pass Time).
-// Inputs/output are raw (unrounded) numbers — rounding only happens at display time via formatCycleTimeNumber.
-function calculateSpogTime(part1, lhvTime, clearPassTime) {
-  if (part1 === null || lhvTime === null || clearPassTime === null) return '';
-
-  return part1 - (lhvTime + clearPassTime);
-}
-
-// Default for Check Part 1: True if Part 1 equals LHV Time + SPOG Time + Clear Pass Time.
-// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
-function calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime) {
-  if (part1 === null || lhvTime === null || spogTime === null || clearPassTime === null) return '';
-
-  const sum = lhvTime + spogTime + clearPassTime;
-  return Math.abs(part1 - sum) < 1e-9 ? 'True' : 'False';
-}
-
-// Default for Check Waiting Time Disch MV: True if Pure Time equals the sum of the (P3) waiting components.
-// Compares raw (unrounded) numbers with a tiny epsilon for floating-point safety, not the rounded display values.
-function calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3) {
-  if (pureTime === null || waitingCargoReadinessP3 === null || waitingMvP3 === null || waitingFlfP3 === null || waitingQueuingP3 === null || waitingSequenceP3 === null || otherFactorP3 === null) return '';
-
-  const sum = waitingCargoReadinessP3 + waitingMvP3 + waitingFlfP3 + waitingQueuingP3 + waitingSequenceP3 + otherFactorP3;
-  return Math.abs(pureTime - sum) < 1e-9 ? 'True' : 'False';
-}
-
-// Sum of Disch Time for Loading Rate across every barge row of the vessel (not just the filtered/sorted rows shown).
-function sumDischTimeLoadingRate(allRows) {
-  return (allRows || []).reduce((sum, r) => {
-    return sum + (parseOperationNumber(getFieldValue(r, 'disch_time_loading_rate', allRows)) ?? 0);
-  }, 0);
-}
-
-// Default for Loading Rate: IFERROR(Stowage Plan / SUM(Disch Time for Loading Rate), 0).
-// Stowage Plan is a vessel-level value shared by every barge row; the sum runs over all barge rows of the vessel.
-function calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate) {
-  const numerator = stowageplanMt ?? 0;
-  const denominator = totalDischTimeLoadingRate ?? 0;
-  if (!denominator) return 0;
-
-  const result = numerator / denominator;
-  return Number.isFinite(result) ? result : 0;
-}
-
-// Sum of QTY Actual across every barge row of the vessel (not just the filtered/sorted rows shown).
-function sumQtyActual(allRows) {
-  return (allRows || []).reduce((sum, r) => {
-    return sum + (parseOperationNumber(getFieldValue(r, 'qty_actual', allRows)) ?? 0);
-  }, 0);
-}
-
-// Sorts rows by Completed Disch ascending (same date field driving Disch Time for Loading Rate's
-// discharge-sequence order). Rows with an empty/invalid Completed Disch sort last, original order preserved for ties.
-function sortRowsByCompletedDisch(allRows) {
-  return [...(allRows || [])].sort((a, b) => {
-    const aTime = Date.parse(String(parseOperationData(a.operation_data).completed_disch ?? '').trim().replace(' ', 'T'));
-    const bTime = Date.parse(String(parseOperationData(b.operation_data).completed_disch ?? '').trim().replace(' ', 'T'));
-    const aValid = Number.isFinite(aTime);
-    const bValid = Number.isFinite(bTime);
-    if (aValid && bValid) return aTime - bTime;
-    if (aValid) return -1;
-    if (bValid) return 1;
-    return 0;
-  });
-}
-
-// Default for % Cargo Readiness (P3): (sum of QTY Actual up to and including this row) / (sum of QTY Actual
-// across all rows of the vessel), as a percentage. Rows are first sorted by Completed Disch ascending
-// (matching Disch Time for Loading Rate's discharge-sequence order) so the percentage increases row by row.
-// Returns the raw (unrounded) percentage number — rounding to a whole percent happens at display time via
-// formatCargoReadinessPercent.
-function calculateCargoReadinessP3(row, allRows) {
-  const rows = allRows && allRows.length ? allRows : [row];
-  const sortedRows = sortRowsByCompletedDisch(rows);
-  const idx = sortedRows.findIndex(r => Number(r.id) === Number(row.id));
-  const upToRows = idx >= 0 ? sortedRows.slice(0, idx + 1) : [row];
-
-  const cumulativeQtyActual = upToRows.reduce((sum, r) => {
-    return sum + (parseOperationNumber(getFieldValue(r, 'qty_actual', allRows)) ?? 0);
-  }, 0);
-  const totalQtyActual = sumQtyActual(rows);
-  if (!totalQtyActual) return 0;
-
-  return (cumulativeQtyActual / totalQtyActual) * 100;
-}
+// parseOperationNumber, parseLaycanDateTime, the 28 calculate* cycle-time/laytime/LTC
+// formulas, and their sum/sort helpers (sumDischTimeLoadingRate, sumQtyActual,
+// sortRowsByCompletedDisch, calculateCargoReadinessP3) now live in
+// assets/js/cycle-time.mjs (imported above) so they're unit-testable under Node.
 
 // Cycle time header columns that show a formula info icon/popover; value is the ordered list of rules shown in the popover.
 const FORMULA_INFO_RULES = {
@@ -3374,166 +2725,7 @@ function urutkanSesuaiDenganDischargeSequence(rows) {
 /* ===== Sort / Filter / Freeze (same behavior as Operation/1vessel.php Data Vessel table) ===== */
 
 // fields stored directly on the sibarges row (everything else lives inside operation_data)
-const DIRECT_ROW_FIELDS = new Set([
-  'no_pk', 'buyer', 'mothervessel', 'jetty_code', 'shipper_code', 'tugboat', 'barge',
-  'laycan_start', 'laycan_end', 'operation_remarks',
-  'created_by', 'created_at', 'updated_at'
-]);
-
-function getFieldValue(row, key, allRows = [row]) {
-  if (key === 'stowageplan_mt') {
-    const rows = allRows && allRows.length ? allRows : [row];
-    return rows[0]?.stowageplan_mt ?? '';
-  }
-  if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
-  const operationData = parseOperationData(row.operation_data);
-  if (key === 'qty_actual') return calculateQtyActual(operationData);
-  if (key === 'waiting_loading_jetty' && !String(operationData.waiting_loading_jetty ?? '').trim()) {
-    return calculateWaitingLoadingJetty(row.laycan_start, operationData);
-  }
-  if (key === 'barges_arrival_early' && !String(operationData.barges_arrival_early ?? '').trim()) {
-    return calculateBargesArrivalEarly(row, operationData);
-  }
-  if (key === 'waiting_plan_loading' && !String(operationData.waiting_plan_loading ?? '').trim()) {
-    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
-    const waitingLoadingJetty = parseOperationNumber(getFieldValue(row, 'waiting_loading_jetty'));
-    return calculateWaitingPlanLoading(bargesArrivalEarly, waitingLoadingJetty);
-  }
-  if (key === 'check_waiting_loading_jetty' && !String(operationData.check_waiting_loading_jetty ?? '').trim()) {
-    const waitingLoadingJetty = parseOperationNumber(getFieldValue(row, 'waiting_loading_jetty'));
-    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
-    const waitingPlanLoading = parseOperationNumber(getFieldValue(row, 'waiting_plan_loading'));
-    return calculateCheckWaitingLoadingJetty(waitingLoadingJetty, bargesArrivalEarly, waitingPlanLoading);
-  }
-  if (key === 'loading_time_jetty' && !String(operationData.loading_time_jetty ?? '').trim()) {
-    return calculateLoadingTimeJetty(operationData);
-  }
-  if (key === 'disch_time_loading_rate' && !String(operationData.disch_time_loading_rate ?? '').trim()) {
-    return calculateDischTimeLoadingRate(row, operationData, allRows);
-  }
-  if (key === 'disch_time_percent' && !String(operationData.disch_time_percent ?? '').trim()) {
-    return calculateDischTimePercent(operationData);
-  }
-  if (key === 'cargo_readiness_p3' && !String(operationData.cargo_readiness_p3 ?? '').trim()) {
-    return calculateCargoReadinessP3(row, allRows);
-  }
-  if (key === 'pure_time' && !String(operationData.pure_time ?? '').trim()) {
-    return calculatePureTime(operationData);
-  }
-  if (key === 'total_ct_ltc' && !String(operationData.total_ct_ltc ?? '').trim()) {
-    return calculateTotalCtLtc(operationData);
-  }
-  if (key === 'ltc_day' && !String(operationData.ltc_day ?? '').trim()) {
-    const laytime = parseOperationNumber(operationData.laytime);
-    const totalCtLtc = parseOperationNumber(getFieldValue(row, 'total_ct_ltc'));
-    const bargesArrivalEarly = parseOperationNumber(getFieldValue(row, 'barges_arrival_early'));
-    return calculateLtcDay(laytime, totalCtLtc, bargesArrivalEarly);
-  }
-  if (key === 'ltc_total' && !String(operationData.ltc_total ?? '').trim()) {
-    const ltcRate = parseOperationNumber(operationData.ltc_rate);
-    const ltcDay = parseOperationNumber(getFieldValue(row, 'ltc_day'));
-    return calculateLtcTotal(ltcRate, ltcDay);
-  }
-  if (key === 'back_to_jetty_time' && !String(operationData.back_to_jetty_time ?? '').trim()) {
-    return calculateBackToJettyTime(operationData);
-  }
-  if (key === 'part_1' && !String(operationData.part_1 ?? '').trim()) {
-    return calculatePart1(operationData);
-  }
-  if (key === 'part_2' && !String(operationData.part_2 ?? '').trim()) {
-    return calculatePart2(operationData);
-  }
-  if (key === 'sailing_time' && !String(operationData.sailing_time ?? '').trim()) {
-    return calculateSailingTime(operationData);
-  }
-  if (key === 'mooring_2' && !String(operationData.mooring_2 ?? '').trim()) {
-    const part2 = parseOperationNumber(getFieldValue(row, 'part_2'));
-    const sailingTime = parseOperationNumber(getFieldValue(row, 'sailing_time'));
-    return calculateMooring2(operationData, part2, sailingTime);
-  }
-  if (key === 'check_part_2' && !String(operationData.check_part_2 ?? '').trim()) {
-    const part2 = parseOperationNumber(getFieldValue(row, 'part_2'));
-    const mooring2 = parseOperationNumber(getFieldValue(row, 'mooring_2'));
-    const sailingTime = parseOperationNumber(getFieldValue(row, 'sailing_time'));
-    return calculateCheckPart2(part2, mooring2, sailingTime);
-  }
-  if (key === 'total_waiting_disch_mv' && !String(operationData.total_waiting_disch_mv ?? '').trim()) {
-    const mooring2 = parseOperationNumber(getFieldValue(row, 'mooring_2'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    return calculateTotalWaitingDischMv(mooring2, pureTime);
-  }
-  if (key === 'waiting_cargo_readiness' && !String(operationData.waiting_cargo_readiness ?? '').trim()) {
-    const waitingCargoReadinessP3 = parseOperationNumber(getFieldValue(row, 'waiting_cargo_readiness_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateWaitingCargoReadiness(waitingCargoReadinessP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'waiting_mv' && !String(operationData.waiting_mv ?? '').trim()) {
-    const waitingMvP3 = parseOperationNumber(getFieldValue(row, 'waiting_mv_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateWaitingMv(waitingMvP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'waiting_flf' && !String(operationData.waiting_flf ?? '').trim()) {
-    const waitingFlfP3 = parseOperationNumber(getFieldValue(row, 'waiting_flf_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateWaitingFlf(waitingFlfP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'waiting_queueing' && !String(operationData.waiting_queueing ?? '').trim()) {
-    const waitingQueuingP3 = parseOperationNumber(getFieldValue(row, 'waiting_queuing_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateWaitingQueueing(waitingQueuingP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'other_factor' && !String(operationData.other_factor ?? '').trim()) {
-    const otherFactorP3 = parseOperationNumber(getFieldValue(row, 'other_factor_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateOtherFactor(otherFactorP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'waiting_sequence' && !String(operationData.waiting_sequence ?? '').trim()) {
-    const waitingSequenceP3 = parseOperationNumber(getFieldValue(row, 'waiting_sequence_p3'));
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const totalWaitingDischMv = parseOperationNumber(getFieldValue(row, 'total_waiting_disch_mv'));
-    return calculateWaitingSequence(waitingSequenceP3, pureTime, totalWaitingDischMv);
-  }
-  if (key === 'lhv_time' && !String(operationData.lhv_time ?? '').trim()) {
-    return calculateLhvTime(operationData);
-  }
-  if (key === 'clear_pass_time' && !String(operationData.clear_pass_time ?? '').trim()) {
-    return calculateClearPassTime(operationData);
-  }
-  if (key === 'spog_time' && !String(operationData.spog_time ?? '').trim()) {
-    const part1 = parseOperationNumber(getFieldValue(row, 'part_1'));
-    const lhvTime = parseOperationNumber(getFieldValue(row, 'lhv_time'));
-    const clearPassTime = parseOperationNumber(getFieldValue(row, 'clear_pass_time'));
-    return calculateSpogTime(part1, lhvTime, clearPassTime);
-  }
-  if (key === 'check_part_1' && !String(operationData.check_part_1 ?? '').trim()) {
-    const part1 = parseOperationNumber(getFieldValue(row, 'part_1'));
-    const lhvTime = parseOperationNumber(getFieldValue(row, 'lhv_time'));
-    const spogTime = parseOperationNumber(getFieldValue(row, 'spog_time'));
-    const clearPassTime = parseOperationNumber(getFieldValue(row, 'clear_pass_time'));
-    return calculateCheckPart1(part1, lhvTime, spogTime, clearPassTime);
-  }
-  if (key === 'check_waiting_time_disch_mv' && !String(operationData.check_waiting_time_disch_mv ?? '').trim()) {
-    const pureTime = parseOperationNumber(getFieldValue(row, 'pure_time'));
-    const waitingCargoReadinessP3 = parseOperationNumber(getFieldValue(row, 'waiting_cargo_readiness_p3'));
-    const waitingMvP3 = parseOperationNumber(getFieldValue(row, 'waiting_mv_p3'));
-    const waitingFlfP3 = parseOperationNumber(getFieldValue(row, 'waiting_flf_p3'));
-    const waitingQueuingP3 = parseOperationNumber(getFieldValue(row, 'waiting_queuing_p3'));
-    const waitingSequenceP3 = parseOperationNumber(getFieldValue(row, 'waiting_sequence_p3'));
-    const otherFactorP3 = parseOperationNumber(getFieldValue(row, 'other_factor_p3'));
-    return calculateCheckWaitingTimeDischMv(pureTime, waitingCargoReadinessP3, waitingMvP3, waitingFlfP3, waitingQueuingP3, waitingSequenceP3, otherFactorP3);
-  }
-  if (key === 'loading_rate' && !String(operationData.loading_rate ?? '').trim()) {
-    const stowageplanMt = parseOperationNumber(getFieldValue(row, 'stowageplan_mt', allRows));
-    const totalDischTimeLoadingRate = sumDischTimeLoadingRate(allRows);
-    return calculateLoadingRate(stowageplanMt, totalDischTimeLoadingRate);
-  }
-  return operationData[key] ?? '';
-}
+// DIRECT_ROW_FIELDS and getFieldValue now live in assets/js/cycle-time.mjs (imported above).
 
 // display value shown in the table cell for a given column (matches rowMarkup)
 function columnDisplayValue(row, key, allRows = [row]) {
@@ -3624,159 +2816,7 @@ const CYCLE_TIME_COLUMN_FIELDS_PART3 = [
 ];
 
 function rowMarkup(row, displayIndex, showCycleTimeColumns = false, allRows = [row]) {
-  const operationData = parseOperationData(row.operation_data);
-  operationData.qty_actual = calculateQtyActual(operationData);
-  if (!String(operationData.waiting_loading_jetty ?? '').trim()) {
-    operationData.waiting_loading_jetty = calculateWaitingLoadingJetty(row.laycan_start, operationData);
-  }
-  if (!String(operationData.barges_arrival_early ?? '').trim()) {
-    operationData.barges_arrival_early = calculateBargesArrivalEarly(row, operationData);
-  }
-  if (!String(operationData.waiting_plan_loading ?? '').trim()) {
-    operationData.waiting_plan_loading = calculateWaitingPlanLoading(
-      parseOperationNumber(operationData.barges_arrival_early),
-      parseOperationNumber(operationData.waiting_loading_jetty)
-    );
-  }
-  if (!String(operationData.check_waiting_loading_jetty ?? '').trim()) {
-    operationData.check_waiting_loading_jetty = calculateCheckWaitingLoadingJetty(
-      parseOperationNumber(operationData.waiting_loading_jetty),
-      parseOperationNumber(operationData.barges_arrival_early),
-      parseOperationNumber(operationData.waiting_plan_loading)
-    );
-  }
-  if (!String(operationData.loading_time_jetty ?? '').trim()) {
-    operationData.loading_time_jetty = calculateLoadingTimeJetty(operationData);
-  }
-  if (!String(operationData.disch_time_loading_rate ?? '').trim()) {
-    operationData.disch_time_loading_rate = calculateDischTimeLoadingRate(row, operationData, allRows);
-  }
-  if (!String(operationData.disch_time_percent ?? '').trim()) {
-    operationData.disch_time_percent = calculateDischTimePercent(operationData);
-  }
-  if (!String(operationData.cargo_readiness_p3 ?? '').trim()) {
-    operationData.cargo_readiness_p3 = calculateCargoReadinessP3(row, allRows);
-  }
-  if (!String(operationData.pure_time ?? '').trim()) {
-    operationData.pure_time = calculatePureTime(operationData);
-  }
-  if (!String(operationData.total_ct_ltc ?? '').trim()) {
-    operationData.total_ct_ltc = calculateTotalCtLtc(operationData);
-  }
-  if (!String(operationData.ltc_day ?? '').trim()) {
-    operationData.ltc_day = calculateLtcDay(
-      parseOperationNumber(operationData.laytime),
-      parseOperationNumber(operationData.total_ct_ltc),
-      parseOperationNumber(operationData.barges_arrival_early)
-    );
-  }
-  if (!String(operationData.ltc_total ?? '').trim()) {
-    operationData.ltc_total = calculateLtcTotal(
-      parseOperationNumber(operationData.ltc_rate),
-      parseOperationNumber(operationData.ltc_day)
-    );
-  }
-  if (!String(operationData.back_to_jetty_time ?? '').trim()) {
-    operationData.back_to_jetty_time = calculateBackToJettyTime(operationData);
-  }
-  if (!String(operationData.part_1 ?? '').trim()) {
-    operationData.part_1 = calculatePart1(operationData);
-  }
-  if (!String(operationData.part_2 ?? '').trim()) {
-    operationData.part_2 = calculatePart2(operationData);
-  }
-  if (!String(operationData.sailing_time ?? '').trim()) {
-    operationData.sailing_time = calculateSailingTime(operationData);
-  }
-  if (!String(operationData.mooring_2 ?? '').trim()) {
-    operationData.mooring_2 = calculateMooring2(
-      operationData,
-      parseOperationNumber(operationData.part_2),
-      parseOperationNumber(operationData.sailing_time)
-    );
-  }
-  if (!String(operationData.check_part_2 ?? '').trim()) {
-    operationData.check_part_2 = calculateCheckPart2(
-      parseOperationNumber(operationData.part_2),
-      parseOperationNumber(operationData.mooring_2),
-      parseOperationNumber(operationData.sailing_time)
-    );
-  }
-  if (!String(operationData.total_waiting_disch_mv ?? '').trim()) {
-    operationData.total_waiting_disch_mv = calculateTotalWaitingDischMv(
-      parseOperationNumber(operationData.mooring_2),
-      parseOperationNumber(operationData.pure_time)
-    );
-  }
-  if (!String(operationData.waiting_cargo_readiness ?? '').trim()) {
-    operationData.waiting_cargo_readiness = calculateWaitingCargoReadiness(
-      parseOperationNumber(operationData.waiting_cargo_readiness_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.waiting_mv ?? '').trim()) {
-    operationData.waiting_mv = calculateWaitingMv(
-      parseOperationNumber(operationData.waiting_mv_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.waiting_flf ?? '').trim()) {
-    operationData.waiting_flf = calculateWaitingFlf(
-      parseOperationNumber(operationData.waiting_flf_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.waiting_queueing ?? '').trim()) {
-    operationData.waiting_queueing = calculateWaitingQueueing(
-      parseOperationNumber(operationData.waiting_queuing_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.other_factor ?? '').trim()) {
-    operationData.other_factor = calculateOtherFactor(
-      parseOperationNumber(operationData.other_factor_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.waiting_sequence ?? '').trim()) {
-    operationData.waiting_sequence = calculateWaitingSequence(
-      parseOperationNumber(operationData.waiting_sequence_p3),
-      parseOperationNumber(operationData.pure_time),
-      parseOperationNumber(operationData.total_waiting_disch_mv)
-    );
-  }
-  if (!String(operationData.lhv_time ?? '').trim()) {
-    operationData.lhv_time = calculateLhvTime(operationData);
-  }
-  if (!String(operationData.clear_pass_time ?? '').trim()) {
-    operationData.clear_pass_time = calculateClearPassTime(operationData);
-  }
-  if (!String(operationData.spog_time ?? '').trim()) {
-    operationData.spog_time = calculateSpogTime(
-      parseOperationNumber(operationData.part_1),
-      parseOperationNumber(operationData.lhv_time),
-      parseOperationNumber(operationData.clear_pass_time)
-    );
-  }
-  if (!String(operationData.check_part_1 ?? '').trim()) {
-    operationData.check_part_1 = calculateCheckPart1(
-      parseOperationNumber(operationData.part_1),
-      parseOperationNumber(operationData.lhv_time),
-      parseOperationNumber(operationData.spog_time),
-      parseOperationNumber(operationData.clear_pass_time)
-    );
-  }
-  if (!String(operationData.loading_rate ?? '').trim()) {
-    operationData.loading_rate = calculateLoadingRate(
-      parseOperationNumber(getFieldValue(row, 'stowageplan_mt', allRows)),
-      sumDischTimeLoadingRate(allRows)
-    );
-  }
+  const operationData = computeCycleTimeFields(row, allRows);
 
   return `
     <tr data-row-id="${row.id}" tabindex="0" role="button" aria-label="Buka detail ${esc(row.si_barges)}">
@@ -4958,6 +3998,16 @@ createOperationWorkflow({
   detailModal: 'cycleTimeDetailModal', detailSubtitle: 'cycleTimeDetailSubtitle',
   detailBody: 'cycleTimeDetailBody', saveButton: 'cycleTimeSaveButton', saveStatus: 'cycleTimeSaveStatus'
 });
+
+allOperationsHeaderCells = cycleTimeExportHeaderCells();
+allOperationsHeaderRow.innerHTML = allOperationsHeaderCells.map(({ label, className }) =>
+  `<th${className ? ` class="${className}"` : ''}>${esc(label)}</th>`
+).join('');
+allOperationsDisplayEntries = groupRowsByVessel(allOperationsRawRows).flatMap((group, groupIndex) => [
+  ...(groupIndex > 0 ? [null] : []),
+  ...group.map((row, rowIndexInVessel) => ({ row, allRows: group, rowIndexInVessel }))
+]);
+renderAllOperationsPage(1);
 </script>
 
 <?php include __DIR__ . "/../includes/footer.php"; ?>

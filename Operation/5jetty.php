@@ -1,11 +1,5 @@
 <?php
-session_start();
-
-/* ========= AUTH (minimal) ========= */
-if (!isset($_SESSION['username'])) {
-  header("Location: /logistic/login.php");
-  exit;
-}
+require_once __DIR__ . '/../includes/operation_bootstrap.php';
 
 /* ========= SELF PATH ========= */
 $SELF = "/logistic/Operation/5jetty.php";
@@ -21,12 +15,6 @@ try {
 
 /* ========= HELPERS ========= */
 function clean($s){ return trim((string)$s); }
-
-function jsonOut($arr){
-  header('Content-Type: application/json; charset=utf-8');
-  echo json_encode($arr);
-  exit;
-}
 
 /* ========= CSV TEMPLATE DOWNLOAD ========= */
 if (isset($_GET['download']) && $_GET['download'] === 'jetty_template') {
