@@ -33,3 +33,18 @@ export function requireDivisi(divisi: string) {
     }
   };
 }
+
+/** Case-insensitive match against a set of allowed divisi, mirroring the
+ * sidebar's `canAccess()` visibility rule (see includes/sidebar.php). */
+export function requireAnyDivisi(divisiList: string[]) {
+  const allowed = divisiList.map((d) => d.toUpperCase());
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.session.username) {
+      reply.redirect("/login");
+      return;
+    }
+    if (!allowed.includes((req.session.divisi ?? "").toUpperCase())) {
+      reply.code(403).send("403 - Access denied");
+    }
+  };
+}

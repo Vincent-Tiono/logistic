@@ -8,6 +8,7 @@ export interface Target {
     home: string;
     createUser: string;
     logout: string;
+    vessel: string;
   };
 }
 
@@ -20,6 +21,7 @@ export const targets: Target[] = [
       home: "/home.php",
       createUser: "/create_user.php",
       logout: "/logout.php",
+      vessel: "/Operation/1vessel.php",
     },
   },
   {
@@ -30,6 +32,7 @@ export const targets: Target[] = [
       home: "/home",
       createUser: "/create-user",
       logout: "/logout",
+      vessel: "/vessel",
     },
   },
 ];

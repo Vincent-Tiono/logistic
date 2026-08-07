@@ -1,0 +1,357 @@
+<%- include('partials/header', { pageTitle: 'Vessel', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="m-0">Vessel</h4>
+    <div class="d-flex gap-2" style="max-width:420px; width:100%;">
+      <input id="searchBox" type="text" class="form-control form-control-sm"
+             placeholder="Search (No. Reff / No. SI / Buyer / Mother Vessel / Anchorage / Term)">
+      <button id="btnReset" class="btn btn-sm btn-outline-secondary" type="button">Reset</button>
+    </div>
+  </div>
+
+  <div id="alertBox" class="alert d-none" role="alert"></div>
+
+  <% if ((divisi || '').toUpperCase() === 'IT') { %>
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-2">Import CSV</h6>
+      <div class="small text-muted mb-2">Duplicate No. Reff akan di-skip.</div>
+      <form id="formImport" class="d-flex gap-2 align-items-center">
+        <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
+        <button class="btn btn-sm btn-primary" type="submit">Import</button>
+      </form>
+    </div>
+  </div>
+  <% } %>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-3">Input Vessel</h6>
+
+      <form id="formCreate" class="row g-2">
+        <div class="col-md-2">
+          <label class="form-label">No. Reff</label>
+          <input name="no_pk" class="form-control" placeholder="G.25-052" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">No. SI</label>
+          <input name="no_si_vessel" class="form-control" placeholder="060" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Buyer</label>
+          <input name="buyer" class="form-control" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Mother Vessel</label>
+          <input name="mothervessel" class="form-control" required>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Anchorage</label>
+          <select name="anchorage" class="form-select" required>
+            <option value="">-- pilih --</option>
+            <option value="MUARA BERAU">MUARA BERAU</option>
+            <option value="MUARA JAWA">MUARA JAWA</option>
+            <option value="PRIMA ANCHORAGE">PRIMA ANCHORAGE</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Term</label>
+          <select name="term" class="form-select" required>
+            <option value="">-- pilih --</option>
+            <option value="FOB">FOB</option>
+            <option value="FAS">FAS</option>
+            <option value="CIF">CIF</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Laycan Start</label>
+          <input name="laycan_start" type="date" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Laycan End</label>
+          <input name="laycan_end" type="date" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">TA Vessel</label>
+          <input name="ta_vessel" type="datetime-local" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">PKK</label>
+          <input name="pkk" type="datetime-local" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">RKBM</label>
+          <input name="rkbm" type="datetime-local" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Single (MT)</label>
+          <input name="single_mt" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Blending (MT)</label>
+          <input name="blending_mt" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Stowage Plan (MT)</label>
+          <input name="stowageplan_mt" class="form-control" placeholder="auto=Single+Blending">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Loading Rate Kontrak</label>
+          <input name="loading_rate_kontrak" class="form-control">
+        </div>
+        <div class="col-12">
+          <button class="btn btn-success" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-3">Data Vessel</h6>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <th style="min-width:120px;">No. Reff</th>
+              <th style="min-width:90px;">No. SI</th>
+              <th style="min-width:140px;">Buyer</th>
+              <th style="min-width:180px;">Mother Vessel</th>
+              <th style="min-width:170px;">Anchorage</th>
+              <th style="min-width:100px;">Term</th>
+              <th style="min-width:130px;">Laycan Start</th>
+              <th style="min-width:130px;">Laycan End</th>
+              <th style="min-width:150px;">TA Vessel</th>
+              <th style="min-width:150px;">PKK</th>
+              <th style="min-width:150px;">RKBM</th>
+              <th style="min-width:110px;">Single</th>
+              <th style="min-width:110px;">Blending</th>
+              <th style="min-width:120px;">Stowage Plan</th>
+              <th style="min-width:150px;">Loading Rate</th>
+              <th style="width:190px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="16" class="text-center text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <% if ((divisi || '').toUpperCase() === 'IT') { %>
+      <div class="d-flex justify-content-end mt-3">
+        <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+      </div>
+      <% } %>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const alertBox = document.getElementById('alertBox');
+
+function showAlert(type, msg){
+  alertBox.className = 'alert alert-' + type;
+  alertBox.textContent = msg;
+  alertBox.classList.remove('d-none');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function hideAlert(){
+  alertBox.classList.add('d-none');
+}
+
+function escapeHtml(s){
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function postAjax(payload){
+  const form = new URLSearchParams(payload);
+  const res = await fetch('/vessel', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body: form.toString()
+  });
+  return await res.json();
+}
+
+const tbody = document.getElementById('tbody');
+
+function toDatetimeLocal(v){
+  return (v ?? '').toString().trim().replace(' ', 'T').slice(0, 16);
+}
+
+function rowTemplate(r){
+  const no_pk = escapeHtml(r.no_pk);
+  const anchorages = ['MUARA BERAU', 'MUARA JAWA', 'PRIMA ANCHORAGE'];
+  const terms = ['FOB', 'FAS', 'CIF'];
+
+  const anchorageOpts = anchorages.map(a =>
+    `<option value="${a}" ${a === r.anchorage ? 'selected' : ''}>${a}</option>`
+  ).join('');
+  const termOpts = terms.map(t =>
+    `<option value="${t}" ${t === r.term ? 'selected' : ''}>${t}</option>`
+  ).join('');
+
+  return `
+  <tr data-pk="${no_pk}">
+    <td><input class="form-control form-control-sm" value="${no_pk}" disabled></td>
+    <td><input class="form-control form-control-sm" name="no_si_vessel" value="${escapeHtml(r.no_si_vessel)}"></td>
+    <td><input class="form-control form-control-sm" name="buyer" value="${escapeHtml(r.buyer)}"></td>
+    <td><input class="form-control form-control-sm" name="mothervessel" value="${escapeHtml(r.mothervessel)}"></td>
+    <td><select class="form-select form-select-sm" name="anchorage"><option value="">-- pilih --</option>${anchorageOpts}</select></td>
+    <td><select class="form-select form-select-sm" name="term"><option value="">-- pilih --</option>${termOpts}</select></td>
+    <td><input class="form-control form-control-sm" type="date" name="laycan_start" value="${escapeHtml(r.laycan_start ?? '')}"></td>
+    <td><input class="form-control form-control-sm" type="date" name="laycan_end" value="${escapeHtml(r.laycan_end ?? '')}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="ta_vessel" value="${escapeHtml(toDatetimeLocal(r.ta_vessel))}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="pkk" value="${escapeHtml(toDatetimeLocal(r.pkk))}"></td>
+    <td><input class="form-control form-control-sm" type="datetime-local" name="rkbm" value="${escapeHtml(toDatetimeLocal(r.rkbm))}"></td>
+    <td><input class="form-control form-control-sm" name="single_mt" value="${escapeHtml(r.single_mt)}"></td>
+    <td><input class="form-control form-control-sm" name="blending_mt" value="${escapeHtml(r.blending_mt)}"></td>
+    <td><input class="form-control form-control-sm" name="stowageplan_mt" value="${escapeHtml(r.stowageplan_mt)}"></td>
+    <td><input class="form-control form-control-sm" name="loading_rate_kontrak" value="${escapeHtml(r.loading_rate_kontrak)}"></td>
+    <td class="d-flex gap-2">
+      <button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
+      <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>
+    </td>
+  </tr>`;
+}
+
+async function loadVessels(q=''){
+  const res = await fetch('/vessel?ajax=1&action=list&q=' + encodeURIComponent(q));
+  const r = await res.json();
+  if (!r.ok){
+    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    return;
+  }
+  if (!r.data || r.data.length === 0){
+    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = r.data.map(rowTemplate).join('');
+}
+
+const searchBox = document.getElementById('searchBox');
+const btnReset  = document.getElementById('btnReset');
+
+let t = null;
+searchBox.addEventListener('input', () => {
+  hideAlert();
+  clearTimeout(t);
+  t = setTimeout(() => loadVessels(searchBox.value.trim()), 250);
+});
+
+btnReset.addEventListener('click', () => {
+  searchBox.value = '';
+  hideAlert();
+  loadVessels('');
+});
+
+const formCreate = document.getElementById('formCreate');
+formCreate.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hideAlert();
+
+  const fd = new FormData(formCreate);
+  const payload = { action: 'create' };
+  for (const [k, v] of fd.entries()) payload[k] = v.toString().trim();
+
+  const r = await postAjax(payload);
+  if (r.ok){
+    showAlert('success', r.msg || 'OK');
+    formCreate.reset();
+    loadVessels(searchBox.value.trim());
+  } else {
+    showAlert('danger', r.msg || 'Gagal');
+  }
+});
+
+tbody.addEventListener('click', async (e) => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const no_pk = tr.getAttribute('data-pk') || '';
+
+  if (e.target.classList.contains('btnUpdate')){
+    hideAlert();
+    const payload = { action: 'update', no_pk };
+    tr.querySelectorAll('input[name], select[name]').forEach(el => {
+      payload[el.name] = el.value.trim();
+    });
+
+    const r = await postAjax(payload);
+    if (r.ok){
+      showAlert('success', r.msg || 'Updated');
+      loadVessels(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal update');
+    }
+  }
+
+  if (e.target.classList.contains('btnDelete')){
+    hideAlert();
+    if (!no_pk) return;
+    if (!confirm('Hapus vessel ' + no_pk + ' ?')) return;
+
+    const r = await postAjax({ action: 'delete', no_pk });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadVessels(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal delete');
+    }
+  }
+});
+
+const formImport = document.getElementById('formImport');
+if (formImport) {
+  formImport.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const csvFile = document.getElementById('csvFile');
+    if (!csvFile.files.length) return;
+
+    const fd = new FormData();
+    fd.append('action', 'import_csv');
+    fd.append('csv', csvFile.files[0]);
+
+    const res = await fetch('/vessel', { method: 'POST', body: fd });
+    const r = await res.json();
+    if (r.ok){
+      showAlert('success', r.msg || 'Import selesai');
+      formImport.reset();
+      loadVessels(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal import');
+    }
+  });
+}
+
+const btnDeleteAll = document.getElementById('btnDeleteAll');
+if (btnDeleteAll) {
+  btnDeleteAll.addEventListener('click', async () => {
+    hideAlert();
+    if (!confirm('Hapus SEMUA data vessel? Tindakan ini tidak bisa dibatalkan.')) return;
+
+    const r = await postAjax({ action: 'delete_all' });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadVessels(searchBox.value.trim());
+    } else {
+      showAlert('danger', r.msg || 'Gagal');
+    }
+  });
+}
+
+loadVessels('');
+</script>
+
+<%- include('partials/footer') %>

@@ -11,6 +11,13 @@
     </a>
   <% } %>
 
+  <% if ((divisi || '').toUpperCase() === 'IT' || (divisi || '').toUpperCase() === 'OPERATION') { %>
+    <div class="menu-group-title">Operation</div>
+    <a class="nav-item-link" href="/vessel">
+      <span>🚢</span><span>Vessel</span>
+    </a>
+  <% } %>
+
   <div class="menu-group-title text-muted small px-3">
     Other modules still on the PHP app during migration.
   </div>

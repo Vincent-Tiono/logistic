@@ -31,3 +31,51 @@ export function dbPool(database: string): mysql.Pool {
   pools.set(database, pool);
   return pool;
 }
+
+/**
+ * Ports config/database.php's ensure_vessel_schedule_columns(): the base
+ * schema dump declares ta_vessel/pkk/rkbm as `date`, but the app stores full
+ * timestamps in them. PHP lazily ALTERs on every request; here it's called
+ * once at startup instead since the process (and its pool) is long-lived.
+ */
+export async function ensureVesselScheduleColumns(
+  pool: mysql.Pool
+): Promise<void> {
+  const [dbRows] = await pool.query<mysql.RowDataPacket[]>(
+    "SELECT DATABASE() AS db_name"
+  );
+  const database = String(dbRows[0]?.db_name ?? "");
+  if (!database) return;
+
+  const [columns] = await pool.query<mysql.RowDataPacket[]>(
+    `SELECT COLUMN_NAME, DATA_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = 'vessel'
+       AND COLUMN_NAME IN ('ta_vessel', 'pkk', 'rkbm')`,
+    [database]
+  );
+
+  const dataTypes = new Map<string, string>(
+    columns.map((c) => [String(c.COLUMN_NAME), String(c.DATA_TYPE)])
+  );
+
+  const alterParts: string[] = [];
+  if (!dataTypes.has("pkk")) {
+    alterParts.push("ADD COLUMN pkk datetime DEFAULT NULL AFTER ta_vessel");
+  } else if (dataTypes.get("pkk") === "date") {
+    alterParts.push("MODIFY COLUMN pkk datetime DEFAULT NULL");
+  }
+  if (!dataTypes.has("rkbm")) {
+    alterParts.push("ADD COLUMN rkbm datetime DEFAULT NULL AFTER pkk");
+  } else if (dataTypes.get("rkbm") === "date") {
+    alterParts.push("MODIFY COLUMN rkbm datetime DEFAULT NULL");
+  }
+  if (dataTypes.get("ta_vessel") === "date") {
+    alterParts.push("MODIFY COLUMN ta_vessel datetime DEFAULT NULL");
+  }
+
+  if (alterParts.length > 0) {
+    await pool.query(`ALTER TABLE vessel ${alterParts.join(", ")}`);
+  }
+}

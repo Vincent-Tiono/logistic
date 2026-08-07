@@ -58,4 +58,40 @@ export class HttpClient {
     const res = await this.postForm(path, fields);
     return JSON.parse(res.body) as T;
   }
+
+  async postMultipart(
+    path: string,
+    fields: Record<string, string>,
+    file: { fieldName: string; filename: string; content: string }
+  ): Promise<HttpResponse> {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+    fd.append(
+      file.fieldName,
+      new Blob([file.content], { type: "text/csv" }),
+      file.filename
+    );
+
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      redirect: "manual",
+      headers: this.cookie ? { cookie: this.cookie } : {},
+      body: fd,
+    });
+    this.capture(res);
+    return {
+      status: res.status,
+      location: res.headers.get("location"),
+      body: await res.text(),
+    };
+  }
+
+  async postJsonMultipart<T = unknown>(
+    path: string,
+    fields: Record<string, string>,
+    file: { fieldName: string; filename: string; content: string }
+  ): Promise<T> {
+    const res = await this.postMultipart(path, fields, file);
+    return JSON.parse(res.body) as T;
+  }
 }
