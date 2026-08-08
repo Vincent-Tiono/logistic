@@ -16,6 +16,7 @@ export interface Target {
     flf: string;
     sibarges: string;
     tluOperation: string;
+    coalBarging: string;
   };
 }
 
@@ -36,6 +37,7 @@ export const targets: Target[] = [
       flf: "/Operation/6flf.php",
       sibarges: "/Operation/7sibarges.php",
       tluOperation: "/Operation/8tluoperation.php",
+      coalBarging: "/Operation/9coalbarging.php",
     },
   },
   {
@@ -54,6 +56,7 @@ export const targets: Target[] = [
       flf: "/flf",
       sibarges: "/sibarges",
       tluOperation: "/tlu-operation",
+      coalBarging: "/coal-barging",
     },
   },
 ];

@@ -111,6 +111,104 @@ export async function ensureShipperLaytimeColumn(
 }
 
 /**
+ * Ports Operation/9coalbarging.php's ensureCoalBargingDatabase() (lines
+ * 19-85): creates the `datacoalbarging` database and its 3 tables if they
+ * don't exist yet. Unlike the other ensure*(pool) helpers, this can't take a
+ * Pool bound to a database name — `datacoalbarging` itself might not exist
+ * yet, so it opens its own connection with no default database selected
+ * (mirroring the legacy `new mysqli($host, $user, $password, '', $port)`),
+ * same as it does. Called once at startup, before any dbPool("datacoalbarging")
+ * query runs.
+ */
+export async function ensureCoalBargingDatabase(): Promise<void> {
+  const password = process.env.DB_PASS;
+  if (!password) {
+    throw new Error(
+      "DB_PASS belum diatur. Jalankan server dengan environment variable DB_USER dan DB_PASS."
+    );
+  }
+
+  const connectionConfig = {
+    host: process.env.DB_HOST || "127.0.0.1",
+    port: Number(process.env.DB_PORT) || 3306,
+    user: process.env.DB_USER || "logistic_app",
+    password,
+    charset: "utf8mb4_general_ci",
+  };
+
+  const serverConnection = await mysql.createConnection(connectionConfig);
+  try {
+    await serverConnection.query(
+      "CREATE DATABASE IF NOT EXISTS `datacoalbarging` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+    );
+  } finally {
+    await serverConnection.end();
+  }
+
+  const connection = await mysql.createConnection({
+    ...connectionConfig,
+    database: "datacoalbarging",
+  });
+
+  try {
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS coal_barge_operations (
+        id bigint unsigned NOT NULL AUTO_INCREMENT,
+        sibarges_id bigint unsigned NOT NULL,
+        operation_data json DEFAULT NULL,
+        remarks text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+        created_by varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_coal_barge_operations_sibarges (sibarges_id),
+        KEY idx_coal_barge_operations_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS coal_barge_rc_rows (
+        id bigint unsigned NOT NULL AUTO_INCREMENT,
+        source_sibarges_id bigint unsigned NOT NULL,
+        usage_status enum('used','unused') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'used',
+        operation_data json DEFAULT NULL,
+        remarks text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+        created_by varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+        created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at timestamp NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY idx_coal_barge_rc_usage_status (usage_status),
+        KEY idx_coal_barge_rc_source_sibarges (source_sibarges_id),
+        KEY idx_coal_barge_rc_created_at (created_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    const [statusColumns] = await connection.query<mysql.RowDataPacket[]>(
+      "SHOW COLUMNS FROM coal_barge_rc_rows LIKE 'usage_status'"
+    );
+    if (statusColumns.length === 0) {
+      await connection.query(`
+        ALTER TABLE coal_barge_rc_rows
+        ADD COLUMN usage_status enum('used','unused') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'used' AFTER source_sibarges_id,
+        ADD KEY idx_coal_barge_rc_usage_status (usage_status)
+      `);
+    }
+
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS coal_barge_deleted_rows (
+        sibarges_id bigint unsigned NOT NULL,
+        deleted_by varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+        deleted_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (sibarges_id),
+        KEY idx_coal_barge_deleted_at (deleted_at)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  } finally {
+    await connection.end();
+  }
+}
+
+/**
  * Ports Operation/3vendor.php's `CREATE TABLE IF NOT EXISTS vendor (...)`
  * self-heal. The `vendor` table isn't in the base schema dump at all (it
  * only ever existed via this PHP-embedded DDL), so unlike vessel/shipper

@@ -1,0 +1,458 @@
+<%- include('partials/header', { pageTitle: 'Coal Barging', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<main class="main">
+  <div class="content">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h4 class="m-0">Coal Barging</h4>
+    </div>
+
+    <div class="card" id="allVesselsCard">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h5 class="m-0">All Years / All Vessels</h5>
+          <div class="small text-muted" id="allVesselsSummary"></div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm align-middle mb-0" id="allVesselsTable">
+            <thead class="table-light"><tr id="allVesselsHeaderRow"></tr></thead>
+            <tbody id="allVesselsBody">
+              <tr><td class="text-center text-muted py-3">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mt-3">
+          <div class="small text-muted" id="allVesselsPageInfo"></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="allVesselsPrev">Previous</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="allVesselsNext">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h5 class="mb-3">Data Barges — Per Vessel</h5>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label for="cb_year" class="form-label fw-semibold">Pilih Tahun</label>
+            <select id="cb_year" class="form-select">
+              <option value="">-- Pilih Tahun --</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="cb_month" class="form-label fw-semibold">Pilih Bulan</label>
+            <select id="cb_month" class="form-select" disabled>
+              <option value="">-- Pilih Bulan --</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label for="cb_no_pk" class="form-label fw-semibold">Pilih Mother Vessel (No PK)</label>
+            <select id="cb_no_pk" class="form-select" disabled>
+              <option value="">-- Pilih Mother Vessel --</option>
+            </select>
+          </div>
+        </div>
+
+        <% if (!vesselPeriods || !vesselPeriods.length) { %>
+          <div class="form-text text-muted">
+            Belum ada Mother Vessel dengan Laycan Start pada Data Barges.
+          </div>
+        <% } %>
+
+        <div class="mt-3 d-none" id="dataBargesBox">
+          <div class="small text-muted mb-2" id="dataBargesSummary"></div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-0" id="dataBargesTable">
+              <thead class="table-light"><tr id="dataBargesHeaderRow"></tr></thead>
+              <tbody id="dataBargesBody"></tbody>
+            </table>
+          </div>
+
+          <h6 class="mt-4 mb-2">Unused RC</h6>
+          <div class="small text-muted mb-2" id="unusedRcMessage"></div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-0" id="unusedRcTable">
+              <thead class="table-light"><tr id="unusedRcHeaderRow"></tr></thead>
+              <tbody id="unusedRcBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script type="module">
+import {
+  dateJettyEffectiveValue,
+  dsrVsRedraftRawValue,
+  monthVesselFromCompletedDisch,
+  statusActActRcValue,
+  statusActRcValue,
+} from '/assets/js/coal-barging-calc.mjs';
+
+// Port of Coal Barging's read-only surface (Operation/9coalbarging.php):
+// the "All Years / All Vessels" landing table, the per-vessel Data Barges
+// table (si_barges_by_vessel), and the Unused RC table (unused_rc_options).
+// Per docs/adr/0001-tlu-grouped-export-computes-client-side.md, the server
+// hands over raw operation_data; the 4 calculated columns below run through
+// assets/js/coal-barging-calc.mjs. Write actions (save/create/delete/import/
+// input RC) are a separate ticket — this view has no edit affordances.
+
+const vesselPeriods = <%- JSON.stringify(vesselPeriods || []) %>;
+
+// Row-level fields come straight off the row (shared shape across all three
+// read endpoints: base sibarges columns + operation_data/operation_remarks).
+// Everything else is read from decoded operation_data, or computed.
+const DIRECT_ROW_FIELDS = new Set([
+  'no_pk', 'buyer', 'mothervessel', 'jetty_code', 'tugboat', 'barge',
+  'anchorage', 'laycan_start', 'laycan_end', 'operation_remarks',
+  'created_by', 'created_at', 'updated_at',
+]);
+
+const COAL_BARGING_COLUMNS = [
+  ['month_vessel', 'Month Vessel'],
+  ['status_act_rc', 'Status ACT/RC'],
+  ['status_act_act_rc', 'Status ACT/ACT&RC'],
+  ['laycan_start', 'Laycan Start'],
+  ['laycan_end', 'Laycan End'],
+  ['arrival_jetty', 'Arrival Jetty'],
+  ['date_jetty', 'Date Jetty'],
+  ['start_loading', 'Start Loading'],
+  ['completed_loading', 'Completed Loading'],
+  ['jetty_code', 'Jetty'],
+  ['tugboat', 'Tugboat'],
+  ['barge', 'Barge'],
+  ['qty', 'QTY Jetty'],
+  ['qty_disc', 'QTY DISC'],
+  ['qty_actual', 'QTY Laut'],
+  ['dsr_vs_redraft', 'DSR VS Redraft'],
+  ['no_pk', 'No. Reff'],
+  ['buyer', 'Buyer'],
+  ['mothervessel', 'POD MV'],
+  ['pbm_vendor', 'PBM Vendor'],
+  ['floating_crane', 'Floating Crane'],
+  ['start_disch', 'Start Disch'],
+  ['completed_disch', 'Completed Disch'],
+  ['anchorage', 'Anchorage'],
+  ['operation_remarks', 'Remarks'],
+  ['created_by', 'Created By'],
+  ['created_at', 'Created At'],
+  ['updated_at', 'Updated At'],
+];
+const headerKeys = COAL_BARGING_COLUMNS.map(([key]) => key);
+
+const DATETIME_FIELDS = new Set([
+  'arrival_jetty', 'start_loading', 'completed_loading', 'start_disch', 'completed_disch',
+]);
+const NUMBER_FIELDS = new Set(['qty', 'qty_disc', 'qty_actual', 'dsr_vs_redraft']);
+
+function parseOperationData(value) {
+  if (value && typeof value === 'object') return value;
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function esc(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function displayValue(value) {
+  const text = String(value ?? '').trim();
+  return text === '' ? '-' : esc(text);
+}
+
+function formatDisplayNumber(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(Number(normalized));
+}
+
+const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDDMonYY(val, withTime = false) {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const yy = m[1].slice(-2);
+  const mon = DDMONYY_MONTHS[parseInt(m[2], 10) - 1] || '';
+  const dd = m[3];
+  let out = `${dd}/${mon}/${yy}`;
+  if (withTime && m[4]) out += ` ${m[4]}:${m[5]}`;
+  return out;
+}
+
+// Matches getFieldValue()/rowMarkup() (9coalbarging.php:2731-2817): row-level
+// fields are read straight off the row; month_vessel/status_act_rc/
+// status_act_act_rc/date_jetty/dsr_vs_redraft are computed; everything else
+// comes from decoded operation_data.
+function getFieldValue(row, key) {
+  if (DIRECT_ROW_FIELDS.has(key)) return row[key] ?? '';
+
+  const data = parseOperationData(row.operation_data);
+  if (key === 'month_vessel') return monthVesselFromCompletedDisch(data.completed_disch);
+  if (key === 'status_act_rc') return statusActRcValue(data);
+  if (key === 'status_act_act_rc') return statusActActRcValue(data);
+  if (key === 'date_jetty') return dateJettyEffectiveValue(data);
+  if (key === 'dsr_vs_redraft') return dsrVsRedraftRawValue(data);
+  return data[key] ?? '';
+}
+
+function columnDisplayValue(row, key) {
+  const raw = getFieldValue(row, key);
+  if (key === 'laycan_start' || key === 'laycan_end') return fmtDDMonYY(raw, true);
+  if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
+  if (key === 'date_jetty') return fmtDDMonYY(raw, false);
+  if (DATETIME_FIELDS.has(key)) return fmtDDMonYY(raw, true);
+  if (NUMBER_FIELDS.has(key)) return formatDisplayNumber(raw);
+  return (raw ?? '').toString();
+}
+
+function buildRowCells(row) {
+  return headerKeys.map((key) => `<td>${displayValue(columnDisplayValue(row, key))}</td>`).join('');
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  return res.json();
+}
+
+function buildHeaderCells(rowEl, includeRowNumber) {
+  rowEl.innerHTML = (includeRowNumber ? ['<th>No.</th>'] : [])
+    .concat(COAL_BARGING_COLUMNS.map(([key, label]) => `<th data-key="${esc(key)}">${esc(label)}</th>`))
+    .join('');
+}
+
+buildHeaderCells(document.getElementById('allVesselsHeaderRow'), false);
+buildHeaderCells(document.getElementById('dataBargesHeaderRow'), true);
+buildHeaderCells(document.getElementById('unusedRcHeaderRow'), true);
+
+// ===== All Years / All Vessels (landing table, client-side paginated) =====
+
+const ALL_VESSELS_PAGE_SIZE = 100;
+let allVesselsCurrentPage = 1;
+let allVesselsDisplayEntries = [];
+
+const allVesselsBody = document.getElementById('allVesselsBody');
+const allVesselsSummary = document.getElementById('allVesselsSummary');
+const allVesselsPageInfo = document.getElementById('allVesselsPageInfo');
+const allVesselsPrev = document.getElementById('allVesselsPrev');
+const allVesselsNext = document.getElementById('allVesselsNext');
+
+function renderAllVesselsPage(page) {
+  const totalRows = allVesselsDisplayEntries.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / ALL_VESSELS_PAGE_SIZE));
+  allVesselsCurrentPage = Math.min(Math.max(page, 1), totalPages);
+
+  const start = (allVesselsCurrentPage - 1) * ALL_VESSELS_PAGE_SIZE;
+  const pageEntries = allVesselsDisplayEntries.slice(start, start + ALL_VESSELS_PAGE_SIZE);
+
+  allVesselsBody.innerHTML = pageEntries.length
+    ? pageEntries.map((entry) => entry === null
+        ? `<tr class="table-secondary"><td colspan="${headerKeys.length}"></td></tr>`
+        : `<tr>${buildRowCells(entry)}</tr>`
+      ).join('')
+    : `<tr><td colspan="${headerKeys.length}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+
+  allVesselsSummary.textContent = totalRows ? `${totalRows} baris` : '';
+  allVesselsPageInfo.textContent = totalRows
+    ? `Halaman ${allVesselsCurrentPage} dari ${totalPages} (baris ${start + 1}-${Math.min(start + ALL_VESSELS_PAGE_SIZE, totalRows)} dari ${totalRows})`
+    : '';
+
+  allVesselsPrev.classList.toggle('disabled', allVesselsCurrentPage <= 1);
+  allVesselsNext.classList.toggle('disabled', allVesselsCurrentPage >= totalPages);
+}
+
+allVesselsPrev.addEventListener('click', () => renderAllVesselsPage(allVesselsCurrentPage - 1));
+allVesselsNext.addEventListener('click', () => renderAllVesselsPage(allVesselsCurrentPage + 1));
+
+(async function loadAllVessels() {
+  const result = await fetchJson('/coal-barging?ajax=1&action=all_vessels');
+  const groups = result.ok ? (result.data || []) : [];
+  allVesselsDisplayEntries = groups.flatMap((group, groupIndex) => [
+    ...(groupIndex > 0 ? [null] : []),
+    ...group.rows,
+  ]);
+  renderAllVesselsPage(1);
+})();
+
+// ===== Data Barges — per vessel =====
+
+const monthNames = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+];
+
+const cbYearSelect = document.getElementById('cb_year');
+const cbMonthSelect = document.getElementById('cb_month');
+const cbNoPkSelect = document.getElementById('cb_no_pk');
+const dataBargesBox = document.getElementById('dataBargesBox');
+const dataBargesBody = document.getElementById('dataBargesBody');
+const dataBargesSummary = document.getElementById('dataBargesSummary');
+const unusedRcBody = document.getElementById('unusedRcBody');
+const unusedRcMessage = document.getElementById('unusedRcMessage');
+
+function replaceSelectOptions(select, placeholder, options) {
+  select.innerHTML = '';
+  select.appendChild(new Option(placeholder, ''));
+  options.forEach((option) => select.appendChild(new Option(option.label, option.value)));
+}
+
+const availableYears = [...new Set(vesselPeriods.map((v) => String(v.laycan_year)))]
+  .sort((a, b) => Number(b) - Number(a));
+replaceSelectOptions(cbYearSelect, '-- Pilih Tahun --', availableYears.map((y) => ({ value: y, label: y })));
+
+cbYearSelect.addEventListener('change', () => {
+  dataBargesBox.classList.add('d-none');
+  replaceSelectOptions(cbNoPkSelect, '-- Pilih Mother Vessel --', []);
+  cbNoPkSelect.disabled = true;
+
+  const year = cbYearSelect.value;
+  if (!year) {
+    replaceSelectOptions(cbMonthSelect, '-- Pilih Bulan --', []);
+    cbMonthSelect.disabled = true;
+    return;
+  }
+  const months = [...new Set(
+    vesselPeriods.filter((v) => String(v.laycan_year) === year).map((v) => Number(v.laycan_month))
+  )].sort((a, b) => a - b);
+  replaceSelectOptions(cbMonthSelect, '-- Pilih Bulan --', months.map((m) => ({ value: String(m), label: monthNames[m - 1] })));
+  cbMonthSelect.disabled = false;
+});
+
+cbMonthSelect.addEventListener('change', () => {
+  dataBargesBox.classList.add('d-none');
+  const year = cbYearSelect.value;
+  const month = cbMonthSelect.value;
+  if (!year || !month) {
+    replaceSelectOptions(cbNoPkSelect, '-- Pilih Mother Vessel --', []);
+    cbNoPkSelect.disabled = true;
+    return;
+  }
+  const vessels = vesselPeriods
+    .filter((v) => String(v.laycan_year) === year && String(Number(v.laycan_month)) === String(Number(month)))
+    .sort((a, b) => a.mothervessel.localeCompare(b.mothervessel));
+  replaceSelectOptions(
+    cbNoPkSelect,
+    '-- Pilih Mother Vessel --',
+    vessels.map((v) => ({ value: v.no_pk, label: `${v.mothervessel} (${v.no_pk})` }))
+  );
+  cbNoPkSelect.disabled = false;
+});
+
+// Matches urutkanSesuaiDenganDischargeSequence (9coalbarging.php:3612-3670):
+// the Data Barges table displays in discharge-sequence order (RC rows
+// immediately before their source base row), not the AJAX response's SQL
+// order (barge_seq ASC, sibarges_id ASC, is_rc_clone DESC) — mirrors the
+// same split+interleave algorithm as compareCoalBargingExportRows/
+// groupCoalBargingExportRows server-side (src/services/coal-barging.service.ts),
+// scoped to this single vessel's rows instead of grouped across vessels.
+function dischargeSequenceOf(row) {
+  const data = parseOperationData(row.operation_data);
+  const sequence = String(data.discharge_sequence ?? '').trim();
+  return sequence !== '' ? Number(sequence) : null;
+}
+
+function compareByDischargeSequence(left, right) {
+  const leftSequence = dischargeSequenceOf(left);
+  const rightSequence = dischargeSequenceOf(right);
+  if (leftSequence === null && rightSequence !== null) return 1;
+  if (leftSequence !== null && rightSequence === null) return -1;
+  if (leftSequence !== null && rightSequence !== null && leftSequence !== rightSequence) {
+    return leftSequence - rightSequence;
+  }
+  const bargeSeqCompare = Number(left.barge_seq) - Number(right.barge_seq);
+  if (bargeSeqCompare !== 0) return bargeSeqCompare;
+  const sourceCompare = Number(left.sibarges_id) - Number(right.sibarges_id);
+  if (sourceCompare !== 0) return sourceCompare;
+  const rcCompare = Number(left.is_rc_clone) - Number(right.is_rc_clone);
+  if (rcCompare !== 0) return rcCompare;
+  return Number(left.rc_row_id || 0) - Number(right.rc_row_id || 0);
+}
+
+function orderDataBargesRows(rows) {
+  const baseRows = rows.filter((row) => row.row_type !== 'rc').sort(compareByDischargeSequence);
+  const rcBySource = new Map();
+  rows.filter((row) => row.row_type === 'rc').forEach((row) => {
+    const list = rcBySource.get(row.sibarges_id) || [];
+    list.push(row);
+    rcBySource.set(row.sibarges_id, list);
+  });
+  for (const list of rcBySource.values()) list.sort(compareByDischargeSequence);
+
+  const ordered = [];
+  const attached = new Set();
+  for (const baseRow of baseRows) {
+    const rcRows = rcBySource.get(baseRow.sibarges_id);
+    if (rcRows) {
+      ordered.push(...rcRows);
+      attached.add(baseRow.sibarges_id);
+    }
+    ordered.push(baseRow);
+  }
+  for (const [sourceId, list] of rcBySource) {
+    if (!attached.has(sourceId)) ordered.push(...list);
+  }
+  return ordered;
+}
+
+function renderDataBargesTable(rows) {
+  dataBargesSummary.textContent = `${rows.length} baris`;
+  dataBargesBody.innerHTML = rows.length
+    ? rows.map((row, index) => `<tr>${`<td>${index + 1}</td>` + buildRowCells(row)}</tr>`).join('')
+    : `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+}
+
+function renderUnusedRcTable(rows) {
+  unusedRcMessage.textContent = rows.length ? '' : 'Tidak ada RC unused untuk TB vessel ini.';
+  unusedRcBody.innerHTML = rows.length
+    ? rows.map((row, index) => `<tr>${`<td>${index + 1}</td>` + buildRowCells(row)}</tr>`).join('')
+    : '';
+}
+
+cbNoPkSelect.addEventListener('change', async () => {
+  const noPk = cbNoPkSelect.value;
+  if (!noPk) {
+    dataBargesBox.classList.add('d-none');
+    return;
+  }
+
+  dataBargesBody.innerHTML = `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Memuat data...</td></tr>`;
+  unusedRcBody.innerHTML = '';
+  unusedRcMessage.textContent = '';
+  dataBargesBox.classList.remove('d-none');
+
+  const [dataBargesResult, unusedRcResult] = await Promise.all([
+    fetchJson(`/coal-barging?ajax=1&action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`),
+    fetchJson(`/coal-barging?ajax=1&action=unused_rc_options&no_pk=${encodeURIComponent(noPk)}`),
+  ]);
+
+  if (!dataBargesResult.ok) {
+    dataBargesBody.innerHTML = `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-danger py-3">${esc(dataBargesResult.msg || 'Gagal memuat data.')}</td></tr>`;
+    dataBargesSummary.textContent = '';
+  } else {
+    renderDataBargesTable(orderDataBargesRows(dataBargesResult.data || []));
+  }
+
+  renderUnusedRcTable(unusedRcResult.ok ? (unusedRcResult.data || []) : []);
+});
+</script>
+
+<%- include('partials/footer') %>
