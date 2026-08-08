@@ -673,7 +673,7 @@ async function validateVendorChoice(
   return rows.length > 0 ? null : `${label} tidak ditemukan pada data Barge Vendor.`;
 }
 
-async function validateFlfChoice(
+export async function validateFlfChoice(
   pool: Pool,
   column: "vendor_flf" | "floating_crane",
   value: string,

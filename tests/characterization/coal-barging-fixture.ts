@@ -112,6 +112,27 @@ export async function deleteCoalBargeRcRow(id: number): Promise<void> {
   await p.end();
 }
 
+export interface CoalBargeRcRow {
+  id: number;
+  source_sibarges_id: number;
+  usage_status: "used" | "unused";
+  operation_data: string | null;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export async function getCoalBargeRcRow(id: number): Promise<CoalBargeRcRow | null> {
+  const p = pool();
+  const [rows] = await p.query<(CoalBargeRcRow & mysql.RowDataPacket)[]>(
+    "SELECT id, source_sibarges_id, usage_status, operation_data, remarks, created_by, created_at, updated_at FROM coal_barge_rc_rows WHERE id = ?",
+    [id]
+  );
+  await p.end();
+  return rows[0] ?? null;
+}
+
 /** Seeds a disposable coal_barge_deleted_rows tombstone directly, bypassing
  * the app under test. */
 export async function seedCoalBargeDeletedRow(

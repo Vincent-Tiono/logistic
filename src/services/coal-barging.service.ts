@@ -1,5 +1,14 @@
-import type { Pool, RowDataPacket } from "mysql2/promise";
-import { decodeOperationData } from "./tlu-operation.service.js";
+import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
+import { detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
+import {
+  RESTRICTED_FLOATING_CRANES,
+  TLU_DATETIME_FIELDS,
+  formatOperationNumber,
+  normalizeOperationDateTime,
+  parseOperationDateTimeValue,
+  parseOperationNumber,
+} from "../lib/operation-fields.js";
+import { decodeOperationData, validateFlfChoice } from "./tlu-operation.service.js";
 
 export interface CoalBargingByVesselRow extends RowDataPacket {
   id: number;
@@ -469,4 +478,855 @@ export async function listAllVesselOperations(
 ): Promise<VesselExportGroup[]> {
   const rows = await listAllCoalBargingRows(pool);
   return groupCoalBargingExportRows(rows);
+}
+
+/* ===================== write actions (issue #14) ===================== */
+//
+// `pool` below is always the `databarging` connection, `coalPool` the
+// `datacoalbarging` one — matching legacy's per-statement choice of
+// $koneksi vs $coalKoneksi (9coalbarging.php:734-1564), with a
+// fully-qualified cross-database reference to whichever database that
+// statement's connection isn't already scoped to.
+
+/**
+ * Port of TLU_OPERATION_FIELDS as redeclared in 9coalbarging.php:115-142 —
+ * NOT the same field set as TLU Operation's own TLU_OPERATION_FIELDS
+ * (src/lib/operation-fields.ts): adds status_act_rc/status_act_act_rc/
+ * date_jetty, drops barge_vendor and every cycle-time field (Coal Barging
+ * has no Cycle Time tab).
+ */
+export const COAL_BARGING_OPERATION_FIELDS: readonly string[] = [
+  "status_act_rc",
+  "status_act_act_rc",
+  "qty",
+  "qty_disc",
+  "rc",
+  "qty_actual",
+  "pbm_vendor",
+  "floating_crane",
+  "arrival_jetty",
+  "date_jetty",
+  "start_loading",
+  "completed_loading",
+  "lhv",
+  "spog_zona_2",
+  "pkk",
+  "rkbm",
+  "sts_spb",
+  "start_mooring",
+  "end_mooring",
+  "mooring_place_1",
+  "clear_pass",
+  "start_mooring_clear_pass",
+  "cast_off_mooring_clear_pass",
+  "mooring_place_2",
+  "ta_barges_actual",
+  "ta_mv",
+  "ta_flf",
+  "cargo_readiness_actual",
+  "start_disch",
+  "completed_disch",
+  "discharge_sequence",
+  "back_to_jetty",
+];
+
+/** Port of TLU_CSV_COLUMNS as redeclared in 9coalbarging.php:172-211 — no
+ * barge_vendor column (unlike TLU Operation's own CSV shape). */
+export const COAL_BARGING_CSV_COLUMNS: readonly string[] = [
+  "si_barges",
+  "no_pk",
+  "buyer",
+  "mother_vessel",
+  "jetty",
+  "tugboat",
+  "barge",
+  "qty",
+  "qty_disc",
+  "rc",
+  "qty_actual",
+  "pbm_vendor",
+  "floating_crane",
+  "laycan_start",
+  "laycan_end",
+  "arrival_jetty",
+  "start_loading",
+  "completed_loading",
+  "lhv",
+  "spog_zona_2",
+  "pkk",
+  "rkbm",
+  "sts_spb",
+  "start_mooring",
+  "end_mooring",
+  "mooring_place_1",
+  "clear_pass",
+  "start_mooring_clear_pass",
+  "cast_off_mooring_clear_pass",
+  "mooring_place_2",
+  "ta_barges_actual",
+  "ta_mv",
+  "ta_flf",
+  "cargo_readiness_actual",
+  "start_disch",
+  "completed_disch",
+  "discharge_sequence",
+  "back_to_jetty",
+  "remarks",
+];
+
+/** Port of RC_UNUSED_STRIP_FIELDS (9coalbarging.php:317-332): fields cleared
+ * off an RC row's operation_data whenever it goes back to 'unused' —
+ * they're reattached from whichever barge the RC is next input onto
+ * (see inputCoalBargingRcRow). */
+const RC_UNUSED_STRIP_FIELDS: readonly string[] = [
+  "no_pk",
+  "buyer",
+  "mothervessel",
+  "pbm_vendor",
+  "floating_crane",
+  "start_disch",
+  "completed_disch",
+];
+
+function stripRcUnusedFields(operationData: Record<string, unknown>): Record<string, unknown> {
+  const result = { ...operationData };
+  for (const field of RC_UNUSED_STRIP_FIELDS) {
+    delete result[field];
+  }
+  return result;
+}
+
+/** Port of operationNumberValue (9coalbarging.php:248-251): silently returns
+ * null on blank/non-numeric input instead of erroring, unlike
+ * parseOperationNumber. Used only by createCoalBargingRcRow's qty_disc/
+ * qty_actual derivation. */
+function operationNumberValue(value: unknown): number | null {
+  const normalized = String(value ?? "").replace(/[, ]/g, "").trim();
+  return normalized !== "" && !Number.isNaN(Number(normalized)) ? Number(normalized) : null;
+}
+
+export type CoalBargingSaveResult =
+  | { ok: true; msg: string; data: Record<string, unknown> }
+  | { ok: false; msg: string };
+
+/**
+ * Port of the save_operation_data AJAX action (9coalbarging.php:734-890).
+ * Unlike TLU's saveOperationData, this does NOT merge onto a baseline row —
+ * operation_data is rebuilt from scratch out of submittedData every call, so
+ * a field omitted from submittedData is dropped even if it was previously
+ * saved. row_type 'rc' additionally rebuilds no_pk/buyer/mothervessel (base
+ * rows never touch those three).
+ */
+export async function saveCoalBargingOperationData(
+  pool: Pool,
+  coalPool: Pool,
+  payload: {
+    row_type?: unknown;
+    sibarges_id?: unknown;
+    rc_row_id?: unknown;
+    data?: Record<string, unknown>;
+  },
+  createdBy: string
+): Promise<CoalBargingSaveResult> {
+  const rowType = payload.row_type === "rc" ? "rc" : "base";
+  const sibargesId = Number(payload.sibarges_id);
+  const rcRowId = Number(payload.rc_row_id);
+
+  if (rowType === "rc") {
+    if (!(Number.isInteger(rcRowId) && rcRowId > 0)) {
+      return { ok: false, msg: "Data RC tidak valid." };
+    }
+  } else if (!(Number.isInteger(sibargesId) && sibargesId > 0)) {
+    return { ok: false, msg: "Data barge tidak valid." };
+  }
+
+  const submittedData = payload.data ?? {};
+  const operationRemarks = String(submittedData.operation_remarks ?? "").trim();
+  const operationData: Record<string, unknown> = {};
+
+  for (const field of COAL_BARGING_OPERATION_FIELDS) {
+    const value = String(submittedData[field] ?? "").trim();
+    if (value !== "") operationData[field] = value;
+  }
+
+  if (rowType === "rc") {
+    for (const field of ["no_pk", "buyer", "mothervessel"] as const) {
+      const value = String(submittedData[field] ?? "").trim();
+      if (value === "") delete operationData[field];
+      else operationData[field] = value;
+    }
+  }
+
+  const qtyDiscResult = parseOperationNumber(submittedData.qty_disc, "QTY DISC");
+  if (!qtyDiscResult.ok) return { ok: false, msg: qtyDiscResult.msg };
+  const rcResult = parseOperationNumber(submittedData.rc, "RC");
+  if (!rcResult.ok) return { ok: false, msg: rcResult.msg };
+  const qtyActualResult = parseOperationNumber(submittedData.qty_actual, "QTY Laut");
+  if (!qtyActualResult.ok) return { ok: false, msg: qtyActualResult.msg };
+  if (qtyActualResult.value === null) {
+    delete operationData.qty_actual;
+  } else {
+    operationData.qty_actual = formatOperationNumber(qtyActualResult.value);
+  }
+
+  for (const [field, label] of Object.entries(TLU_DATETIME_FIELDS)) {
+    const normalized = normalizeOperationDateTime(submittedData[field], label);
+    if (!normalized.ok) return { ok: false, msg: normalized.msg };
+    if (normalized.value === "") delete operationData[field];
+    else operationData[field] = normalized.value;
+  }
+
+  const pbmError = await validateFlfChoice(
+    pool,
+    "vendor_flf",
+    String(operationData.pbm_vendor ?? ""),
+    "PBM Vendor"
+  );
+  if (pbmError) return { ok: false, msg: pbmError };
+  const floatingError = await validateFlfChoice(
+    pool,
+    "floating_crane",
+    String(operationData.floating_crane ?? ""),
+    "Floating Crane"
+  );
+  if (floatingError) return { ok: false, msg: floatingError };
+
+  const selectedVendor = String(operationData.pbm_vendor ?? "");
+  const forcedFloatingCrane = RESTRICTED_FLOATING_CRANES[selectedVendor];
+  if (forcedFloatingCrane) {
+    operationData.floating_crane = forcedFloatingCrane;
+  } else if (
+    Object.values(RESTRICTED_FLOATING_CRANES).includes(String(operationData.floating_crane ?? ""))
+  ) {
+    return {
+      ok: false,
+      msg: "STV KTM hanya untuk vendor KTM dan STV MAESTRO hanya untuk vendor MLS.",
+    };
+  }
+
+  let noPk: string;
+  if (rowType === "rc") {
+    const [rows] = await coalPool.query<RowDataPacket[]>(
+      `SELECT rc.id, rc.source_sibarges_id AS sibarges_id, s.no_pk
+       FROM coal_barge_rc_rows rc
+       INNER JOIN \`databarging\`.\`sibarges\` s ON s.id = rc.source_sibarges_id
+       WHERE rc.id = ? AND s.record_status = 'ACT'
+       LIMIT 1`,
+      [rcRowId]
+    );
+    if (!rows[0]) return { ok: false, msg: "Data RC tidak ditemukan." };
+    noPk = String(rows[0].no_pk);
+  } else {
+    const [rows] = await pool.query<RowDataPacket[]>(
+      "SELECT id, no_pk FROM sibarges WHERE id = ? AND record_status = 'ACT'",
+      [sibargesId]
+    );
+    if (!rows[0]) return { ok: false, msg: "Data barge tidak ditemukan." };
+    noPk = String(rows[0].no_pk);
+  }
+
+  const sequenceRaw = String(submittedData.discharge_sequence ?? "").trim();
+  if (sequenceRaw !== "") {
+    const [countRows] = await pool.query<RowDataPacket[]>(
+      `SELECT
+         COUNT(*) + (
+           SELECT COUNT(*)
+           FROM \`datacoalbarging\`.\`coal_barge_rc_rows\` rc
+           INNER JOIN sibarges s2 ON s2.id = rc.source_sibarges_id
+           WHERE s2.no_pk = ? AND s2.record_status = 'ACT' AND rc.usage_status = 'used'
+         ) AS max_sequence
+       FROM sibarges
+       WHERE no_pk = ? AND record_status = 'ACT'`,
+      [noPk, noPk]
+    );
+    const maxSequence = Number(countRows[0]?.max_sequence ?? 0);
+    const sequenceNumber = Number(sequenceRaw);
+    if (!/^\d+$/.test(sequenceRaw) || sequenceNumber < 1 || sequenceNumber > maxSequence) {
+      return { ok: false, msg: `Discharge Sequence harus antara 1 dan ${maxSequence}.` };
+    }
+    operationData.discharge_sequence = String(sequenceNumber);
+  }
+
+  const operationJson = JSON.stringify(operationData);
+  if (rowType === "rc") {
+    await coalPool.query(
+      "UPDATE coal_barge_rc_rows SET operation_data = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [operationJson, operationRemarks, rcRowId]
+    );
+  } else {
+    await coalPool.query(
+      `INSERT INTO coal_barge_operations (sibarges_id, operation_data, remarks, created_by)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         operation_data = VALUES(operation_data),
+         remarks = VALUES(remarks),
+         updated_at = CURRENT_TIMESTAMP`,
+      [sibargesId, operationJson, operationRemarks, createdBy]
+    );
+  }
+
+  return {
+    ok: true,
+    msg: "Data operasi berhasil disimpan.",
+    data: { ...operationData, operation_remarks: operationRemarks },
+  };
+}
+
+export type CoalBargingCreateRcResult =
+  | { ok: true; rc_row_id: number; data: Record<string, unknown>; msg: string }
+  | { ok: false; msg: string };
+
+/**
+ * Port of the create_rc_row AJAX action (9coalbarging.php:893-1000):
+ * derives a new 'unused' RC row from a base barge's current operation_data
+ * (qty_disc/qty_actual recomputed as the jetty-vs-disc/laut delta, status
+ * forced to RC/ACT&RC, then stripRcUnusedFields), while also re-saving the
+ * source row itself with status_act_act_rc forced to 'ACT&RC'. Both writes
+ * are one transaction, matching legacy's begin_transaction/commit.
+ */
+export async function createCoalBargingRcRow(
+  pool: Pool,
+  coalPool: Pool,
+  payload: {
+    sibarges_id?: unknown;
+    data?: Record<string, unknown>;
+    operation_data?: unknown;
+    operation_remarks?: unknown;
+  },
+  createdBy: string
+): Promise<CoalBargingCreateRcResult> {
+  const sibargesId = Number(payload.sibarges_id);
+  if (!(Number.isInteger(sibargesId) && sibargesId > 0)) {
+    return { ok: false, msg: "Data barge tidak valid." };
+  }
+
+  const [sourceRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+       s.id, s.no_pk, s.buyer, s.mothervessel,
+       COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+       COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
+     FROM sibarges s
+     LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+     LEFT JOIN \`datacoalbarging\`.\`coal_barge_operations\` coal ON coal.sibarges_id = s.id
+     WHERE s.id = ? AND s.record_status = 'ACT'
+     LIMIT 1`,
+    [sibargesId]
+  );
+  const source = sourceRows[0];
+  if (!source) return { ok: false, msg: "Data barge tidak ditemukan." };
+
+  const submittedData: Record<string, unknown> =
+    payload.data && typeof payload.data === "object"
+      ? payload.data
+      : decodeOperationData(payload.operation_data);
+
+  const operationData: Record<string, unknown> = {};
+  for (const field of COAL_BARGING_OPERATION_FIELDS) {
+    const value = String(submittedData[field] ?? "").trim();
+    if (value !== "") operationData[field] = value;
+  }
+  for (const [field, label] of Object.entries(TLU_DATETIME_FIELDS)) {
+    const normalized = normalizeOperationDateTime(submittedData[field], label);
+    if (!normalized.ok) return { ok: false, msg: normalized.msg };
+    if (normalized.value === "") delete operationData[field];
+    else operationData[field] = normalized.value;
+  }
+
+  const sourceQtyJetty = operationNumberValue(submittedData.qty);
+  const sourceQtyDisc = operationNumberValue(submittedData.qty_disc);
+  const sourceQtyLaut = operationNumberValue(submittedData.qty_actual);
+
+  operationData.qty = "0";
+  operationData.qty_disc = formatOperationNumber((sourceQtyJetty ?? 0) - (sourceQtyDisc ?? 0));
+  operationData.qty_actual = formatOperationNumber((sourceQtyJetty ?? 0) - (sourceQtyLaut ?? 0));
+  operationData.status_act_rc = "RC";
+  operationData.status_act_act_rc = "ACT&RC";
+  const strippedOperationData = stripRcUnusedFields(operationData);
+
+  const remarks = String(payload.operation_remarks ?? "").trim();
+  const operationJson = JSON.stringify(strippedOperationData);
+
+  const sourceOperationData = decodeOperationData(source.operation_data);
+  sourceOperationData.status_act_act_rc = "ACT&RC";
+  const sourceOperationJson = JSON.stringify(sourceOperationData);
+  const sourceRemarks = String(source.operation_remarks ?? "").trim();
+
+  const conn = await coalPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    try {
+      await conn.query(
+        `INSERT INTO coal_barge_operations (sibarges_id, operation_data, remarks, created_by)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           operation_data = VALUES(operation_data),
+           remarks = VALUES(remarks),
+           updated_at = CURRENT_TIMESTAMP`,
+        [sibargesId, sourceOperationJson, sourceRemarks, createdBy]
+      );
+
+      const [insertResult] = await conn.query<ResultSetHeader>(
+        `INSERT INTO coal_barge_rc_rows (source_sibarges_id, usage_status, operation_data, remarks, created_by)
+         VALUES (?, 'unused', ?, ?, ?)`,
+        [sibargesId, operationJson, remarks, createdBy]
+      );
+
+      await conn.commit();
+      return {
+        ok: true,
+        rc_row_id: insertResult.insertId,
+        data: strippedOperationData,
+        msg: "RC berhasil dibuat sebagai unused.",
+      };
+    } catch (e) {
+      await conn.rollback();
+      return { ok: false, msg: e instanceof Error ? e.message : String(e) };
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+export type CoalBargingDeleteResult = { ok: true; msg: string } | { ok: false; msg: string };
+
+/**
+ * Port of the delete_coal_barging_row AJAX action (9coalbarging.php:1003-1112).
+ * No explicit transaction in legacy (sequential statements) — preserved as-is.
+ * row_type 'rc' + delete_scope 'unused': hard-deletes the still-unused RC row.
+ * row_type 'rc' (default 'main'): soft-detaches a used RC row back to
+ * 'unused', stripping the target-barge-specific fields. row_type 'base':
+ * tombstones the barge (coal_barge_deleted_rows) and detaches every RC row
+ * that was pointed at it.
+ */
+export async function deleteCoalBargingRow(
+  pool: Pool,
+  coalPool: Pool,
+  payload: {
+    row_type?: unknown;
+    sibarges_id?: unknown;
+    rc_row_id?: unknown;
+    delete_scope?: unknown;
+  },
+  deletedBy: string
+): Promise<CoalBargingDeleteResult> {
+  const rowType = payload.row_type === "rc" ? "rc" : "base";
+  const sibargesId = Number(payload.sibarges_id);
+  const rcRowId = Number(payload.rc_row_id);
+  const deleteScope = payload.delete_scope === "unused" ? "unused" : "main";
+
+  if (rowType === "rc") {
+    if (!(Number.isInteger(rcRowId) && rcRowId > 0)) {
+      return { ok: false, msg: "Data RC tidak valid." };
+    }
+
+    if (deleteScope === "unused") {
+      const [result] = await coalPool.query<ResultSetHeader>(
+        "DELETE FROM coal_barge_rc_rows WHERE id = ? AND usage_status = 'unused'",
+        [rcRowId]
+      );
+      if (result.affectedRows < 1) return { ok: false, msg: "Data RC tidak ditemukan." };
+      return { ok: true, msg: "Data RC berhasil dihapus." };
+    }
+
+    const [rcRows] = await coalPool.query<RowDataPacket[]>(
+      "SELECT operation_data FROM coal_barge_rc_rows WHERE id = ? LIMIT 1",
+      [rcRowId]
+    );
+    const rcRow = rcRows[0];
+    if (!rcRow) return { ok: false, msg: "Data RC tidak ditemukan." };
+
+    const strippedOperationData = stripRcUnusedFields(decodeOperationData(rcRow.operation_data));
+    const [updateResult] = await coalPool.query<ResultSetHeader>(
+      "UPDATE coal_barge_rc_rows SET usage_status = 'unused', operation_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [JSON.stringify(strippedOperationData), rcRowId]
+    );
+    if (updateResult.affectedRows < 1) return { ok: false, msg: "Data RC tidak ditemukan." };
+    return { ok: true, msg: "Data RC berhasil dihapus." };
+  }
+
+  if (!(Number.isInteger(sibargesId) && sibargesId > 0)) {
+    return { ok: false, msg: "Data barge tidak valid." };
+  }
+
+  const [sourceRows] = await pool.query<RowDataPacket[]>(
+    "SELECT id FROM sibarges WHERE id = ? AND record_status = 'ACT' LIMIT 1",
+    [sibargesId]
+  );
+  if (!sourceRows[0]) return { ok: false, msg: "Data barge tidak ditemukan." };
+
+  await coalPool.query(
+    `INSERT INTO coal_barge_deleted_rows (sibarges_id, deleted_by)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE deleted_by = VALUES(deleted_by), deleted_at = CURRENT_TIMESTAMP`,
+    [sibargesId, deletedBy]
+  );
+
+  const [usedRcRows] = await coalPool.query<RowDataPacket[]>(
+    "SELECT id, operation_data FROM coal_barge_rc_rows WHERE source_sibarges_id = ? AND usage_status = 'used'",
+    [sibargesId]
+  );
+  for (const rcRow of usedRcRows) {
+    const strippedOperationData = stripRcUnusedFields(decodeOperationData(rcRow.operation_data));
+    await coalPool.query(
+      "UPDATE coal_barge_rc_rows SET usage_status = 'unused', operation_data = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [JSON.stringify(strippedOperationData), rcRow.id]
+    );
+  }
+
+  return { ok: true, msg: "Data berhasil dihapus dari Coal Barging." };
+}
+
+export type CoalBargingImportFromTluResult =
+  | { ok: true; msg: string; deleted: number; imported: number }
+  | { ok: false; msg: string };
+
+/**
+ * Port of the import_from_tlu_operation AJAX action (9coalbarging.php:1115-1219):
+ * vessel-scoped delete-then-reseed from TLU's barge_operations. One
+ * transaction: delete coal_barge_operations for the vessel, reset the
+ * vessel's 'used' RC rows back to 'unused', delete the vessel's
+ * coal_barge_deleted_rows tombstones, then INSERT...SELECT fresh rows from
+ * databarging.barge_operations.
+ */
+export async function importCoalBargingFromTlu(
+  pool: Pool,
+  coalPool: Pool,
+  noPkRaw: unknown
+): Promise<CoalBargingImportFromTluResult> {
+  const noPk = String(noPkRaw ?? "").trim();
+  if (noPk === "") return { ok: false, msg: "Pilih Mother Vessel terlebih dahulu." };
+
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS c FROM sibarges WHERE no_pk = ? AND record_status = 'ACT'",
+    [noPk]
+  );
+  if (Number(countRows[0]?.c ?? 0) === 0) {
+    return { ok: false, msg: "Data SI Barges tidak ditemukan untuk vessel ini." };
+  }
+
+  const conn = await coalPool.getConnection();
+  try {
+    await conn.beginTransaction();
+    try {
+      const [deleteResult] = await conn.query<ResultSetHeader>(
+        `DELETE coal
+         FROM coal_barge_operations coal
+         INNER JOIN \`databarging\`.\`sibarges\` s ON s.id = coal.sibarges_id
+         WHERE s.no_pk = ? AND s.record_status = 'ACT'`,
+        [noPk]
+      );
+      let deleted = deleteResult.affectedRows;
+
+      const [rcResult] = await conn.query<ResultSetHeader>(
+        `UPDATE coal_barge_rc_rows rc
+         INNER JOIN \`databarging\`.\`sibarges\` s ON s.id = rc.source_sibarges_id
+         SET rc.usage_status = 'unused', rc.updated_at = CURRENT_TIMESTAMP
+         WHERE s.no_pk = ? AND s.record_status = 'ACT' AND rc.usage_status = 'used'`,
+        [noPk]
+      );
+      deleted += rcResult.affectedRows;
+
+      const [hiddenResult] = await conn.query<ResultSetHeader>(
+        `DELETE hidden
+         FROM coal_barge_deleted_rows hidden
+         INNER JOIN \`databarging\`.\`sibarges\` s ON s.id = hidden.sibarges_id
+         WHERE s.no_pk = ? AND s.record_status = 'ACT'`,
+        [noPk]
+      );
+      deleted += hiddenResult.affectedRows;
+
+      const [insertResult] = await conn.query<ResultSetHeader>(
+        `INSERT INTO coal_barge_operations (sibarges_id, operation_data, remarks, created_by, created_at, updated_at)
+         SELECT tlu.sibarges_id, tlu.operation_data, tlu.remarks, tlu.created_by, tlu.created_at, tlu.updated_at
+         FROM \`databarging\`.\`barge_operations\` tlu
+         INNER JOIN \`databarging\`.\`sibarges\` s ON s.id = tlu.sibarges_id
+         WHERE s.no_pk = ? AND s.record_status = 'ACT'`,
+        [noPk]
+      );
+      const imported = insertResult.affectedRows;
+
+      await conn.commit();
+      return {
+        ok: true,
+        msg: `Import from TLU Operation selesai. Deleted: ${deleted}, Imported: ${imported}.`,
+        deleted,
+        imported,
+      };
+    } catch (e) {
+      await conn.rollback();
+      return {
+        ok: false,
+        msg: `Import from TLU Operation gagal: ${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+  } finally {
+    conn.release();
+  }
+}
+
+export interface CoalBargingImportCsvResult {
+  ok: boolean;
+  partial: boolean;
+  updated: number;
+  errors: number;
+  msg: string;
+}
+
+/**
+ * Port of the import_operation_csv AJAX action (9coalbarging.php:1221-1402).
+ * Rows match by (si_barges, no_pk) where no_pk is the outer form-selected
+ * vessel, not the CSV row's own no_pk column (informational only, like
+ * mother_vessel/jetty/tugboat/barge/laycan_*). discharge_sequence's max here
+ * is COUNT(active sibarges for the vessel) only — no 'used' RC-row bonus,
+ * unlike saveCoalBargingOperationData's max (see module doc comment).
+ */
+export async function importCoalBargingCsv(
+  pool: Pool,
+  coalPool: Pool,
+  noPkRaw: unknown,
+  csvText: string,
+  createdBy: string
+): Promise<CoalBargingImportCsvResult> {
+  const noPk = String(noPkRaw ?? "").trim();
+  if (noPk === "") {
+    return { ok: false, partial: false, updated: 0, errors: 0, msg: "Pilih Mother Vessel terlebih dahulu." };
+  }
+
+  const firstLineEnd = csvText.indexOf("\n");
+  const firstLine = firstLineEnd === -1 ? csvText : csvText.slice(0, firstLineEnd);
+  const delimiter = detectCsvDelimiter(firstLine);
+
+  const rows = parseCsv(csvText, delimiter);
+  const header = rows[0];
+  if (!header || header.length === 0) {
+    return { ok: false, partial: false, updated: 0, errors: 0, msg: "CSV kosong atau tidak memiliki header." };
+  }
+
+  const normalizedHeader = header.map((h) => h.replace(/^﻿/, "").trim().toLowerCase());
+  const missing = COAL_BARGING_CSV_COLUMNS.filter((col) => !normalizedHeader.includes(col));
+  if (missing.length > 0) {
+    return {
+      ok: false,
+      partial: false,
+      updated: 0,
+      errors: 0,
+      msg: `Kolom CSV hilang: ${missing.join(", ")}`,
+    };
+  }
+
+  const colIndex = new Map(normalizedHeader.map((h, i) => [h, i]));
+  const cell = (row: string[], col: string) => (row[colIndex.get(col) ?? -1] ?? "").trim();
+
+  const [vendorRows] = await pool.query<RowDataPacket[]>(
+    "SELECT DISTINCT vendor_flf FROM flf WHERE vendor_flf <> ''"
+  );
+  const vendorOptions = vendorRows.map((r) => String(r.vendor_flf));
+  const [floatingRows] = await pool.query<RowDataPacket[]>(
+    "SELECT DISTINCT floating_crane FROM flf WHERE floating_crane <> ''"
+  );
+  const floatingOptions = floatingRows.map((r) => String(r.floating_crane));
+
+  const [countRows] = await pool.query<RowDataPacket[]>(
+    "SELECT COUNT(*) AS c FROM sibarges WHERE no_pk = ? AND record_status = 'ACT'",
+    [noPk]
+  );
+  const maxDischargeSequence = Number(countRows[0]?.c ?? 0);
+
+  let updated = 0;
+  let errors = 0;
+  const errorDetails: string[] = [];
+  const seenReferences = new Set<string>();
+
+  function addImportError(rowNumber: number, reasons: string[]) {
+    errors++;
+    if (errorDetails.length < 10) {
+      errorDetails.push(`Baris ${rowNumber}: ${[...new Set(reasons)].join("; ")}`);
+    }
+  }
+
+  let rowNumber = 1;
+  for (const row of rows.slice(1)) {
+    rowNumber++;
+    if (!row.some((c) => c.trim() !== "")) continue;
+
+    const rowErrors: string[] = [];
+    const siBarges = cell(row, "si_barges");
+
+    if (siBarges === "") {
+      rowErrors.push("si_barges kosong");
+    } else if (seenReferences.has(siBarges)) {
+      rowErrors.push("si_barges duplikat dalam file");
+    }
+    seenReferences.add(siBarges);
+
+    const [matchedRows] = await pool.query<RowDataPacket[]>(
+      "SELECT id FROM sibarges WHERE si_barges = ? AND no_pk = ? AND record_status = 'ACT' LIMIT 1",
+      [siBarges, noPk]
+    );
+    const matched = matchedRows[0];
+    if (!matched) rowErrors.push("SI Barges tidak ditemukan pada vessel yang dipilih");
+
+    const operationData: Record<string, unknown> = {};
+    for (const field of COAL_BARGING_OPERATION_FIELDS) {
+      const value = cell(row, field);
+      if (value !== "") operationData[field] = value;
+    }
+
+    const qtyDiscRaw = cell(row, "qty_disc");
+    const rcRaw = cell(row, "rc");
+    const qtyActualRaw = cell(row, "qty_actual");
+    const qtyDiscNormalized = qtyDiscRaw.replace(/[, ]/g, "");
+    const rcNormalized = rcRaw.replace(/[, ]/g, "");
+    const qtyActualNormalized = qtyActualRaw.replace(/[, ]/g, "");
+    if (qtyDiscRaw !== "" && (qtyDiscNormalized === "" || Number.isNaN(Number(qtyDiscNormalized)))) {
+      rowErrors.push("qty_disc harus angka");
+    }
+    if (rcRaw !== "" && (rcNormalized === "" || Number.isNaN(Number(rcNormalized)))) {
+      rowErrors.push("rc harus angka");
+    }
+    if (qtyActualRaw !== "" && (qtyActualNormalized === "" || Number.isNaN(Number(qtyActualNormalized)))) {
+      rowErrors.push("qty_actual harus angka");
+    }
+    if (rowErrors.length === 0 && qtyActualRaw !== "") {
+      operationData.qty_actual = formatOperationNumber(Number(qtyActualNormalized));
+    }
+
+    for (const field of Object.keys(TLU_DATETIME_FIELDS)) {
+      const value = cell(row, field);
+      const normalized = parseOperationDateTimeValue(value);
+      if (normalized === null) {
+        rowErrors.push(`${field} tidak valid`);
+        delete operationData[field];
+      } else if (normalized === "") {
+        delete operationData[field];
+      } else {
+        operationData[field] = normalized;
+      }
+    }
+
+    const sequence = cell(row, "discharge_sequence");
+    if (sequence !== "") {
+      const sequenceNumber = Number(sequence);
+      if (!/^\d+$/.test(sequence) || sequenceNumber < 1 || sequenceNumber > maxDischargeSequence) {
+        rowErrors.push(`discharge_sequence harus antara 1 dan ${maxDischargeSequence}`);
+      } else {
+        operationData.discharge_sequence = String(sequenceNumber);
+      }
+    }
+
+    const vendor = String(operationData.pbm_vendor ?? "");
+    const floating = String(operationData.floating_crane ?? "");
+    if (vendor !== "" && !vendorOptions.includes(vendor)) rowErrors.push("pbm_vendor tidak ada di data FLF");
+    if (floating !== "" && !floatingOptions.includes(floating)) {
+      rowErrors.push("floating_crane tidak ada di data FLF");
+    }
+    const forcedFloatingCrane = RESTRICTED_FLOATING_CRANES[vendor];
+    if (forcedFloatingCrane) {
+      operationData.floating_crane = forcedFloatingCrane;
+    } else if (Object.values(RESTRICTED_FLOATING_CRANES).includes(floating)) {
+      rowErrors.push("STV KTM hanya untuk KTM dan STV MAESTRO hanya untuk MLS");
+    }
+
+    if (rowErrors.length > 0 || !matched) {
+      addImportError(rowNumber, rowErrors);
+      continue;
+    }
+
+    const remarks = cell(row, "remarks");
+    const operationJson = JSON.stringify(operationData);
+    try {
+      await coalPool.query(
+        `INSERT INTO coal_barge_operations (sibarges_id, operation_data, remarks, created_by)
+         VALUES (?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           operation_data = VALUES(operation_data),
+           remarks = VALUES(remarks),
+           updated_at = CURRENT_TIMESTAMP`,
+        [Number(matched.id), operationJson, remarks, createdBy]
+      );
+      updated++;
+    } catch (e) {
+      addImportError(rowNumber, [e instanceof Error ? e.message : "Insert gagal"]);
+    }
+  }
+
+  let msg = `Import selesai. Updated: ${updated}, Error: ${errors}.`;
+  if (errorDetails.length > 0) msg += "\n" + errorDetails.join("\n");
+
+  return { ok: updated > 0 || errors === 0, partial: errors > 0, updated, errors, msg };
+}
+
+export type CoalBargingInputRcResult = { ok: true; msg: string } | { ok: false; msg: string };
+
+/**
+ * Port of the input_rc_row AJAX action (9coalbarging.php:1477-1564): attaches
+ * an 'unused' RC row to a chosen target barge sharing the RC's original
+ * source tugboat. no_pk/buyer/mothervessel come from the target row
+ * unconditionally; pbm_vendor/floating_crane/start_disch/completed_disch are
+ * reattached from the target's own current operation_data (the same fields
+ * stripRcUnusedFields strips off whenever an RC row goes back to 'unused').
+ */
+export async function inputCoalBargingRcRow(
+  pool: Pool,
+  coalPool: Pool,
+  payload: { rc_row_id?: unknown; target_sibarges_id?: unknown }
+): Promise<CoalBargingInputRcResult> {
+  const rcRowId = Number(payload.rc_row_id);
+  const targetSibargesId = Number(payload.target_sibarges_id);
+  if (
+    !(Number.isInteger(rcRowId) && rcRowId > 0) ||
+    !(Number.isInteger(targetSibargesId) && targetSibargesId > 0)
+  ) {
+    return { ok: false, msg: "Pilihan RC tidak valid." };
+  }
+
+  const [rcRows] = await coalPool.query<RowDataPacket[]>(
+    `SELECT rc.id, rc.operation_data, source.tugboat AS source_tugboat
+     FROM coal_barge_rc_rows rc
+     INNER JOIN \`databarging\`.\`sibarges\` source ON source.id = rc.source_sibarges_id
+     WHERE rc.id = ? AND rc.usage_status = 'unused'
+     LIMIT 1`,
+    [rcRowId]
+  );
+  const rcRow = rcRows[0];
+  if (!rcRow) return { ok: false, msg: "RC tidak ditemukan atau sudah digunakan." };
+
+  const [targetRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+       s.id, s.tugboat, s.no_pk, s.buyer, s.mothervessel, s.anchorage,
+       COALESCE(coal.operation_data, tlu.operation_data) AS operation_data
+     FROM sibarges s
+     LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+     LEFT JOIN \`datacoalbarging\`.\`coal_barge_operations\` coal ON coal.sibarges_id = s.id
+     LEFT JOIN \`datacoalbarging\`.\`coal_barge_deleted_rows\` hidden ON hidden.sibarges_id = s.id
+     WHERE s.id = ? AND s.record_status = 'ACT' AND hidden.sibarges_id IS NULL
+     LIMIT 1`,
+    [targetSibargesId]
+  );
+  const targetRow = targetRows[0];
+  if (!targetRow) return { ok: false, msg: "Target TB tidak ditemukan." };
+  if (String(targetRow.tugboat) !== String(rcRow.source_tugboat)) {
+    return { ok: false, msg: "RC hanya bisa dipakai untuk TB yang sama." };
+  }
+
+  const operationData = decodeOperationData(rcRow.operation_data);
+  for (const field of ["no_pk", "buyer", "mothervessel"] as const) {
+    operationData[field] = String(targetRow[field] ?? "");
+  }
+  const targetOperationData = decodeOperationData(targetRow.operation_data);
+  for (const field of ["pbm_vendor", "floating_crane", "start_disch", "completed_disch"] as const) {
+    const targetValue = String(targetOperationData[field] ?? "").trim();
+    if (targetValue === "") delete operationData[field];
+    else operationData[field] = targetValue;
+  }
+
+  const [updateResult] = await coalPool.query<ResultSetHeader>(
+    `UPDATE coal_barge_rc_rows
+     SET source_sibarges_id = ?, usage_status = 'used', operation_data = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND usage_status = 'unused'`,
+    [targetSibargesId, JSON.stringify(operationData), rcRowId]
+  );
+  if (updateResult.affectedRows < 1) return { ok: false, msg: "RC gagal dipakai." };
+
+  return { ok: true, msg: "RC berhasil dimasukkan." };
 }

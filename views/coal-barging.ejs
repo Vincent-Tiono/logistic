@@ -63,6 +63,16 @@
         <% } %>
 
         <div class="mt-3 d-none" id="dataBargesBox">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+            <button type="button" class="btn btn-sm btn-outline-warning" id="importFromTluButton">
+              Import from TLU Operation
+            </button>
+            <form id="operationImportForm" class="d-flex align-items-center flex-nowrap gap-2">
+              <input type="file" name="csv" id="operationCsvFile" class="form-control form-control-sm" accept=".csv,text/csv" required>
+              <button type="submit" class="btn btn-sm btn-primary flex-shrink-0" id="operationImportButton">Import CSV</button>
+            </form>
+          </div>
+          <div class="alert d-none mb-3" id="operationCsvStatus" role="alert"></div>
           <div class="small text-muted mb-2" id="dataBargesSummary"></div>
           <div class="table-responsive">
             <table class="table table-bordered table-sm align-middle mb-0" id="dataBargesTable">
@@ -84,6 +94,25 @@
     </div>
 
   </div>
+
+  <div class="modal fade" id="rowDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="rowDetailSubtitle"></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body row g-3" id="rowDetailBody"></div>
+        <div class="modal-footer">
+          <div class="me-auto small" id="rowDetailStatus"></div>
+          <button type="button" class="btn btn-outline-primary" id="createRcButton">Create RC</button>
+          <button type="button" class="btn btn-outline-danger" id="rowDeleteButton">Delete</button>
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+          <button type="button" class="btn btn-primary" id="rowSaveButton">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </main>
 
 <script type="module">
@@ -95,15 +124,27 @@ import {
   statusActRcValue,
 } from '/assets/js/coal-barging-calc.mjs';
 
-// Port of Coal Barging's read-only surface (Operation/9coalbarging.php):
-// the "All Years / All Vessels" landing table, the per-vessel Data Barges
-// table (si_barges_by_vessel), and the Unused RC table (unused_rc_options).
-// Per docs/adr/0001-tlu-grouped-export-computes-client-side.md, the server
-// hands over raw operation_data; the 4 calculated columns below run through
-// assets/js/coal-barging-calc.mjs. Write actions (save/create/delete/import/
-// input RC) are a separate ticket — this view has no edit affordances.
+// Port of Coal Barging's surface (Operation/9coalbarging.php): the
+// "All Years / All Vessels" landing table (read-only), the per-vessel Data
+// Barges table with a row-detail edit modal (save_operation_data,
+// create_rc_row, delete_coal_barging_row), the Unused RC table with an
+// Insert action (input_rc_row), CSV import (import_operation_csv), and
+// Import from TLU Operation (import_from_tlu_operation). Per
+// docs/adr/0001-tlu-grouped-export-computes-client-side.md, the server hands
+// over raw operation_data; the 4 calculated columns below run through
+// assets/js/coal-barging-calc.mjs.
+//
+// The edit modal's field set is a direct port of legacy's own `<th
+// data-edit-field data-input-type>` dataset (9coalbarging.php:1926-1949) —
+// only the fields legacy actually marks editable there, a subset of
+// COAL_BARGING_OPERATION_FIELDS (src/services/coal-barging.service.ts).
+// Legacy's inline per-row status dropdowns, sort/filter/freeze table
+// controllers, and visible-rows CSV export are out of scope here, matching
+// how issue #11 ported TLU Operation's own richer legacy UI down to a single
+// modal (views/tlu-operation.ejs).
 
 const vesselPeriods = <%- JSON.stringify(vesselPeriods || []) %>;
+const optionLists = <%- JSON.stringify(optionLists || {}) %>;
 
 // Row-level fields come straight off the row (shared shape across all three
 // read endpoints: base sibarges columns + operation_data/operation_remarks).
@@ -229,6 +270,77 @@ function buildRowCells(row) {
   return headerKeys.map((key) => `<td>${displayValue(columnDisplayValue(row, key))}</td>`).join('');
 }
 
+// Port of the edit-modal's field dataset (9coalbarging.php:1926-1949, keyed
+// by data-edit-field/data-input-type). Every other COAL_BARGING_COLUMNS key
+// (laycan_*, jetty_code, tugboat, barge, no_pk/buyer/mothervessel for a base
+// row, anchorage, created_*, updated_at) is display-only by omission here;
+// month_vessel/dsr_vs_redraft are calculated (data-calculated="true").
+const EDITABLE_FIELD_META = {
+  status_act_rc: { inputType: 'status-act-rc' },
+  status_act_act_rc: { inputType: 'status-act-act-rc' },
+  arrival_jetty: { inputType: 'datetime-local' },
+  date_jetty: { inputType: 'date' },
+  start_loading: { inputType: 'datetime-local' },
+  completed_loading: { inputType: 'datetime-local' },
+  qty: {},
+  qty_disc: {},
+  qty_actual: {},
+  pbm_vendor: { inputType: 'pbm-vendor' },
+  floating_crane: { inputType: 'floating-crane' },
+  start_disch: { inputType: 'datetime-local' },
+  completed_disch: { inputType: 'datetime-local' },
+  operation_remarks: { inputType: 'textarea' },
+};
+
+// Port of rcVesselFields (9coalbarging.php:4097-4101): for an 'rc' row (or a
+// row opened from the Unused RC table), no_pk/buyer/mothervessel switch from
+// display-only to editable text inputs.
+const RC_VESSEL_FIELDS = new Set(['no_pk', 'buyer', 'mothervessel']);
+
+function selectMarkup(field, currentValue, options) {
+  const value = String(currentValue ?? '');
+  const withCurrent = value !== '' && !options.includes(value) ? [value, ...options] : options;
+  return `<select class="form-select form-select-sm" data-operation-field="${esc(field)}">` +
+    `<option value="">-- pilih --</option>` +
+    withCurrent.map((opt) => `<option value="${esc(opt)}"${opt === value ? ' selected' : ''}>${esc(opt)}</option>`).join('') +
+    `</select>`;
+}
+
+function datetimeLocalValue(raw) {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::\d{2})?$/);
+  return m ? `${m[1]}T${m[2]}` : '';
+}
+
+function dateInputValue(raw) {
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : '';
+}
+
+function editableFieldWidget(key, meta, currentValue, isRcVesselField) {
+  const field = esc(key);
+  if (isRcVesselField) {
+    return `<input type="text" class="form-control form-control-sm" data-operation-field="${field}" value="${esc(currentValue)}">`;
+  }
+  if (meta.inputType === 'status-act-rc') return selectMarkup(key, currentValue === 'RC' ? 'RC' : 'ACT', ['ACT', 'RC']);
+  if (meta.inputType === 'status-act-act-rc') {
+    return selectMarkup(key, currentValue === 'ACT&RC' ? 'ACT&RC' : 'ACT', ['ACT', 'ACT&RC']);
+  }
+  if (meta.inputType === 'pbm-vendor') return selectMarkup(key, currentValue, optionLists.pbmVendorOptions || []);
+  if (meta.inputType === 'floating-crane') return selectMarkup(key, currentValue, optionLists.floatingCraneOptions || []);
+  if (meta.inputType === 'datetime-local') {
+    return `<input type="datetime-local" class="form-control form-control-sm" data-operation-field="${field}" value="${esc(datetimeLocalValue(currentValue))}">`;
+  }
+  if (meta.inputType === 'date') {
+    return `<input type="date" class="form-control form-control-sm" data-operation-field="${field}" value="${esc(dateInputValue(currentValue))}">`;
+  }
+  if (meta.inputType === 'textarea') {
+    return `<textarea class="form-control form-control-sm" rows="2" data-operation-field="${field}">${esc(currentValue)}</textarea>`;
+  }
+  return `<input type="text" class="form-control form-control-sm" data-operation-field="${field}" value="${esc(currentValue)}">`;
+}
+
 async function fetchJson(url) {
   const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
   return res.json();
@@ -243,6 +355,7 @@ function buildHeaderCells(rowEl, includeRowNumber) {
 buildHeaderCells(document.getElementById('allVesselsHeaderRow'), false);
 buildHeaderCells(document.getElementById('dataBargesHeaderRow'), true);
 buildHeaderCells(document.getElementById('unusedRcHeaderRow'), true);
+document.getElementById('unusedRcHeaderRow').insertAdjacentHTML('afterbegin', '<th>Insert</th>');
 
 // ===== All Years / All Vessels (landing table, client-side paginated) =====
 
@@ -308,6 +421,15 @@ const dataBargesBody = document.getElementById('dataBargesBody');
 const dataBargesSummary = document.getElementById('dataBargesSummary');
 const unusedRcBody = document.getElementById('unusedRcBody');
 const unusedRcMessage = document.getElementById('unusedRcMessage');
+const importFromTluButton = document.getElementById('importFromTluButton');
+const operationImportForm = document.getElementById('operationImportForm');
+const operationCsvFile = document.getElementById('operationCsvFile');
+const operationImportButton = document.getElementById('operationImportButton');
+const operationCsvStatus = document.getElementById('operationCsvStatus');
+
+let currentNoPk = '';
+let currentDataBargesRows = [];
+let currentUnusedRcRows = [];
 
 function replaceSelectOptions(select, placeholder, options) {
   select.innerHTML = '';
@@ -414,30 +536,39 @@ function orderDataBargesRows(rows) {
 }
 
 function renderDataBargesTable(rows) {
+  currentDataBargesRows = rows;
   dataBargesSummary.textContent = `${rows.length} baris`;
   dataBargesBody.innerHTML = rows.length
-    ? rows.map((row, index) => `<tr>${`<td>${index + 1}</td>` + buildRowCells(row)}</tr>`).join('')
+    ? rows.map((row, index) => `<tr data-row-index="${index}" tabindex="0" role="button">${`<td>${index + 1}</td>` + buildRowCells(row)}</tr>`).join('')
     : `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
 }
 
 function renderUnusedRcTable(rows) {
+  currentUnusedRcRows = rows;
   unusedRcMessage.textContent = rows.length ? '' : 'Tidak ada RC unused untuk TB vessel ini.';
   unusedRcBody.innerHTML = rows.length
-    ? rows.map((row, index) => `<tr>${`<td>${index + 1}</td>` + buildRowCells(row)}</tr>`).join('')
+    ? rows.map((row, index) => `
+        <tr data-row-index="${index}" tabindex="0" role="button">
+          <td>
+            <button type="button" class="btn btn-sm btn-outline-primary insertRcRowButton"
+              data-rc-row-id="${esc(row.rc_row_id)}" data-target-sibarges-id="${esc(row.target_sibarges_id)}">
+              Insert
+            </button>
+          </td>
+          <td>${index + 1}</td>
+          ${buildRowCells(row)}
+        </tr>
+      `).join('')
     : '';
 }
 
-cbNoPkSelect.addEventListener('change', async () => {
-  const noPk = cbNoPkSelect.value;
-  if (!noPk) {
-    dataBargesBox.classList.add('d-none');
-    return;
-  }
+async function reloadSelectedVessel() {
+  const noPk = currentNoPk;
+  if (!noPk) return;
 
   dataBargesBody.innerHTML = `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Memuat data...</td></tr>`;
   unusedRcBody.innerHTML = '';
   unusedRcMessage.textContent = '';
-  dataBargesBox.classList.remove('d-none');
 
   const [dataBargesResult, unusedRcResult] = await Promise.all([
     fetchJson(`/coal-barging?ajax=1&action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`),
@@ -452,6 +583,326 @@ cbNoPkSelect.addEventListener('change', async () => {
   }
 
   renderUnusedRcTable(unusedRcResult.ok ? (unusedRcResult.data || []) : []);
+}
+
+cbNoPkSelect.addEventListener('change', async () => {
+  currentNoPk = cbNoPkSelect.value;
+  if (!currentNoPk) {
+    dataBargesBox.classList.add('d-none');
+    return;
+  }
+
+  operationCsvStatus.classList.add('d-none');
+  operationCsvStatus.textContent = '';
+  operationCsvFile.value = '';
+  dataBargesBox.classList.remove('d-none');
+  await reloadSelectedVessel();
+});
+
+// ===== Row-detail edit modal (save_operation_data / create_rc_row /
+// delete_coal_barging_row) =====
+
+const rowDetailModalEl = document.getElementById('rowDetailModal');
+let rowDetailModal = null;
+const rowDetailSubtitle = document.getElementById('rowDetailSubtitle');
+const rowDetailBody = document.getElementById('rowDetailBody');
+const rowSaveButton = document.getElementById('rowSaveButton');
+const createRcButton = document.getElementById('createRcButton');
+const rowDeleteButton = document.getElementById('rowDeleteButton');
+const rowDetailStatus = document.getElementById('rowDetailStatus');
+
+let currentDetailSource = 'main';
+let currentDetailRowIndex = null;
+
+function openRowDetail(rowIndex, source) {
+  const rows = source === 'unused' ? currentUnusedRcRows : currentDataBargesRows;
+  const row = rows[rowIndex];
+  if (!row || !rowDetailModalEl) return;
+  if (!rowDetailModal) rowDetailModal = new bootstrap.Modal(rowDetailModalEl);
+
+  currentDetailSource = source;
+  currentDetailRowIndex = rowIndex;
+  rowDetailStatus.textContent = '';
+  rowDetailStatus.className = 'me-auto small';
+
+  const isRcRow = source === 'unused' || row.row_type === 'rc';
+  createRcButton.classList.toggle('d-none', isRcRow);
+  createRcButton.disabled = isRcRow;
+  rowDetailSubtitle.textContent = source === 'unused'
+    ? `Unused RC #${row.rc_row_id || '-'} — ${row.tugboat || '-'}`
+    : `${row.si_barges || row.tugboat || '-'} — ${row.mothervessel || '-'}`;
+
+  rowDetailBody.innerHTML = COAL_BARGING_COLUMNS.map(([key, label]) => {
+    const meta = EDITABLE_FIELD_META[key];
+    const isRcVesselField = isRcRow && RC_VESSEL_FIELDS.has(key);
+    const value = getFieldValue(row, key);
+    const widget = meta || isRcVesselField
+      ? editableFieldWidget(key, meta || {}, value, isRcVesselField)
+      : `<div class="form-control form-control-sm bg-light border-0">${displayValue(columnDisplayValue(row, key))}</div>`;
+    return `<div class="col-md-4 si-detail-row"><label class="form-label small fw-semibold mb-1">${esc(label)}</label>${widget}</div>`;
+  }).join('');
+
+  const pbmSelect = rowDetailBody.querySelector('[data-operation-field="pbm_vendor"]');
+  const floatingSelect = rowDetailBody.querySelector('[data-operation-field="floating_crane"]');
+  const restrictedFloatingCranes = { KTM: 'STV KTM', MLS: 'STV MAESTRO' };
+  function applyFloatingCraneRestriction() {
+    if (!pbmSelect || !floatingSelect) return;
+    const restrictedValues = Object.values(restrictedFloatingCranes);
+    const forced = restrictedFloatingCranes[pbmSelect.value];
+    for (const option of floatingSelect.options) {
+      if (restrictedValues.includes(option.value)) option.hidden = Boolean(forced) && option.value !== forced;
+    }
+    if (forced) {
+      floatingSelect.value = forced;
+      floatingSelect.disabled = true;
+    } else {
+      floatingSelect.disabled = false;
+      if (restrictedValues.includes(floatingSelect.value)) floatingSelect.value = '';
+    }
+  }
+  if (pbmSelect) pbmSelect.addEventListener('change', applyFloatingCraneRestriction);
+  applyFloatingCraneRestriction();
+
+  rowDetailModal.show();
+}
+
+function collectRowDetailData() {
+  const data = {};
+  rowDetailBody.querySelectorAll('[data-operation-field]').forEach((el) => {
+    const field = el.dataset.operationField;
+    if (!field) return;
+    data[field] = el.matches('input, textarea, select') ? el.value.trim() : '';
+  });
+  return data;
+}
+
+rowSaveButton.addEventListener('click', async () => {
+  const rows = currentDetailSource === 'unused' ? currentUnusedRcRows : currentDataBargesRows;
+  const row = rows[currentDetailRowIndex];
+  if (!row) return;
+
+  rowSaveButton.disabled = true;
+  rowSaveButton.textContent = 'Saving...';
+  rowDetailStatus.textContent = '';
+
+  try {
+    const response = await fetch('/coal-barging', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save_operation_data',
+        sibarges_id: row.sibarges_id ?? row.target_sibarges_id,
+        row_type: row.row_type === 'rc' || currentDetailSource === 'unused' ? 'rc' : 'base',
+        rc_row_id: row.rc_row_id || 0,
+        data: collectRowDetailData(),
+      }),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal menyimpan data operasi.');
+
+    rowDetailStatus.textContent = result.msg;
+    rowDetailStatus.className = 'me-auto small text-success';
+    await reloadSelectedVessel();
+  } catch (error) {
+    rowDetailStatus.textContent = error.message;
+    rowDetailStatus.className = 'me-auto small text-danger';
+  } finally {
+    rowSaveButton.disabled = false;
+    rowSaveButton.textContent = 'Save';
+  }
+});
+
+createRcButton.addEventListener('click', async () => {
+  if (currentDetailSource !== 'main') return;
+  const row = currentDataBargesRows[currentDetailRowIndex];
+  if (!row || row.row_type === 'rc') return;
+
+  const data = collectRowDetailData();
+  createRcButton.disabled = true;
+  createRcButton.textContent = 'Creating...';
+  rowDetailStatus.textContent = '';
+
+  try {
+    const response = await fetch('/coal-barging', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'create_rc_row',
+        sibarges_id: row.sibarges_id,
+        data,
+        operation_remarks: data.operation_remarks || row.operation_remarks || '',
+      }),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal membuat RC.');
+
+    rowDetailModal.hide();
+    await reloadSelectedVessel();
+  } catch (error) {
+    rowDetailStatus.textContent = error.message;
+    rowDetailStatus.className = 'me-auto small text-danger';
+  } finally {
+    createRcButton.disabled = false;
+    createRcButton.textContent = 'Create RC';
+  }
+});
+
+rowDeleteButton.addEventListener('click', async () => {
+  const rows = currentDetailSource === 'unused' ? currentUnusedRcRows : currentDataBargesRows;
+  const row = rows[currentDetailRowIndex];
+  if (!row) return;
+
+  const confirmed = confirm(
+    currentDetailSource === 'unused' ? 'Hapus data RC unused ini?' : 'Hapus data ini dari Coal Barging?'
+  );
+  if (!confirmed) return;
+
+  rowDeleteButton.disabled = true;
+  rowDeleteButton.textContent = 'Deleting...';
+  rowDetailStatus.textContent = '';
+
+  try {
+    const response = await fetch('/coal-barging', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'delete_coal_barging_row',
+        sibarges_id: row.sibarges_id,
+        row_type: row.row_type === 'rc' || currentDetailSource === 'unused' ? 'rc' : 'base',
+        rc_row_id: row.rc_row_id || 0,
+        delete_scope: currentDetailSource === 'unused' ? 'unused' : 'main',
+      }),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Gagal menghapus data.');
+
+    rowDetailModal.hide();
+    await reloadSelectedVessel();
+  } catch (error) {
+    rowDetailStatus.textContent = error.message;
+    rowDetailStatus.className = 'me-auto small text-danger';
+  } finally {
+    rowDeleteButton.disabled = false;
+    rowDeleteButton.textContent = 'Delete';
+  }
+});
+
+dataBargesBody.addEventListener('click', (e) => {
+  const tr = e.target.closest('tr[data-row-index]');
+  if (tr) openRowDetail(Number(tr.dataset.rowIndex), 'main');
+});
+dataBargesBody.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const tr = e.target.closest('tr[data-row-index]');
+  if (tr) {
+    e.preventDefault();
+    openRowDetail(Number(tr.dataset.rowIndex), 'main');
+  }
+});
+
+// ===== Unused RC: Insert action (input_rc_row) =====
+
+unusedRcBody.addEventListener('click', async (e) => {
+  const button = e.target.closest('.insertRcRowButton');
+  if (!button) {
+    const tr = e.target.closest('tr[data-row-index]');
+    if (tr) openRowDetail(Number(tr.dataset.rowIndex), 'unused');
+    return;
+  }
+
+  const rcRowId = Number(button.dataset.rcRowId);
+  const targetSibargesId = Number(button.dataset.targetSibargesId);
+  if (!rcRowId || !targetSibargesId) return;
+
+  button.disabled = true;
+  button.textContent = 'Inserting...';
+  operationCsvStatus.classList.add('d-none');
+
+  try {
+    const response = await fetch('/coal-barging', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'input_rc_row', rc_row_id: rcRowId, target_sibarges_id: targetSibargesId }),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Insert RC gagal.');
+
+    operationCsvStatus.textContent = result.msg;
+    operationCsvStatus.className = 'alert alert-success mb-3';
+    await reloadSelectedVessel();
+  } catch (error) {
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.className = 'alert alert-danger mb-3';
+    button.disabled = false;
+    button.textContent = 'Insert';
+  }
+});
+
+// ===== Import from TLU Operation =====
+
+importFromTluButton.addEventListener('click', async () => {
+  if (!currentNoPk) return;
+  if (!confirm('Overwrite semua data Coal Barging untuk vessel ini dari TLU Operation?')) return;
+
+  operationCsvStatus.classList.add('d-none');
+  importFromTluButton.disabled = true;
+  importFromTluButton.textContent = 'Importing...';
+
+  try {
+    const response = await fetch('/coal-barging', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'import_from_tlu_operation', no_pk: currentNoPk }),
+    });
+    const result = await response.json();
+    if (!result.ok) throw new Error(result.msg || 'Import from TLU Operation gagal.');
+
+    operationCsvStatus.textContent = result.msg;
+    operationCsvStatus.className = 'alert alert-success mb-3';
+    await reloadSelectedVessel();
+  } catch (error) {
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.className = 'alert alert-danger mb-3';
+  } finally {
+    importFromTluButton.disabled = false;
+    importFromTluButton.textContent = 'Import from TLU Operation';
+  }
+});
+
+// ===== CSV import =====
+
+operationImportForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const file = operationCsvFile.files[0];
+  if (!currentNoPk || !file) return;
+
+  const fd = new FormData();
+  fd.append('action', 'import_operation_csv');
+  fd.append('no_pk', currentNoPk);
+  fd.append('csv', file);
+
+  operationImportButton.disabled = true;
+  operationImportButton.textContent = 'Importing...';
+  operationCsvStatus.classList.add('d-none');
+
+  try {
+    const response = await fetch('/coal-barging', { method: 'POST', body: fd });
+    const result = await response.json();
+    operationCsvStatus.textContent = result.msg || '';
+    operationCsvStatus.classList.remove('d-none');
+    operationCsvStatus.className = `alert mb-3 ${!result.ok ? 'alert-danger' : result.partial ? 'alert-warning' : 'alert-success'}`;
+    if (result.ok) {
+      operationCsvFile.value = '';
+      await reloadSelectedVessel();
+    }
+  } catch (error) {
+    operationCsvStatus.textContent = error.message;
+    operationCsvStatus.classList.remove('d-none');
+    operationCsvStatus.className = 'alert alert-danger mb-3';
+  } finally {
+    operationImportButton.disabled = false;
+    operationImportButton.textContent = 'Import CSV';
+  }
 });
 </script>
 
