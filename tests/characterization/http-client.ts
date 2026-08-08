@@ -59,6 +59,20 @@ export class HttpClient {
     return JSON.parse(res.body) as T;
   }
 
+  async postJsonBody<T = unknown>(path: string, body: unknown): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      redirect: "manual",
+      headers: {
+        "content-type": "application/json",
+        ...(this.cookie ? { cookie: this.cookie } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    this.capture(res);
+    return JSON.parse(await res.text()) as T;
+  }
+
   async postMultipart(
     path: string,
     fields: Record<string, string>,

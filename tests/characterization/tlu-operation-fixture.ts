@@ -46,6 +46,30 @@ export async function deleteBargeOperationRow(id: number): Promise<void> {
   await p.end();
 }
 
+export interface BargeOperationRow {
+  operation_data: string | null;
+  remarks: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+/** Reads the raw persisted barge_operations row directly, bypassing the
+ * vessel-defaults-merging si_barges_by_vessel read path — used by tests that
+ * need to inspect exactly what was written (partial-merge, upsert, remarks
+ * routing). */
+export async function getBargeOperationRow(
+  sibargesId: number
+): Promise<BargeOperationRow | null> {
+  const p = pool();
+  const [rows] = await p.query<(BargeOperationRow & mysql.RowDataPacket)[]>(
+    "SELECT operation_data, remarks, created_by, created_at, updated_at FROM barge_operations WHERE sibarges_id = ?",
+    [sibargesId]
+  );
+  await p.end();
+  return rows[0] ?? null;
+}
+
 export async function deleteBargeOperationRowsBySibargesId(
   sibargesId: number
 ): Promise<void> {
