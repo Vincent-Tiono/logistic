@@ -192,33 +192,145 @@ function logoFileFor(siType: string): { file: string; width: number } {
     : { file: "sjn.png", width: 210 };
 }
 
-/** Renders a "Shipping Instruction" PDF for one sibarges row. Reimplements
- * the field layout of Operation/7sibarges.php's outputSimplePdf() using
+const SHIPPING_DOCUMENTS: Array<{ text: string; indent?: boolean }> = [
+  {
+    text: '1. Bill of Lading "Clean on Board" (3 Original + 7 Copy Non Negotiable) Marked Freight Payable',
+  },
+  { text: "2. Cargo Manifest (3 Original + 7 Copy Non Negotiable)" },
+  { text: "3. IIA Certificates ( ASTM Standard )" },
+  {
+    text: "a. Certificate of Sampling and Analysis (COA); issued by SURVEYOR (1 Original + 7 Copy)",
+    indent: true,
+  },
+  {
+    text: "b. Certificate of Weight (COW); issued by SURVEYOR (1 Original + 7 Copy)",
+    indent: true,
+  },
+  {
+    text: "c. Draft Survey Report (DSR); issued by SURVEYOR (1 Original + 7 Copy)",
+    indent: true,
+  },
+  {
+    text: "d. Certificate of Hold Cleanliness ; issued by SURVEYOR (1 Original + 7 Copy)",
+    indent: true,
+  },
+  {
+    text: "e. Certificate of Origin; issued by SURVEYOR (1 Original + 7 Copy)",
+    indent: true,
+  },
+  {
+    text: "4. Certificate of Origin (COO); issued by Chamber of Commerce (1 Original + 1 Triplicate + 7 Copy NonNegotiable)",
+  },
+];
+
+/** Renders a "Shipping Instruction" letter PDF for one sibarges row.
+ * Reimplements Operation/7sibarges.php's outputSimplePdf() layout using
  * pdfkit rather than porting its hand-rolled byte-level PDF writer. */
 export function renderSibargesPdf(row: SibargesPdfRow): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 50 });
+    const doc = new PDFDocument({ size: "A4", margin: 60 });
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const { file, width } = logoFileFor(row.si_type);
+    const pageWidth = doc.page.width;
+    const marginLeft = doc.page.margins.left;
+    const marginRight = doc.page.margins.right;
+    const rightEdge = pageWidth - marginRight;
+
+    const fields = new Map(getSibargesPdfFields(row).map((f) => [f.label, f.value]));
+
+    const { file, width: logoWidth } = logoFileFor((row.si_type ?? "").toUpperCase());
     try {
-      doc.image(path.join(LOGO_DIR, file), { width });
+      const logoPath = path.join(LOGO_DIR, file);
+      const { width: srcWidth, height: srcHeight } = (
+        doc as unknown as { openImage(src: string): { width: number; height: number } }
+      ).openImage(logoPath);
+      const logoHeight = (srcHeight / srcWidth) * logoWidth;
+      doc.image(logoPath, rightEdge - logoWidth, doc.page.margins.top, { width: logoWidth });
+      doc.y = doc.page.margins.top + logoHeight;
     } catch {
       // logo missing/unreadable: continue without it
     }
 
-    doc.moveDown();
-    doc.fontSize(14).text("SI Barges Detail", { underline: true });
-    doc.moveDown();
+    const siNo = (fields.get("SI Barges") ?? "").trim();
+    const date = (fields.get("Document Date") ?? "").trim();
+    const shipper = (fields.get("Shipper") ?? "").trim() || "[Shipper]";
+    const portOfLoading = (fields.get("Port of Loading") ?? "").trim() || "[Port of Loading]";
+    const portOfDischarge =
+      (fields.get("Port of Discharge") ?? "").trim() || "[Port of Discharge]";
+    const bargeNomination =
+      (fields.get("Barge Nomination") ?? "").trim() || "[Barge Nomination]";
+    const laycan = (fields.get("Laycan") ?? "").trim() || "[Laycan]";
+    const estLoadingDate = (fields.get("Est. Loading Date") ?? "").trim() || "00 00 00 - 00 00 00";
+    const quantity = (fields.get("Quantity") ?? "").trim() || "[Quantity]";
 
-    doc.fontSize(10);
-    for (const field of getSibargesPdfFields(row)) {
-      doc.font("Helvetica-Bold").text(`${field.label}: `, { continued: true });
-      doc.font("Helvetica").text(field.value || "-");
+    doc.moveDown(1.5);
+    doc.font("Helvetica-Bold").fontSize(18).text("SHIPPING INSTRUCTION", marginLeft, doc.y, {
+      width: rightEdge - marginLeft,
+      align: "center",
+    });
+
+    doc.moveDown(2);
+    doc.fontSize(9);
+    const labelWidth = 150;
+    const valueX = marginLeft + labelWidth + 12;
+    const valueWidth = rightEdge - valueX;
+
+    const addRow = (label: string, value: string) => {
+      const y = doc.y;
+      doc.font("Helvetica").text(label, marginLeft, y, { width: labelWidth, lineBreak: false });
+      doc.text(":", marginLeft + labelWidth, y, { lineBreak: false });
+      doc.text(value || " ", valueX, y, { width: valueWidth });
+      doc.moveDown(0.5);
+    };
+
+    addRow("Date", date || "[Date]");
+    addRow("No.", siNo || "[No.]");
+
+    doc.moveDown(0.5);
+    doc.text("Dear Sir / Madam,", marginLeft, doc.y, { width: rightEdge - marginLeft });
+    doc.text("Please find our shipment detail as follows :", marginLeft, doc.y, {
+      width: rightEdge - marginLeft,
+    });
+
+    doc.moveDown(1);
+    const items: Array<[string, string]> = [
+      ["1. Shipper", shipper],
+      ["2. Consignee", "TO ORDER"],
+      ["3. Notify Party", "TO ORDER"],
+      ["4. Port of Loading", portOfLoading],
+      ["5. Port of Discharge", portOfDischarge],
+      ["6. Barge Nomination", bargeNomination],
+      ["7. Laycan", laycan],
+      ["8. Est. Loading Date", estLoadingDate],
+      ["9. Description of Goods", "INDONESIAN STEAM COAL IN BULK"],
+      ["10. Quantity", quantity],
+      ["11. Term of Delivery", "Transhipment"],
+      ["12. Type of Vessel", ""],
+    ];
+    for (const [label, value] of items) {
+      addRow(label, value);
     }
+
+    doc.moveDown(0.5);
+    doc.text("Shipping documents :", marginLeft, doc.y, { width: rightEdge - marginLeft });
+    doc.moveDown(0.3);
+    doc.fontSize(8.2);
+    for (const line of SHIPPING_DOCUMENTS) {
+      const x = line.indent ? marginLeft + 18 : marginLeft;
+      doc.text(line.text, x, doc.y, { width: rightEdge - x });
+      doc.moveDown(0.6);
+    }
+
+    doc.moveDown(1.5);
+    doc.fontSize(9);
+    doc.text("Please use appropriately.", marginLeft, doc.y, { width: rightEdge - marginLeft });
+
+    doc.moveDown(4);
+    doc.text("Yours Faithfully,", marginLeft, doc.y, { width: rightEdge - marginLeft });
+    doc.text("Admin", marginLeft, doc.y, { width: rightEdge - marginLeft });
 
     doc.end();
   });

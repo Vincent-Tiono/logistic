@@ -29,9 +29,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($res && $res->num_rows === 1) {
         $u = $res->fetch_assoc();
+        $stored = $u['password'];
+        $isBcryptHash = (bool) preg_match('/^\$2[aby]\$/', $stored);
 
-        // password masih plain text
-        if ($password === $u['password']) {
+        $matches = $isBcryptHash
+            ? password_verify($password, $stored)
+            : $password === $stored;
+
+        if ($matches) {
+            if (!$isBcryptHash) {
+                $rehashed = password_hash($password, PASSWORD_BCRYPT);
+                $upd = $koneksi->prepare("UPDATE usermlp SET password = ? WHERE username = ?");
+                $upd->bind_param("ss", $rehashed, $u['username']);
+                $upd->execute();
+                $upd->close();
+            }
+
             $_SESSION['username'] = $u['username'];
             $_SESSION['jabatan']  = $u['jabatan'];
             $_SESSION['divisi']   = $u['divisi'];
