@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { COAL_BARGING_CSV_COLUMNS } from "../../src/services/coal-barging.service.js";
+import { parseCsv } from "../../src/lib/csv-parser.js";
+import {
+  COAL_BARGING_CSV_COLUMNS,
+  COAL_BARGING_TABLE_EXPORT_HEADERS,
+} from "../../src/services/coal-barging.service.js";
 import {
   deleteCoalBargeDeletedRow,
   deleteCoalBargeOperationRowsBySibargesId,
@@ -179,6 +183,44 @@ describe.each(targets)("coal-barging — $name", (target) => {
     const header = COAL_BARGING_CSV_COLUMNS.join(",");
     const lines = rows.map((row) => COAL_BARGING_CSV_COLUMNS.map((col) => row[col] ?? "").join(","));
     return [header, ...lines].join("\n");
+  }
+
+  function groupedExportUrl(params: Record<string, string>) {
+    const qs = new URLSearchParams({ download: "tlu_grouped_export", ...params }).toString();
+    return `${target.paths.coalBarging}?${qs}`;
+  }
+
+  function templateDownloadUrl(params: Record<string, string>) {
+    const qs = new URLSearchParams({ download: "tlu_operation_template", ...params }).toString();
+    return `${target.paths.coalBarging}?${qs}`;
+  }
+
+  function stripBom(text: string) {
+    return text.replace(/^﻿/, "");
+  }
+
+  // Same reversal PHP-vs-Node Content-Disposition handling as TLU's own
+  // characterization spec (see contentDispositionAttachment,
+  // src/lib/http-headers.ts, and its use in tlu-operation.characterization.spec.ts).
+  function decodeContentDisposition(value: string | null): string {
+    if (!value) return "";
+    const extended = value.match(/filename\*=UTF-8''([^;]+)/);
+    if (extended) return decodeURIComponent(extended[1]);
+    return Buffer.from(value, "latin1").toString("utf8");
+  }
+
+  /** Groups CSV data rows (post-header) into vessel blocks, splitting on the
+   * blank-line separator (a single-cell [""] row from parseCsv). */
+  function splitIntoVesselBlocks(rows: string[][]): string[][][] {
+    const blocks: string[][][] = [[]];
+    for (const row of rows) {
+      if (row.length === 1 && row[0] === "") {
+        blocks.push([]);
+      } else {
+        blocks[blocks.length - 1].push(row);
+      }
+    }
+    return blocks.filter((b) => b.length > 0);
   }
 
   /** Strips any leading PHP warning/notice HTML (display_errors output)
@@ -848,4 +890,217 @@ describe.each(targets)("coal-barging — $name", (target) => {
       expect(ourRows).toHaveLength(2);
     }
   );
+
+  describe("tlu_grouped_export", () => {
+    it("rejects an invalid scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(groupedExportUrl({ scope: "bogus" }));
+      expect(res.status).toBe(400);
+      expect(res.body).toContain("Pilihan export tidak valid");
+    });
+
+    it("validates year/month/no_pk depending on scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+
+      const noYear = await client.get(groupedExportUrl({ scope: "vessel" }));
+      expect(noYear.status).toBe(400);
+      expect(noYear.body).toContain("Tahun export tidak valid");
+
+      const noMonth = await client.get(groupedExportUrl({ scope: "vessel", year: "2025" }));
+      expect(noMonth.body).toContain("Bulan export tidak valid");
+
+      const noNoPk = await client.get(
+        groupedExportUrl({ scope: "vessel", year: "2025", month: "8" })
+      );
+      expect(noNoPk.body).toContain("Mother Vessel wajib dipilih");
+
+      const monthNoYear = await client.get(groupedExportUrl({ scope: "month", month: "8" }));
+      expect(monthNoYear.body).toContain("Tahun export tidak valid");
+
+      const yearNoYear = await client.get(groupedExportUrl({ scope: "year" }));
+      expect(yearNoYear.body).toContain("Tahun export tidak valid");
+    });
+
+    it("returns 404 when no rows match the scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(groupedExportUrl({ scope: "year", year: "2099" }));
+      expect(res.status).toBe(404);
+      expect(res.body).toContain("Data Barges tidak ditemukan untuk pilihan export ini");
+    });
+
+    it("scope=vessel: streams a real CSV (not JSON) with the table-export header, calculated columns, discharge_sequence ordering, and exact filename", async () => {
+      await seedCoalBargeOperationRow({
+        sibarges_id: sibargesId1,
+        operation_data: {
+          status_act_rc: "RC",
+          qty: "100",
+          qty_disc: "80",
+          qty_actual: "60",
+          completed_disch: "2025-08-10 10:00",
+          discharge_sequence: "1",
+        },
+      });
+      await seedCoalBargeOperationRow({
+        sibarges_id: sibargesId2,
+        operation_data: {
+          qty: "50",
+          qty_disc: "40",
+          qty_actual: "30",
+          completed_disch: "2025-08-11 09:00",
+          discharge_sequence: "2",
+        },
+      });
+
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(
+        groupedExportUrl({ scope: "vessel", year: "2025", month: "8", no_pk: noPk })
+      );
+      expect(res.status).toBe(200);
+      expect(res.contentType).toContain("text/csv");
+      expect(decodeContentDisposition(res.contentDisposition)).toContain(
+        `coal_barging_${noPk}—${mothervessel}.csv`
+      );
+
+      const allRows = parseCsv(stripBom(res.body));
+      expect(allRows[0]).toEqual([...COAL_BARGING_TABLE_EXPORT_HEADERS]);
+      const idx = (column: string) => allRows[0].indexOf(column);
+
+      const dataRows = allRows.slice(1);
+      expect(dataRows).toHaveLength(2);
+
+      // discharge_sequence 1 (sibargesId1) sorts before 2 (sibargesId2).
+      expect(dataRows[0][idx("Month Vessel")]).toBe("8");
+      expect(dataRows[0][idx("Status ACT/RC")]).toBe("RC");
+      expect(dataRows[0][idx("Status ACT/ACT&RC")]).toBe("ACT&RC");
+      expect(dataRows[0][idx("QTY Jetty")]).toBe("100");
+      expect(dataRows[0][idx("QTY DISC")]).toBe("80");
+      expect(dataRows[0][idx("QTY Laut")]).toBe("60");
+      expect(dataRows[0][idx("DSR VS Redraft")]).toBe("20");
+
+      // status_act_rc not set on the second barge -> defaults to ACT/ACT.
+      expect(dataRows[1][idx("Status ACT/RC")]).toBe("ACT");
+      expect(dataRows[1][idx("Status ACT/ACT&RC")]).toBe("ACT");
+    });
+
+    it("scope=all: groups multiple vessels, blank-line separated", async () => {
+      const noPk2 = `CB2.${uid}`;
+      const mothervessel2 = `MV CB2 ${uid}`;
+      await seedVesselRow({
+        no_pk: noPk2,
+        no_si_vessel: "091",
+        buyer: "BUYER TEST 2",
+        mothervessel: mothervessel2,
+        anchorage: "MUARA BERAU",
+        term: "FOB",
+      });
+      const sibargesId3 = await seedSibargesRow({
+        no_pk: noPk2,
+        no_si_vessel: "091",
+        buyer: "BUYER TEST 2",
+        mothervessel: mothervessel2,
+        barge_seq: 1,
+        jetty_code: jettyCode,
+        shipper_code: shipperCode,
+        laycan_start: "2025-09-01",
+        laycan_end: "2025-09-02",
+      });
+
+      try {
+        const client = await loginAs(opUser, opPassword);
+        const res = await client.get(groupedExportUrl({ scope: "all" }));
+        expect(res.status).toBe(200);
+        expect(decodeContentDisposition(res.contentDisposition)).toContain("coal_barging_all.csv");
+
+        const allRows = parseCsv(stripBom(res.body));
+        const idx = allRows[0].indexOf("No. Reff");
+        const blocks = splitIntoVesselBlocks(allRows.slice(1));
+
+        // Every blank-separated block must belong to exactly one vessel.
+        for (const block of blocks) {
+          const noPksInBlock = new Set(block.map((row) => row[idx]));
+          expect(noPksInBlock.size).toBe(1);
+        }
+
+        const ourBlock = blocks.find((b) => b[0][idx] === noPk);
+        expect(ourBlock).toHaveLength(2);
+        const otherBlock = blocks.find((b) => b[0][idx] === noPk2);
+        expect(otherBlock).toHaveLength(1);
+      } finally {
+        await deleteSibargesRow(sibargesId3);
+        await deleteVesselRow(noPk2);
+      }
+    });
+  });
+
+  describe("download=tlu_operation_template (Coal Barging)", () => {
+    it("requires no_pk", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({}));
+      expect(res.status).toBe(400);
+      expect(res.body).toContain("No PK wajib dipilih");
+    });
+
+    it("404 when no SI Barges match", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({ no_pk: `NOPE-${uid}` }));
+      expect(res.status).toBe(404);
+      expect(res.body).toContain("Data SI Barges tidak ditemukan");
+    });
+
+    // Legacy PHP writes this endpoint's header row via fputcsv($out,
+    // COAL_BARGING_CSV_COLUMNS, ...) (9coalbarging.php:692), but that
+    // constant is never declared anywhere in the PHP file — headers are
+    // already sent (Content-Type/Content-Disposition/BOM) by the time this
+    // runs, so PHP 8's undefined-constant Error surfaces as fatal-error HTML
+    // appended to what would otherwise be the CSV body, not a clean 500.
+    // This port intentionally does not reproduce that bug: it uses the
+    // already-ported COAL_BARGING_CSV_COLUMNS (src/services/coal-barging.service.ts)
+    // consistently for both the header and each data row.
+    it.skipIf(!isPhp)(
+      "PHP: crashes on the undefined COAL_BARGING_CSV_COLUMNS constant instead of writing the CSV header",
+      async () => {
+        const client = await loginAs(opUser, opPassword);
+        const res = await client.get(templateDownloadUrl({ no_pk: noPk }));
+        expect(res.status).toBe(200);
+        expect(res.contentType).toContain("text/csv");
+        expect(res.body).toContain("COAL_BARGING_CSV_COLUMNS");
+      }
+    );
+
+    it.skipIf(isPhp)(
+      "returns a formatted CSV template with the COAL_BARGING_CSV_COLUMNS header and exact filename",
+      async () => {
+        await seedCoalBargeOperationRow({
+          sibarges_id: sibargesId1,
+          operation_data: { qty_disc: "1000", rc: "50", qty_actual: "950", pbm_vendor: "VENDORX" },
+        });
+
+        const client = await loginAs(opUser, opPassword);
+        const res = await client.get(templateDownloadUrl({ no_pk: noPk }));
+        expect(res.status).toBe(200);
+        expect(res.contentType).toContain("text/csv");
+        expect(decodeContentDisposition(res.contentDisposition)).toContain(
+          `template_coal_barging_${noPk}—${mothervessel}.csv`
+        );
+
+        const allRows = parseCsv(stripBom(res.body));
+        expect(allRows[0]).toEqual([...COAL_BARGING_CSV_COLUMNS]);
+        const idx = (column: string) => allRows[0].indexOf(column);
+
+        const ourRows = allRows.slice(1).filter((r) => r[idx("no_pk")] === noPk);
+        expect(ourRows).toHaveLength(2);
+
+        // barge_seq ASC order: sibargesId1 (has a coal_barge_operations row) first.
+        const [row1, row2] = ourRows;
+        expect(row1[idx("qty_disc")]).toBe("1,000");
+        expect(row1[idx("rc")]).toBe("50");
+        expect(row1[idx("qty_actual")]).toBe("950");
+        expect(row1[idx("pbm_vendor")]).toBe("VENDORX");
+
+        // sibargesId2 has no coal_barge_operations row: blank fields.
+        expect(row2[idx("qty_disc")]).toBe("");
+        expect(row2[idx("qty_actual")]).toBe("");
+      }
+    );
+  });
 });

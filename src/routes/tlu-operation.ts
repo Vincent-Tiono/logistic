@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbPool } from "../config/database.js";
+import { contentDispositionAttachment } from "../lib/http-headers.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import {
   buildOperationTemplateCsv,
@@ -38,18 +39,6 @@ function parseIntOrNull(value: string | undefined): number | null {
   const trimmed = (value ?? "").trim();
   if (!/^-?\d+$/.test(trimmed)) return null;
   return Number(trimmed);
-}
-
-/** Filenames here can contain non-ASCII (an em dash between no_pk and
- * mothervessel). Unlike PHP's header(), which writes whatever raw bytes it's
- * given, Fastify re-encodes header string values as UTF-8 when writing the
- * response, corrupting a literal non-ASCII character in `filename=`. RFC
- * 6266's `filename*` extension carries the real name as percent-encoded
- * (pure-ASCII) UTF-8 instead, with a sanitized ASCII fallback in `filename=`
- * for clients that don't support it. */
-function contentDispositionAttachment(filename: string): string {
-  const asciiFallback = filename.replace(/[^\x20-\x7e]/g, "_");
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
 }
 
 export async function tluOperationRoutes(app: FastifyInstance) {

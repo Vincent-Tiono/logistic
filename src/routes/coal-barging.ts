@@ -1,7 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { dbPool } from "../config/database.js";
+import { contentDispositionAttachment } from "../lib/http-headers.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import {
+  buildCoalBargingGroupedExportCsv,
+  buildCoalBargingOperationTemplateCsv,
   createCoalBargingRcRow,
   deleteCoalBargingRow,
   importCoalBargingCsv,
@@ -19,6 +22,18 @@ interface ListQuery {
   ajax?: string;
   action?: string;
   no_pk?: string;
+  download?: string;
+  scope?: string;
+  year?: string;
+  month?: string;
+}
+
+/** Port of PHP's filter_var($value, FILTER_VALIDATE_INT): returns null for
+ * blank/non-integer input instead of NaN. */
+function parseIntOrNull(value: string | undefined): number | null {
+  const trimmed = (value ?? "").trim();
+  if (!/^-?\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
 }
 
 interface WriteBody {
@@ -47,6 +62,36 @@ export async function coalBargingRoutes(app: FastifyInstance) {
       // Legacy runs this unconditionally on every request (page load and
       // every AJAX action) — see seedCoalBargingFromTlu's doc comment.
       await seedCoalBargingFromTlu(coalPool);
+
+      if (req.query.download === "tlu_grouped_export") {
+        const result = await buildCoalBargingGroupedExportCsv(
+          pool,
+          (req.query.scope ?? "").trim(),
+          {
+            noPk: req.query.no_pk,
+            year: parseIntOrNull(req.query.year),
+            month: parseIntOrNull(req.query.month),
+          }
+        );
+        if (!result.ok) {
+          return reply.code(result.status).send(result.msg);
+        }
+        return reply
+          .type("text/csv; charset=utf-8")
+          .header("Content-Disposition", contentDispositionAttachment(result.filename))
+          .send(result.csv);
+      }
+
+      if (req.query.download === "tlu_operation_template") {
+        const result = await buildCoalBargingOperationTemplateCsv(pool, req.query.no_pk ?? "");
+        if (!result.ok) {
+          return reply.code(result.status).send(result.msg);
+        }
+        return reply
+          .type("text/csv; charset=utf-8")
+          .header("Content-Disposition", contentDispositionAttachment(result.filename))
+          .send(result.csv);
+      }
 
       if (req.query.ajax === "1") {
         const action = req.query.action ?? "";

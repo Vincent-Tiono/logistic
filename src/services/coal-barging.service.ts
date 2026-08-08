@@ -1,8 +1,10 @@
 import type { Pool, ResultSetHeader, RowDataPacket } from "mysql2/promise";
-import { detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
 import {
   RESTRICTED_FLOATING_CRANES,
   TLU_DATETIME_FIELDS,
+  formatDisplayDateTime,
+  formatOperationDisplayNumber,
   formatOperationNumber,
   normalizeOperationDateTime,
   parseOperationDateTimeValue,
@@ -303,16 +305,15 @@ const PERIOD_JOIN = `
 `;
 
 /**
- * Port of coalBargingExportSql('') (Operation/9coalbarging.php:497-552),
- * scoped to every active vessel: the same base/rc UNION ALL shape as
- * listCoalBargingByVessel, but backing the "All Years / All Vessels"
- * landing table instead of a single vessel.
+ * Port of coalBargingExportSql($scopeCondition) (Operation/9coalbarging.php:497-552):
+ * the base/rc UNION ALL query shape shared by the "All Years / All Vessels"
+ * landing table and the "Export CSV" grouped download, parameterized by an
+ * optional scope condition (appended to both branches' WHERE clause, with
+ * its own `?` placeholders bound by the caller) filtering on
+ * `p.earliest_laycan_start` / `s.no_pk`.
  */
-export async function listAllCoalBargingRows(
-  pool: Pool
-): Promise<CoalBargingExportRow[]> {
-  const [rows] = await pool.query<CoalBargingExportRow[]>({
-    sql: `SELECT
+function coalBargingExportSql(scopeCondition: string): string {
+  return `SELECT
         s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code,
         s.tugboat, s.barge, s.anchorage, s.barge_seq, s.laycan_start, s.laycan_end,
         s.created_by, s.created_at, s.updated_at,
@@ -328,6 +329,7 @@ export async function listAllCoalBargingRows(
       ${DELETED_ROWS_JOIN}
       WHERE s.record_status = 'ACT'
         AND hidden.sibarges_id IS NULL
+        ${scopeCondition}
 
       UNION ALL
 
@@ -349,9 +351,64 @@ export async function listAllCoalBargingRows(
         ON rc.source_sibarges_id = s.id AND rc.usage_status = 'used'
       ${DELETED_ROWS_JOIN}
       WHERE s.record_status = 'ACT'
-        AND hidden.sibarges_id IS NULL`,
+        AND hidden.sibarges_id IS NULL
+        ${scopeCondition}`;
+}
+
+/**
+ * Port of coalBargingExportSql('') (Operation/9coalbarging.php:497-552),
+ * scoped to every active vessel: the same base/rc UNION ALL shape as
+ * listCoalBargingByVessel, but backing the "All Years / All Vessels"
+ * landing table instead of a single vessel.
+ */
+export async function listAllCoalBargingRows(
+  pool: Pool
+): Promise<CoalBargingExportRow[]> {
+  const [rows] = await pool.query<CoalBargingExportRow[]>({
+    sql: coalBargingExportSql(""),
     dateStrings: true,
   });
+
+  return rows;
+}
+
+export type CoalBargingExportScope = "vessel" | "month" | "year" | "all";
+
+export interface CoalBargingExportFilters {
+  noPk?: string;
+  year?: number | null;
+  month?: number | null;
+}
+
+/**
+ * Scope-filtered variant of listAllCoalBargingRows, backing the "Export CSV"
+ * grouped download — the `vessel`/`month`/`year` WHERE-clause variants of
+ * coalBargingExportSql($scopeCondition) legacy builds inline in the
+ * `?download=tlu_grouped_export` handler (9coalbarging.php:578-602).
+ */
+async function listScopedCoalBargingRows(
+  pool: Pool,
+  scope: CoalBargingExportScope,
+  filters: CoalBargingExportFilters
+): Promise<CoalBargingExportRow[]> {
+  let scopeCondition = "";
+  let scopeParams: Array<string | number> = [];
+  if (scope === "vessel") {
+    scopeCondition =
+      " AND s.no_pk = ? AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    scopeParams = [filters.noPk ?? "", filters.year ?? 0, filters.month ?? 0];
+  } else if (scope === "month") {
+    scopeCondition = " AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    scopeParams = [filters.year ?? 0, filters.month ?? 0];
+  } else if (scope === "year") {
+    scopeCondition = " AND YEAR(p.earliest_laycan_start) = ?";
+    scopeParams = [filters.year ?? 0];
+  }
+
+  const [rows] = await pool.query<CoalBargingExportRow[]>(
+    { sql: coalBargingExportSql(scopeCondition), dateStrings: true },
+    scope === "all" ? [] : [...scopeParams, ...scopeParams]
+  );
 
   return rows;
 }
@@ -478,6 +535,305 @@ export async function listAllVesselOperations(
 ): Promise<VesselExportGroup[]> {
   const rows = await listAllCoalBargingRows(pool);
   return groupCoalBargingExportRows(rows);
+}
+
+/* ===================== export (issue #15) ===================== */
+
+/** Headers for the Coal Barging "Export CSV" download — matches the
+ * on-screen Coal Barging Input table (COAL_BARGING_COLUMNS in
+ * views/coal-barging.ejs), not TLU Operation's own table. Port of
+ * COAL_BARGING_TABLE_EXPORT_HEADERS (9coalbarging.php:217-246). */
+export const COAL_BARGING_TABLE_EXPORT_HEADERS: readonly string[] = [
+  "Month Vessel",
+  "Status ACT/RC",
+  "Status ACT/ACT&RC",
+  "Laycan Start",
+  "Laycan End",
+  "Arrival Jetty",
+  "Date Jetty",
+  "Start Loading",
+  "Completed Loading",
+  "Jetty",
+  "Tugboat",
+  "Barge",
+  "QTY Jetty",
+  "QTY DISC",
+  "QTY Laut",
+  "DSR VS Redraft",
+  "No. Reff",
+  "Buyer",
+  "POD MV",
+  "PBM Vendor",
+  "Floating Crane",
+  "Start Disch",
+  "Completed Disch",
+  "Anchorage",
+  "Remarks",
+  "Created By",
+  "Created At",
+  "Updated At",
+];
+
+// The 5 calculated-export-column formulas below are a server-side copy of
+// assets/js/coal-barging-calc.mjs's monthVesselFromCompletedDisch/
+// statusActRcValue/statusActActRcValue/dateJettyEffectiveValue/
+// dsrVsRedraftRawValue (issue #13) — same formulas, same rationale legacy
+// itself duplicates them in PHP (9coalbarging.php:335-365): the "Export CSV"
+// download is a full-page navigation, no client JS runs, so it needs its
+// own copy, the same client-vs-server split TLU Operation already has
+// between its on-screen table and buildOperationTemplateCsv.
+
+/** Port of monthVesselFromCompletedDisch (9coalbarging.php:335-341). */
+function monthVesselFromCompletedDisch(value: unknown): string {
+  const text = String(value ?? "").trim();
+  const match = text.match(/^\d{4}-(\d{2})-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/);
+  return match ? String(Number(match[1])) : "";
+}
+
+/** Port of statusActRcExportValue (9coalbarging.php:343-346). */
+function statusActRcExportValue(data: Record<string, unknown>): string {
+  const value = String(data.status_act_rc ?? "").trim().toUpperCase();
+  return value === "RC" ? "RC" : "ACT";
+}
+
+/** Port of statusActActRcExportValue (9coalbarging.php:348-353). */
+function statusActActRcExportValue(data: Record<string, unknown>): string {
+  const saved = String(data.status_act_act_rc ?? "").trim().toUpperCase();
+  if (saved === "ACT&RC") return "ACT&RC";
+  if (saved === "ACT") return "ACT";
+  return statusActRcExportValue(data) === "RC" ? "ACT&RC" : "ACT";
+}
+
+/** Port of dateJettyEffectiveValue (9coalbarging.php:355-358). */
+function dateJettyEffectiveValue(data: Record<string, unknown>): string {
+  const stored = String(data.date_jetty ?? "").trim();
+  return stored !== "" ? stored : String(data.completed_loading ?? "").trim();
+}
+
+/** Local copy matching assets/js/coal-barging-calc.mjs's own
+ * parseOperationNumber — distinct from operation-fields.ts's
+ * parseOperationNumber, which returns a validation result, not a plain
+ * number. Kept intentionally tiny so there's nothing to drift. */
+function parseExportNumber(value: unknown): number | null {
+  const normalized = String(value ?? "").replaceAll(",", "").trim();
+  if (normalized === "") return null;
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : null;
+}
+
+/** Port of dsrVsRedraftExportValue (9coalbarging.php:360-365). */
+function dsrVsRedraftExportValue(data: Record<string, unknown>): string {
+  const qtyDisc = parseExportNumber(data.qty_disc);
+  const qtyLaut = parseExportNumber(data.qty_actual);
+  if (qtyDisc === null || qtyLaut === null) return "";
+  return formatOperationDisplayNumber(String(qtyDisc - qtyLaut));
+}
+
+/**
+ * Port of tableExportRow() (9coalbarging.php:369-402): one CSV row for the
+ * "Export CSV" grouped download, in COAL_BARGING_TABLE_EXPORT_HEADERS order.
+ */
+function tableExportRow(row: CoalBargingExportRow): string[] {
+  const data = decodeOperationData(row.operation_data);
+
+  return [
+    monthVesselFromCompletedDisch(data.completed_disch),
+    statusActRcExportValue(data),
+    statusActActRcExportValue(data),
+    formatDisplayDateTime(row.laycan_start, true),
+    formatDisplayDateTime(row.laycan_end, true),
+    formatDisplayDateTime(data.arrival_jetty),
+    formatDisplayDateTime(dateJettyEffectiveValue(data), false),
+    formatDisplayDateTime(data.start_loading),
+    formatDisplayDateTime(data.completed_loading),
+    row.jetty_code ?? "",
+    row.tugboat ?? "",
+    row.barge ?? "",
+    formatOperationDisplayNumber(data.qty),
+    formatOperationDisplayNumber(data.qty_disc),
+    formatOperationDisplayNumber(data.qty_actual),
+    dsrVsRedraftExportValue(data),
+    row.no_pk ?? "",
+    row.buyer ?? "",
+    row.mothervessel ?? "",
+    String(data.pbm_vendor ?? ""),
+    String(data.floating_crane ?? ""),
+    formatDisplayDateTime(data.start_disch),
+    formatDisplayDateTime(data.completed_disch),
+    row.anchorage ?? "",
+    row.operation_remarks ?? "",
+    row.created_by ?? "",
+    formatDisplayDateTime(row.created_at),
+    formatDisplayDateTime(row.updated_at),
+  ];
+}
+
+export type CoalBargingGroupedExportResult =
+  | { ok: true; filename: string; csv: string }
+  | { ok: false; status: number; msg: string };
+
+/**
+ * Port of the `?download=tlu_grouped_export` handler
+ * (9coalbarging.php:555-647). Unlike TLU's own grouped export (raw JSON,
+ * client-side compute per ADR-0001), this one is server-rendered end to
+ * end — matches legacy's fputcsv loop byte-for-byte, including the
+ * blank-line vessel-group separators.
+ */
+export async function buildCoalBargingGroupedExportCsv(
+  pool: Pool,
+  scope: string,
+  filters: CoalBargingExportFilters
+): Promise<CoalBargingGroupedExportResult> {
+  if (!["vessel", "month", "year", "all"].includes(scope)) {
+    return { ok: false, status: 400, msg: "Pilihan export tidak valid." };
+  }
+
+  const year = filters.year ?? null;
+  const month = filters.month ?? null;
+  const noPk = (filters.noPk ?? "").trim();
+
+  if (["vessel", "month", "year"].includes(scope) && (!year || year < 1900 || year > 2100)) {
+    return { ok: false, status: 400, msg: "Tahun export tidak valid." };
+  }
+  if (["vessel", "month"].includes(scope) && (!month || month < 1 || month > 12)) {
+    return { ok: false, status: 400, msg: "Bulan export tidak valid." };
+  }
+  if (scope === "vessel" && noPk === "") {
+    return { ok: false, status: 400, msg: "Mother Vessel wajib dipilih." };
+  }
+
+  const typedScope = scope as CoalBargingExportScope;
+  const rows = await listScopedCoalBargingRows(pool, typedScope, { noPk, year, month });
+  if (rows.length === 0) {
+    return { ok: false, status: 404, msg: "Data Barges tidak ditemukan untuk pilihan export ini." };
+  }
+
+  const groups = groupCoalBargingExportRows(rows);
+
+  let filename: string;
+  if (typedScope === "vessel") {
+    const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, "_");
+    const motherVessel = String(groups[0]?.mothervessel ?? "");
+    const safeMotherVessel = motherVessel.replace(/[^A-Za-z0-9 ._-]+/g, "_").trim();
+    filename = `coal_barging_${safeNoPk}—${safeMotherVessel}.csv`;
+  } else if (typedScope === "month") {
+    filename = `coal_barging_${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}.csv`;
+  } else if (typedScope === "year") {
+    filename = `coal_barging_${year}.csv`;
+  } else {
+    filename = "coal_barging_all.csv";
+  }
+
+  const lines: string[] = [buildCsvLine(COAL_BARGING_TABLE_EXPORT_HEADERS)];
+  for (const group of groups) {
+    for (const row of group.rows) {
+      lines.push(buildCsvLine(tableExportRow(row)));
+    }
+    lines.push("");
+  }
+  lines.pop(); // no trailing blank line after the last group, matching legacy
+
+  return { ok: true, filename, csv: `﻿${lines.join("\n")}\n` };
+}
+
+interface CoalBargingTemplateRow extends RowDataPacket {
+  no_pk: string;
+  buyer: string;
+  mothervessel: string;
+  si_barges: string;
+  jetty_code: string;
+  tugboat: string;
+  barge: string;
+  laycan_start: string | null;
+  laycan_end: string | null;
+  operation_data: unknown;
+  operation_remarks: string | null;
+}
+
+export type CoalBargingOperationTemplateResult =
+  | { ok: true; filename: string; csv: string }
+  | { ok: false; status: number; msg: string };
+
+/**
+ * Port of the `?download=tlu_operation_template` handler in
+ * 9coalbarging.php (:649-731) — Coal Barging's own per-vessel re-import
+ * template (no year scope, unlike TLU's own template). Legacy writes the
+ * header row with an undefined PHP constant (COAL_BARGING_CSV_COLUMNS was
+ * never declared in the PHP file) but builds each data row against
+ * TLU_CSV_COLUMNS (a copy-pasted rename of TLU's own field list); the
+ * already-ported COAL_BARGING_CSV_COLUMNS (below) is the correct,
+ * consistent column set for both header and rows here.
+ */
+export async function buildCoalBargingOperationTemplateCsv(
+  pool: Pool,
+  noPk: string
+): Promise<CoalBargingOperationTemplateResult> {
+  const trimmedNoPk = noPk.trim();
+  if (trimmedNoPk === "") {
+    return { ok: false, status: 400, msg: "No PK wajib dipilih." };
+  }
+
+  const [rows] = await pool.query<CoalBargingTemplateRow[]>(
+    {
+      sql: `SELECT
+          s.no_pk, s.buyer, s.mothervessel, s.si_barges,
+          s.jetty_code, s.tugboat, s.barge, s.laycan_start, s.laycan_end,
+          COALESCE(coal.operation_data, tlu.operation_data) AS operation_data,
+          COALESCE(coal.remarks, tlu.remarks) AS operation_remarks
+        FROM sibarges s
+        LEFT JOIN barge_operations tlu ON tlu.sibarges_id = s.id
+        LEFT JOIN \`datacoalbarging\`.\`coal_barge_operations\` coal ON coal.sibarges_id = s.id
+        ${DELETED_ROWS_JOIN}
+        WHERE s.no_pk = ? AND s.record_status = 'ACT'
+          AND hidden.sibarges_id IS NULL
+        ORDER BY s.barge_seq ASC, s.id ASC`,
+      dateStrings: true,
+    },
+    [trimmedNoPk]
+  );
+
+  if (rows.length === 0) {
+    return { ok: false, status: 404, msg: "Data SI Barges tidak ditemukan untuk vessel ini." };
+  }
+
+  const safeNoPk = trimmedNoPk.replace(/[^A-Za-z0-9._-]+/g, "_");
+  const motherVessel = String(rows[0]?.mothervessel ?? "");
+  const safeMotherVessel = motherVessel.replace(/[^A-Za-z0-9 ._-]+/g, "_").trim();
+  const filename = `template_coal_barging_${safeNoPk}—${safeMotherVessel}.csv`;
+
+  const lines = [buildCsvLine(COAL_BARGING_CSV_COLUMNS)];
+  for (const row of rows) {
+    const data = decodeOperationData(row.operation_data);
+
+    const csvRow: Record<string, string> = {
+      si_barges: String(row.si_barges ?? ""),
+      no_pk: String(row.no_pk ?? ""),
+      buyer: String(row.buyer ?? ""),
+      mother_vessel: String(row.mothervessel ?? ""),
+      jetty: String(row.jetty_code ?? ""),
+      tugboat: String(row.tugboat ?? ""),
+      barge: String(row.barge ?? ""),
+      qty: formatOperationDisplayNumber(data.qty ?? ""),
+      qty_disc: formatOperationDisplayNumber(data.qty_disc ?? ""),
+      rc: formatOperationDisplayNumber(data.rc ?? ""),
+      qty_actual: formatOperationDisplayNumber(data.qty_actual ?? ""),
+      pbm_vendor: String(data.pbm_vendor ?? ""),
+      floating_crane: String(data.floating_crane ?? ""),
+      laycan_start: formatDisplayDateTime(row.laycan_start ?? "", true),
+      laycan_end: formatDisplayDateTime(row.laycan_end ?? "", true),
+      remarks: String(row.operation_remarks ?? ""),
+    };
+    for (const field of Object.keys(TLU_DATETIME_FIELDS)) {
+      csvRow[field] = formatDisplayDateTime(data[field] ?? "");
+    }
+    csvRow.discharge_sequence = String(data.discharge_sequence ?? "");
+    csvRow.mooring_place_1 = String(data.mooring_place_1 ?? "");
+    csvRow.mooring_place_2 = String(data.mooring_place_2 ?? "");
+
+    lines.push(buildCsvLine(COAL_BARGING_CSV_COLUMNS.map((column) => csvRow[column] ?? "")));
+  }
+
+  return { ok: true, filename, csv: `﻿${lines.join("\n")}\n` };
 }
 
 /* ===================== write actions (issue #14) ===================== */

@@ -6,11 +6,16 @@
 //
 // Per docs/adr/0001-tlu-grouped-export-computes-client-side.md's precedent,
 // the server hands over raw operation_data and these formulas run here in
-// the browser, not server-side.
+// the browser, not server-side, for the on-screen Input table.
 //
-// Extracted from the legacy inline <script> (9coalbarging.php:2768-2817), the
-// same formulas legacy also duplicates server-side in PHP (:334-365) for the
-// CSV export — this port keeps only the one copy.
+// Extracted from the legacy inline <script> (9coalbarging.php:2768-2817).
+// Legacy also duplicates the same formulas server-side in PHP (:335-365) for
+// the "Export CSV" download — that download is a full-page navigation with
+// no client JS running, so issue #15 keeps its own server-side TS copy
+// (statusActRcExportValue/etc. in src/services/coal-barging.service.ts)
+// rather than reusing this module, the same client-vs-server split TLU
+// Operation already has between its on-screen table and
+// buildOperationTemplateCsv.
 
 /** Local copy, matching cycle-time.mjs's own parseOperationNumber — kept
  * intentionally tiny and byte-for-byte identical so there's nothing to

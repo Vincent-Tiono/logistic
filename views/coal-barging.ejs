@@ -64,9 +64,12 @@
 
         <div class="mt-3 d-none" id="dataBargesBox">
           <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
-            <button type="button" class="btn btn-sm btn-outline-warning" id="importFromTluButton">
-              Import from TLU Operation
-            </button>
+            <div class="d-flex align-items-center flex-wrap gap-2">
+              <button type="button" class="btn btn-sm btn-outline-warning" id="importFromTluButton">
+                Import from TLU Operation
+              </button>
+              <a class="btn btn-sm btn-outline-primary disabled" id="downloadOperationCsv" href="#" aria-disabled="true">Download CSV</a>
+            </div>
             <form id="operationImportForm" class="d-flex align-items-center flex-nowrap gap-2">
               <input type="file" name="csv" id="operationCsvFile" class="form-control form-control-sm" accept=".csv,text/csv" required>
               <button type="submit" class="btn btn-sm btn-primary flex-shrink-0" id="operationImportButton">Import CSV</button>
@@ -90,6 +93,70 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h5 class="mb-3">Export CSV</h5>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="cb_export_scope" value="vessel" checked>
+              <span class="fw-semibold">Satu Mother Vessel</span>
+              <div class="small text-muted">Export seluruh TB dari satu Mother Vessel.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="cb_export_scope" value="month">
+              <span class="fw-semibold">Satu Bulan</span>
+              <div class="small text-muted">Gabungkan semua Mother Vessel dalam bulan terpilih.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="cb_export_scope" value="year">
+              <span class="fw-semibold">Satu Tahun</span>
+              <div class="small text-muted">Gabungkan seluruh bulan dan Mother Vessel dalam satu tahun.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="cb_export_scope" value="all">
+              <span class="fw-semibold">Semua Tahun</span>
+              <div class="small text-muted">Gabungkan seluruh data Mother Vessel dalam satu CSV.</div>
+            </label>
+          </div>
+        </div>
+
+        <div class="row g-3 align-items-end">
+          <div class="col-md-3" id="cbExportYearGroup">
+            <label for="cb_export_year" class="form-label fw-semibold">Tahun</label>
+            <select id="cb_export_year" class="form-select">
+              <option value="">-- Pilih Tahun --</option>
+            </select>
+          </div>
+          <div class="col-md-3" id="cbExportMonthGroup">
+            <label for="cb_export_month" class="form-label fw-semibold">Bulan</label>
+            <select id="cb_export_month" class="form-select" disabled>
+              <option value="">-- Pilih Bulan --</option>
+            </select>
+          </div>
+          <div class="col-md-4" id="cbExportVesselGroup">
+            <label for="cb_export_no_pk" class="form-label fw-semibold">Mother Vessel (No PK)</label>
+            <select id="cb_export_no_pk" class="form-select" disabled>
+              <option value="">-- Pilih Mother Vessel --</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <a class="btn btn-success w-100" id="downloadGroupedExport" href="#">Export CSV</a>
+          </div>
+        </div>
+        <div class="form-text mt-3">
+          Data setiap Mother Vessel diurutkan berdasarkan Discharge Sequence. Satu baris kosong memisahkan Mother Vessel pada export gabungan.
+        </div>
+        <div class="alert d-none mt-3 mb-0" id="cbGroupedExportStatus" role="alert"></div>
       </div>
     </div>
 
@@ -426,6 +493,7 @@ const operationImportForm = document.getElementById('operationImportForm');
 const operationCsvFile = document.getElementById('operationCsvFile');
 const operationImportButton = document.getElementById('operationImportButton');
 const operationCsvStatus = document.getElementById('operationCsvStatus');
+const downloadOperationCsv = document.getElementById('downloadOperationCsv');
 
 let currentNoPk = '';
 let currentDataBargesRows = [];
@@ -589,6 +657,9 @@ cbNoPkSelect.addEventListener('change', async () => {
   currentNoPk = cbNoPkSelect.value;
   if (!currentNoPk) {
     dataBargesBox.classList.add('d-none');
+    downloadOperationCsv.classList.add('disabled');
+    downloadOperationCsv.setAttribute('aria-disabled', 'true');
+    downloadOperationCsv.removeAttribute('href');
     return;
   }
 
@@ -596,6 +667,9 @@ cbNoPkSelect.addEventListener('change', async () => {
   operationCsvStatus.textContent = '';
   operationCsvFile.value = '';
   dataBargesBox.classList.remove('d-none');
+  downloadOperationCsv.href = `/coal-barging?download=tlu_operation_template&no_pk=${encodeURIComponent(currentNoPk)}`;
+  downloadOperationCsv.classList.remove('disabled');
+  downloadOperationCsv.removeAttribute('aria-disabled');
   await reloadSelectedVessel();
 });
 
@@ -903,6 +977,103 @@ operationImportForm.addEventListener('submit', async (e) => {
     operationImportButton.disabled = false;
     operationImportButton.textContent = 'Import CSV';
   }
+});
+
+// ===== Export CSV (grouped, scoped) =====
+// Port of the legacy Export tab's scope picker + downloadGroupedExport
+// handler (9coalbarging.php:555-647, 2500-2528). Unlike TLU Operation's own
+// grouped export (fetch + client-side CSV build, per ADR-0001), this
+// download is server-rendered end to end (issue #15) — the button is a
+// plain navigation, no fetch/Blob involved.
+
+const cbExportScopeInputs = [...document.querySelectorAll('input[name="cb_export_scope"]')];
+const cbExportYearGroup = document.getElementById('cbExportYearGroup');
+const cbExportMonthGroup = document.getElementById('cbExportMonthGroup');
+const cbExportVesselGroup = document.getElementById('cbExportVesselGroup');
+const cbExportYearSelect = document.getElementById('cb_export_year');
+const cbExportMonthSelect = document.getElementById('cb_export_month');
+const cbExportNoPkSelect = document.getElementById('cb_export_no_pk');
+const downloadGroupedExport = document.getElementById('downloadGroupedExport');
+const cbGroupedExportStatus = document.getElementById('cbGroupedExportStatus');
+
+replaceSelectOptions(cbExportYearSelect, '-- Pilih Tahun --', availableYears.map((y) => ({ value: y, label: y })));
+
+function selectedCbExportScope() {
+  return cbExportScopeInputs.find((input) => input.checked)?.value || 'vessel';
+}
+
+function updateCbGroupedExportStatus(message = '') {
+  cbGroupedExportStatus.textContent = message;
+  cbGroupedExportStatus.classList.toggle('d-none', message === '');
+}
+
+function updateCbExportScopeFields() {
+  const scope = selectedCbExportScope();
+  cbExportYearGroup.classList.toggle('d-none', scope === 'all');
+  cbExportMonthGroup.classList.toggle('d-none', !['vessel', 'month'].includes(scope));
+  cbExportVesselGroup.classList.toggle('d-none', scope !== 'vessel');
+  updateCbGroupedExportStatus();
+}
+
+function updateCbExportMonths() {
+  const selectedYear = cbExportYearSelect.value;
+  const months = [...new Set(
+    vesselPeriods.filter((v) => String(v.laycan_year) === selectedYear).map((v) => Number(v.laycan_month))
+  )].sort((a, b) => a - b);
+  replaceSelectOptions(cbExportMonthSelect, '-- Pilih Bulan --', months.map((m) => ({ value: String(m), label: monthNames[m - 1] })));
+  cbExportMonthSelect.disabled = !selectedYear;
+  replaceSelectOptions(cbExportNoPkSelect, '-- Pilih Mother Vessel --', []);
+  cbExportNoPkSelect.disabled = true;
+}
+
+function updateCbExportVessels() {
+  const selectedYear = cbExportYearSelect.value;
+  const selectedMonth = cbExportMonthSelect.value;
+  const vessels = vesselPeriods.filter((v) =>
+    String(v.laycan_year) === selectedYear && String(Number(v.laycan_month)) === String(Number(selectedMonth))
+  );
+  replaceSelectOptions(
+    cbExportNoPkSelect,
+    '-- Pilih Mother Vessel --',
+    vessels.map((v) => ({ value: v.no_pk, label: `${v.no_pk} — ${v.mothervessel}` }))
+  );
+  cbExportNoPkSelect.disabled = !selectedMonth;
+}
+
+cbExportScopeInputs.forEach((input) => input.addEventListener('change', updateCbExportScopeFields));
+cbExportYearSelect.addEventListener('change', () => { updateCbExportMonths(); updateCbGroupedExportStatus(); });
+cbExportMonthSelect.addEventListener('change', () => { updateCbExportVessels(); updateCbGroupedExportStatus(); });
+cbExportNoPkSelect.addEventListener('change', () => updateCbGroupedExportStatus());
+updateCbExportScopeFields();
+
+downloadGroupedExport.addEventListener('click', (event) => {
+  event.preventDefault();
+
+  const scope = selectedCbExportScope();
+  const year = cbExportYearSelect.value;
+  const month = cbExportMonthSelect.value;
+  const noPk = cbExportNoPkSelect.value;
+
+  if (scope !== 'all' && !year) {
+    updateCbGroupedExportStatus('Pilih tahun terlebih dahulu.');
+    return;
+  }
+  if (['vessel', 'month'].includes(scope) && !month) {
+    updateCbGroupedExportStatus('Pilih bulan terlebih dahulu.');
+    return;
+  }
+  if (scope === 'vessel' && !noPk) {
+    updateCbGroupedExportStatus('Pilih Mother Vessel terlebih dahulu.');
+    return;
+  }
+
+  const params = new URLSearchParams({ download: 'tlu_grouped_export', scope });
+  if (scope !== 'all') params.set('year', year);
+  if (['vessel', 'month'].includes(scope)) params.set('month', month);
+  if (scope === 'vessel') params.set('no_pk', noPk);
+
+  updateCbGroupedExportStatus();
+  window.location.href = `/coal-barging?${params.toString()}`;
 });
 </script>
 
