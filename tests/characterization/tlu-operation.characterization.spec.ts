@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { parseCsv } from "../../src/lib/csv-parser.js";
 import { TLU_CSV_COLUMNS } from "../../src/lib/operation-fields.js";
 import { deleteUserRow, seedLegacyUser } from "./db-fixture.js";
 import { deleteFlfRow, seedFlfRow } from "./flf-fixture.js";
@@ -23,6 +24,8 @@ interface AjaxResult {
   partial?: boolean;
   updated?: number;
   errors?: number;
+  filename?: string;
+  rows?: any;
 }
 
 interface DecodedRow {
@@ -126,6 +129,48 @@ describe.each(targets)("tlu-operation — $name", (target) => {
   function siBargesByVesselUrl(no_pk: string) {
     const ajaxPrefix = isPhp ? "" : "ajax=1&";
     return `${target.paths.tluOperation}?${ajaxPrefix}action=si_barges_by_vessel&no_pk=${encodeURIComponent(no_pk)}`;
+  }
+
+  function groupedExportUrl(params: Record<string, string>) {
+    const ajaxPrefix = isPhp ? "" : "ajax=1&";
+    const qs = new URLSearchParams({ action: "tlu_grouped_export_data", ...params }).toString();
+    return `${target.paths.tluOperation}?${ajaxPrefix}${qs}`;
+  }
+
+  function templateDownloadUrl(params: Record<string, string>) {
+    const qs = new URLSearchParams({ download: "tlu_operation_template", ...params }).toString();
+    return `${target.paths.tluOperation}?${qs}`;
+  }
+
+  function stripBom(text: string) {
+    return text.replace(/^﻿/, "");
+  }
+
+  // PHP's header() writes the filename's em dash as raw UTF-8 bytes, which
+  // undici's fetch Headers decode isomorphically (one byte -> one char code)
+  // — reverse that to recover the real filename. Node's Content-Disposition
+  // (see contentDispositionAttachment, src/routes/tlu-operation.ts) instead
+  // uses RFC 6266's percent-encoded filename* extension, since Fastify
+  // re-encodes literal non-ASCII header characters as UTF-8 on the wire.
+  function decodeContentDisposition(value: string | null): string {
+    if (!value) return "";
+    const extended = value.match(/filename\*=UTF-8''([^;]+)/);
+    if (extended) return decodeURIComponent(extended[1]);
+    return Buffer.from(value, "latin1").toString("utf8");
+  }
+
+  /** Groups CSV data rows (post-header) into vessel blocks, splitting on the
+   * blank-line separator (a single-cell [""] row from parseCsv). */
+  function splitIntoVesselBlocks(rows: string[][]): string[][][] {
+    const blocks: string[][][] = [[]];
+    for (const row of rows) {
+      if (row.length === 1 && row[0] === "") {
+        blocks.push([]);
+      } else {
+        blocks[blocks.length - 1].push(row);
+      }
+    }
+    return blocks.filter((b) => b.length > 0);
   }
 
   // PHP reads `action` only from $_GET for these two write actions; Node
@@ -607,6 +652,231 @@ describe.each(targets)("tlu-operation — $name", (target) => {
         // remarks column sourced from the CSV's own `remarks` column, not `operation_remarks`.
         expect(raw?.remarks).toBe("from csv");
       } finally {
+        await deleteUserRow(itUser);
+      }
+    });
+  });
+
+  describe("tlu_grouped_export_data", () => {
+    it("rejects an invalid scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(groupedExportUrl({ scope: "bogus" }));
+      const json = JSON.parse(res.body) as AjaxResult;
+      expect(json.ok).toBe(false);
+      expect(json.msg).toContain("Pilihan export tidak valid");
+    });
+
+    it("validates year/month/no_pk depending on scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+
+      const noYear = await client.get(groupedExportUrl({ scope: "vessel" }));
+      expect((JSON.parse(noYear.body) as AjaxResult).msg).toContain("Tahun export tidak valid");
+
+      const noMonth = await client.get(groupedExportUrl({ scope: "vessel", year: "2025" }));
+      expect((JSON.parse(noMonth.body) as AjaxResult).msg).toContain("Bulan export tidak valid");
+
+      const noNoPk = await client.get(
+        groupedExportUrl({ scope: "vessel", year: "2025", month: "6" })
+      );
+      expect((JSON.parse(noNoPk.body) as AjaxResult).msg).toContain("Mother Vessel wajib dipilih");
+
+      const monthNoYear = await client.get(groupedExportUrl({ scope: "month", month: "6" }));
+      expect((JSON.parse(monthNoYear.body) as AjaxResult).msg).toContain("Tahun export tidak valid");
+
+      const yearNoYear = await client.get(groupedExportUrl({ scope: "year" }));
+      expect((JSON.parse(yearNoYear.body) as AjaxResult).msg).toContain("Tahun export tidak valid");
+    });
+
+    it("returns ok:false when no rows match the scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(groupedExportUrl({ scope: "year", year: "2099" }));
+      const json = JSON.parse(res.body) as AjaxResult;
+      expect(json.ok).toBe(false);
+      expect(json.msg).toContain("Data Barges tidak ditemukan untuk pilihan export ini");
+    });
+
+    it("scope=vessel: returns our two barges ordered by discharge_sequence/barge_seq, raw (not cycle-time-computed), with the exact filename", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(
+        groupedExportUrl({ scope: "vessel", year: "2025", month: "6", no_pk: noPk })
+      );
+      const json = JSON.parse(res.body) as AjaxResult;
+      expect(json.ok).toBe(true);
+      expect(json.filename).toBe(`tlu_${noPk}—${mothervessel}.csv`);
+
+      const rows = (json.rows ?? []) as DecodedRow[];
+      expect(rows).toHaveLength(2);
+      expect(String(rows[0].id)).toBe(String(sibargesId1));
+      expect(String(rows[1].id)).toBe(String(sibargesId2));
+
+      const data1 = decodeRawOperationData(rows[0].operation_data);
+      expect(data1.discharge_sequence).toBe("1");
+      expect(data1.qty_disc).toBe("1000");
+      // Raw, not cycle-time-computed — ADR-0001: no calculate*() output baked in.
+      expect(data1.waiting_loading_jetty).toBeUndefined();
+    });
+
+    it("scope=month/year/all: include our two barges, with the exact filename", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const oursIds = new Set([String(sibargesId1), String(sibargesId2)]);
+
+      const month = await client.get(
+        groupedExportUrl({ scope: "month", year: "2025", month: "6" })
+      );
+      const monthJson = JSON.parse(month.body) as AjaxResult;
+      expect(monthJson.ok).toBe(true);
+      expect(monthJson.filename).toBe("tlu_2025-06.csv");
+      expect(
+        (monthJson.rows as DecodedRow[]).filter((r) => oursIds.has(String(r.id)))
+      ).toHaveLength(2);
+
+      const year = await client.get(groupedExportUrl({ scope: "year", year: "2025" }));
+      const yearJson = JSON.parse(year.body) as AjaxResult;
+      expect(yearJson.ok).toBe(true);
+      expect(yearJson.filename).toBe("tlu_2025.csv");
+      expect(
+        (yearJson.rows as DecodedRow[]).filter((r) => oursIds.has(String(r.id)))
+      ).toHaveLength(2);
+
+      const all = await client.get(groupedExportUrl({ scope: "all" }));
+      const allJson = JSON.parse(all.body) as AjaxResult;
+      expect(allJson.ok).toBe(true);
+      expect(allJson.filename).toBe("tlu_all.csv");
+      expect(
+        (allJson.rows as DecodedRow[]).filter((r) => oursIds.has(String(r.id)))
+      ).toHaveLength(2);
+    });
+  });
+
+  describe("download=tlu_operation_template", () => {
+    function csvHeaderIndex(header: string[]) {
+      return (column: string) => header.indexOf(column);
+    }
+
+    it("rejects an invalid scope", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({ scope: "bogus" }));
+      expect(res.status).toBe(400);
+      expect(res.body).toContain("Pilihan template tidak valid");
+    });
+
+    it("scope=vessel requires no_pk", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({ scope: "vessel" }));
+      expect(res.status).toBe(400);
+      expect(res.body).toContain("No PK wajib dipilih");
+    });
+
+    it("scope=vessel: 404 when no SI Barges match", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(
+        templateDownloadUrl({ scope: "vessel", no_pk: `NOPE-${uid}` })
+      );
+      expect(res.status).toBe(404);
+      expect(res.body).toContain("Data SI Barges tidak ditemukan");
+    });
+
+    it("scope=vessel: not IT-gated — an Operation user gets a formatted CSV template", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({ scope: "vessel", no_pk: noPk }));
+      expect(res.status).toBe(200);
+      expect(res.contentType).toContain("text/csv");
+      expect(decodeContentDisposition(res.contentDisposition)).toContain(
+        `template_tlu_${noPk}—${mothervessel}.csv`
+      );
+
+      const allRows = parseCsv(stripBom(res.body));
+      const header = allRows[0];
+      expect(header).toEqual([...TLU_CSV_COLUMNS]);
+      const idx = csvHeaderIndex(header);
+
+      const ourRows = allRows.slice(1).filter((r) => r[idx("no_pk")] === noPk);
+      expect(ourRows).toHaveLength(2);
+
+      // barge_seq ASC order: sibargesId1 (has an operation row) first.
+      const [row1, row2] = ourRows;
+      expect(row1[idx("barge_vendor")]).toBe(vendorName);
+      expect(row1[idx("qty_disc")]).toBe("1,000");
+      expect(row1[idx("rc")]).toBe("0");
+      expect(row1[idx("qty_actual")]).toBe("1,000");
+      expect(row1[idx("laycan_start")]).toBe("01/Jun/25 00:00");
+      expect(row1[idx("laycan_end")]).toBe("02/Jun/25 00:00");
+
+      // sibargesId2 has no barge_operations row: qty/barge_vendor fields blank.
+      expect(row2[idx("barge_vendor")]).toBe("");
+      expect(row2[idx("qty_disc")]).toBe("");
+      expect(row2[idx("qty_actual")]).toBe("");
+    });
+
+    it("scope=year: rejects non-IT users with 403", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(templateDownloadUrl({ scope: "year", year: "2025" }));
+      expect(res.status).toBe(403);
+      expect(res.body).toContain("Hanya Divisi IT");
+    });
+
+    it("scope=year: IT user with an invalid/missing year gets 400", async () => {
+      const itUser = `it_${uid}`;
+      await seedLegacyUser(itUser, opPassword, "Staff", "IT");
+      try {
+        const client = await loginAs(itUser, opPassword);
+        const res = await client.get(templateDownloadUrl({ scope: "year" }));
+        expect(res.status).toBe(400);
+        expect(res.body).toContain("Tahun tidak valid");
+      } finally {
+        await deleteUserRow(itUser);
+      }
+    });
+
+    it("scope=year: IT user gets a CSV grouped by vessel, blank-line-separated", async () => {
+      const itUser = `it_${uid}`;
+      await seedLegacyUser(itUser, opPassword, "Staff", "IT");
+
+      const noPk2 = `TLU2.${uid}`;
+      const mothervessel2 = `MV TLU2 ${uid}`;
+      await seedVesselRow({
+        no_pk: noPk2,
+        no_si_vessel: "071",
+        buyer: "BUYER TEST 2",
+        mothervessel: mothervessel2,
+        anchorage: "MUARA BERAU",
+        term: "FOB",
+      });
+      const sibargesId3 = await seedSibargesRow({
+        no_pk: noPk2,
+        no_si_vessel: "071",
+        buyer: "BUYER TEST 2",
+        mothervessel: mothervessel2,
+        barge_seq: 1,
+        jetty_code: jettyCode,
+        shipper_code: shipperCode,
+        laycan_start: "2025-07-01",
+        laycan_end: "2025-07-02",
+      });
+
+      try {
+        const client = await loginAs(itUser, opPassword);
+        const res = await client.get(templateDownloadUrl({ scope: "year", year: "2025" }));
+        expect(res.status).toBe(200);
+
+        const allRows = parseCsv(stripBom(res.body));
+        const header = allRows[0];
+        const idx = csvHeaderIndex(header);
+        const blocks = splitIntoVesselBlocks(allRows.slice(1));
+
+        // Every blank-separated block must belong to exactly one vessel.
+        for (const block of blocks) {
+          const noPksInBlock = new Set(block.map((row) => row[idx("no_pk")]));
+          expect(noPksInBlock.size).toBe(1);
+        }
+
+        const ourBlock = blocks.find((b) => b[0][idx("no_pk")] === noPk);
+        expect(ourBlock).toHaveLength(2);
+        const otherBlock = blocks.find((b) => b[0][idx("no_pk")] === noPk2);
+        expect(otherBlock).toHaveLength(1);
+      } finally {
+        await deleteSibargesRow(sibargesId3);
+        await deleteVesselRow(noPk2);
         await deleteUserRow(itUser);
       }
     });

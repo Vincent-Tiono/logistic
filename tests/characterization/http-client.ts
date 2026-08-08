@@ -2,6 +2,8 @@ export interface HttpResponse {
   status: number;
   location: string | null;
   body: string;
+  contentType: string | null;
+  contentDisposition: string | null;
 }
 
 /** Minimal single-cookie-jar client: form POSTs, manual redirects. */
@@ -27,6 +29,8 @@ export class HttpClient {
       status: res.status,
       location: res.headers.get("location"),
       body: await res.text(),
+      contentType: res.headers.get("content-type"),
+      contentDisposition: res.headers.get("content-disposition"),
     };
   }
 
@@ -48,6 +52,8 @@ export class HttpClient {
       status: res.status,
       location: res.headers.get("location"),
       body: await res.text(),
+      contentType: res.headers.get("content-type"),
+      contentDisposition: res.headers.get("content-disposition"),
     };
   }
 
@@ -97,6 +103,8 @@ export class HttpClient {
       status: res.status,
       location: res.headers.get("location"),
       body: await res.text(),
+      contentType: res.headers.get("content-type"),
+      contentDisposition: res.headers.get("content-disposition"),
     };
   }
 

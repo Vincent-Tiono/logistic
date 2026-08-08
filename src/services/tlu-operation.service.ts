@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
 import {
   RESTRICTED_FLOATING_CRANES,
   TLU_CSV_COLUMNS,
@@ -9,6 +9,8 @@ import {
   TLU_CYCLE_TIME_YESNO_FIELDS,
   TLU_DATETIME_FIELDS,
   TLU_OPERATION_FIELDS,
+  formatDisplayDateTime,
+  formatOperationDisplayNumber,
   formatOperationNumber,
   normalizeOperationDateTime,
   operationTimelineErrors,
@@ -332,6 +334,269 @@ export async function listAllActiveOperations(
 
   rows.sort(compareTluOperationRows);
   return Promise.all(rows.map((row) => withDecodedOperationData(row, pool)));
+}
+
+export type GroupedExportScope = "vessel" | "month" | "year" | "all";
+
+export interface GroupedExportFilters {
+  year?: number | null;
+  month?: number | null;
+  noPk?: string;
+}
+
+export type GroupedExportResult =
+  | { ok: true; filename: string; rows: AllOperationsRow[] }
+  | { ok: false; msg: string };
+
+/**
+ * Port of the `tlu_grouped_export_data` AJAX action (8tluoperation.php:439-527):
+ * a scoped (vessel/month/year/all) raw-row endpoint for the client-side CSV
+ * export. Rows arrive vessel-defaulted but NOT cycle-time-computed — the
+ * browser runs getFieldValue()/columnDisplayValue() (assets/js/cycle-time.mjs)
+ * over them, per docs/adr/0001-tlu-grouped-export-computes-client-side.md.
+ */
+export async function listGroupedExportRows(
+  pool: Pool,
+  scope: string,
+  filters: GroupedExportFilters
+): Promise<GroupedExportResult> {
+  if (!["vessel", "month", "year", "all"].includes(scope)) {
+    return { ok: false, msg: "Pilihan export tidak valid." };
+  }
+
+  const year = filters.year ?? null;
+  const month = filters.month ?? null;
+  const noPk = (filters.noPk ?? "").trim();
+
+  if (["vessel", "month", "year"].includes(scope) && (!year || year < 1900 || year > 2100)) {
+    return { ok: false, msg: "Tahun export tidak valid." };
+  }
+  if (["vessel", "month"].includes(scope) && (!month || month < 1 || month > 12)) {
+    return { ok: false, msg: "Bulan export tidak valid." };
+  }
+  if (scope === "vessel" && noPk === "") {
+    return { ok: false, msg: "Mother Vessel wajib dipilih." };
+  }
+
+  let whereClause = "";
+  const params: unknown[] = [];
+  if (scope === "vessel") {
+    whereClause =
+      " AND s.no_pk = ? AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    params.push(noPk, year, month);
+  } else if (scope === "month") {
+    whereClause = " AND YEAR(p.earliest_laycan_start) = ? AND MONTH(p.earliest_laycan_start) = ?";
+    params.push(year, month);
+  } else if (scope === "year") {
+    whereClause = " AND YEAR(p.earliest_laycan_start) = ?";
+    params.push(year);
+  }
+
+  const [rows] = await pool.query<AllOperationsRow[]>(
+    {
+      sql: `SELECT
+          s.id, s.no_pk, s.buyer, s.mothervessel, s.jetty_code, s.shipper_code,
+          s.tugboat, s.barge, s.barge_seq, s.laycan_start, s.laycan_end,
+          s.created_by, s.created_at, s.updated_at,
+          v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm, v.stowageplan_mt,
+          p.earliest_laycan_start,
+          sh.laytime AS shipper_laytime,
+          o.operation_data, o.remarks AS operation_remarks
+        FROM sibarges s
+        INNER JOIN (
+          SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
+          FROM sibarges
+          WHERE no_pk <> ''
+            AND mothervessel <> ''
+            AND record_status = 'ACT'
+          GROUP BY no_pk, mothervessel
+          HAVING MIN(laycan_start) IS NOT NULL
+        ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel
+        INNER JOIN vessel v ON v.no_pk = s.no_pk
+        LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+        LEFT JOIN shipper sh ON sh.shipper = s.shipper_code
+        WHERE s.record_status = 'ACT'${whereClause}`,
+      dateStrings: true,
+    },
+    params
+  );
+
+  if (rows.length === 0) {
+    return { ok: false, msg: "Data Barges tidak ditemukan untuk pilihan export ini." };
+  }
+
+  rows.sort(compareTluOperationRows);
+  const decodedRows = await Promise.all(rows.map((row) => withDecodedOperationData(row, pool)));
+
+  let filename: string;
+  if (scope === "vessel") {
+    const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, "_");
+    const motherVessel = String(decodedRows[0]?.mothervessel ?? "");
+    const safeMotherVessel = motherVessel.replace(/[^A-Za-z0-9 ._-]+/g, "_").trim();
+    filename = `tlu_${safeNoPk}—${safeMotherVessel}.csv`;
+  } else if (scope === "month") {
+    filename = `tlu_${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}.csv`;
+  } else if (scope === "year") {
+    filename = `tlu_${year}.csv`;
+  } else {
+    filename = "tlu_all.csv";
+  }
+
+  return { ok: true, filename, rows: decodedRows };
+}
+
+export type OperationTemplateScope = "vessel" | "year";
+
+export interface OperationTemplateFilters {
+  noPk?: string;
+  year?: number | null;
+}
+
+export type OperationTemplateCsvResult =
+  | { ok: true; filename: string; csv: string }
+  | { ok: false; status: number; msg: string };
+
+interface OperationTemplateRow extends RowDataPacket {
+  no_pk: string;
+  buyer: string;
+  mothervessel: string;
+  si_barges: string;
+  jetty_code: string;
+  tugboat: string;
+  barge: string;
+  laycan_start: string | null;
+  laycan_end: string | null;
+  vessel_pkk: string | null;
+  vessel_rkbm: string | null;
+  operation_data: string | null;
+  operation_remarks: string | null;
+}
+
+/**
+ * Port of the `?download=tlu_operation_template` handler (8tluoperation.php:530-660):
+ * a fully server-rendered CSV in the same TLU_CSV_COLUMNS shape
+ * import_operation_csv expects, letting a user re-download their current data
+ * as a pre-filled re-import template. Distinct from listGroupedExportRows —
+ * this one IS computed/formatted server-side (formatOperationDisplayNumber/
+ * formatDisplayDateTime), since it's a raw data dump, not a cycle-time view.
+ * IT-gating for scope=year is the caller's responsibility (route level),
+ * matching importOperationCsv's split.
+ */
+export async function buildOperationTemplateCsv(
+  pool: Pool,
+  scope: string,
+  filters: OperationTemplateFilters
+): Promise<OperationTemplateCsvResult> {
+  if (!["vessel", "year"].includes(scope)) {
+    return { ok: false, status: 400, msg: "Pilihan template tidak valid." };
+  }
+
+  const noPk = (filters.noPk ?? "").trim();
+  const year = filters.year ?? null;
+
+  if (scope === "vessel" && noPk === "") {
+    return { ok: false, status: 400, msg: "No PK wajib dipilih." };
+  }
+  if (scope === "year" && (!year || year < 1900 || year > 2100)) {
+    return { ok: false, status: 400, msg: "Tahun tidak valid." };
+  }
+
+  let sql = `SELECT
+      s.no_pk, s.buyer, s.mothervessel, s.si_barges,
+      s.jetty_code, s.tugboat, s.barge, s.laycan_start, s.laycan_end,
+      v.pkk AS vessel_pkk, v.rkbm AS vessel_rkbm,
+      o.operation_data, o.remarks AS operation_remarks
+    FROM sibarges s`;
+  if (scope === "year") {
+    sql += `
+    INNER JOIN (
+      SELECT no_pk, mothervessel, MIN(laycan_start) AS earliest_laycan_start
+      FROM sibarges
+      WHERE no_pk <> '' AND mothervessel <> '' AND record_status = 'ACT'
+      GROUP BY no_pk, mothervessel
+      HAVING MIN(laycan_start) IS NOT NULL
+    ) p ON p.no_pk = s.no_pk AND p.mothervessel = s.mothervessel`;
+  }
+  sql += `
+    INNER JOIN vessel v ON v.no_pk = s.no_pk
+    LEFT JOIN barge_operations o ON o.sibarges_id = s.id
+    WHERE s.record_status = 'ACT'`;
+  sql +=
+    scope === "vessel"
+      ? " AND s.no_pk = ? ORDER BY s.barge_seq ASC, s.id ASC"
+      : " AND YEAR(p.earliest_laycan_start) = ? ORDER BY p.earliest_laycan_start ASC, s.no_pk ASC, s.mothervessel ASC, s.barge_seq ASC, s.id ASC";
+
+  const [rows] = await pool.query<OperationTemplateRow[]>(
+    { sql, dateStrings: true },
+    [scope === "vessel" ? noPk : year]
+  );
+
+  if (rows.length === 0) {
+    return { ok: false, status: 404, msg: "Data SI Barges tidak ditemukan untuk pilihan ini." };
+  }
+
+  let filename: string;
+  if (scope === "vessel") {
+    const safeNoPk = noPk.replace(/[^A-Za-z0-9._-]+/g, "_");
+    const motherVessel = String(rows[0]?.mothervessel ?? "");
+    const safeMotherVessel = motherVessel.replace(/[^A-Za-z0-9 ._-]+/g, "_").trim();
+    filename = `template_tlu_${safeNoPk}—${safeMotherVessel}.csv`;
+  } else {
+    filename = `template_tlu_${year}.csv`;
+  }
+
+  const lines = [buildCsvLine(TLU_CSV_COLUMNS)];
+  let previousVessel: string | null = null;
+
+  for (const row of rows) {
+    if (scope === "year") {
+      const vesselKey = `${row.no_pk}\0${row.mothervessel}`;
+      if (previousVessel !== null && vesselKey !== previousVessel) {
+        lines.push("");
+      }
+      previousVessel = vesselKey;
+    }
+
+    const data = await decodeOperationDataWithVesselDefaults(row, pool);
+    const qtyDisc = String(data.qty_disc ?? "").trim();
+    const rc = String(data.rc ?? "").trim();
+    let qtyActual = "";
+    if (qtyDisc !== "" || rc !== "") {
+      qtyActual = formatOperationNumber(
+        Number(qtyDisc.replace(/,/g, "") || 0) + Number(rc.replace(/,/g, "") || 0)
+      );
+    }
+
+    const csvRow: Record<string, string> = {
+      si_barges: String(row.si_barges ?? ""),
+      no_pk: String(row.no_pk ?? ""),
+      buyer: String(row.buyer ?? ""),
+      mother_vessel: String(row.mothervessel ?? ""),
+      jetty: String(row.jetty_code ?? ""),
+      tugboat: String(row.tugboat ?? ""),
+      barge: String(row.barge ?? ""),
+      barge_vendor: String(data.barge_vendor ?? ""),
+      qty: formatOperationDisplayNumber(data.qty ?? ""),
+      qty_disc: formatOperationDisplayNumber(qtyDisc),
+      rc: formatOperationDisplayNumber(rc),
+      qty_actual: formatOperationDisplayNumber(qtyActual),
+      pbm_vendor: String(data.pbm_vendor ?? ""),
+      floating_crane: String(data.floating_crane ?? ""),
+      laycan_start: formatDisplayDateTime(row.laycan_start ?? "", true),
+      laycan_end: formatDisplayDateTime(row.laycan_end ?? "", true),
+      remarks: String(row.operation_remarks ?? ""),
+    };
+    for (const field of Object.keys(TLU_DATETIME_FIELDS)) {
+      csvRow[field] = formatDisplayDateTime(data[field] ?? "");
+    }
+    csvRow.discharge_sequence = String(data.discharge_sequence ?? "");
+    csvRow.mooring_place_1 = String(data.mooring_place_1 ?? "");
+    csvRow.mooring_place_2 = String(data.mooring_place_2 ?? "");
+
+    lines.push(buildCsvLine(TLU_CSV_COLUMNS.map((column) => csvRow[column] ?? "")));
+  }
+
+  return { ok: true, filename, csv: `﻿${lines.join("\n")}\n` };
 }
 
 /**

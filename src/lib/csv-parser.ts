@@ -47,6 +47,23 @@ export function parseCsv(text: string, delimiter = ","): string[][] {
   return rows;
 }
 
+/** Port of PHP's fputcsv($out, $row, ',', '"', '') quoting rule: a field is
+ * quoted only when it contains the delimiter, a double quote, or a newline;
+ * embedded quotes are doubled. Used for byte-parity with PHP CSV downloads
+ * (e.g. buildOperationTemplateCsv). */
+export function buildCsvLine(fields: readonly string[], delimiter = ","): string {
+  return fields
+    .map((field) => {
+      const needsQuoting =
+        field.includes(delimiter) ||
+        field.includes('"') ||
+        field.includes("\n") ||
+        field.includes("\r");
+      return needsQuoting ? `"${field.replaceAll('"', '""')}"` : field;
+    })
+    .join(delimiter);
+}
+
 /** Sniffs the delimiter of a CSV's first line by trying comma/semicolon/tab
  * and picking whichever yields the most fields, mirroring the inline
  * detection in Operation/7sibarges.php:1371-1379. */

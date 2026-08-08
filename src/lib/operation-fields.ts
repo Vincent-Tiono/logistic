@@ -280,6 +280,54 @@ export function formatOperationNumber(value: number): string {
     .replace(/\.$/, "");
 }
 
+/** Port of formatOperationDisplayNumber (8tluoperation.php:242-250). Adds
+ * thousands separators, then strips trailing zeros/decimal point — used only
+ * by the CSV template export (buildOperationTemplateCsv). */
+export function formatOperationDisplayNumber(value: unknown): string {
+  const trimmed = String(value ?? "").trim();
+  if (trimmed === "") return "";
+
+  const normalized = trimmed.replace(/[, ]/g, "");
+  if (normalized === "" || Number.isNaN(Number(normalized))) return trimmed;
+
+  const formatted = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 6,
+  }).format(Number(normalized));
+
+  return formatted.replace(/0+$/, "").replace(/\.$/, "");
+}
+
+const DISPLAY_MONTH_ABBREV = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+/** Port of formatDisplayDateTime (8tluoperation.php:296-309): 'dd/Mon/yy
+ * [HH:MM]' display format used only by the CSV template export
+ * (buildOperationTemplateCsv). Falls back to the raw trimmed value when it
+ * doesn't match any of PHP's four try-formats or isn't calendar-valid. */
+export function formatDisplayDateTime(value: unknown, withTime = true): string {
+  const trimmed = String(value ?? "").trim();
+  if (trimmed === "") return "";
+
+  const match = trimmed.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::\d{2})?)?$/
+  );
+  if (!match) return trimmed;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4] ?? "0");
+  const minute = Number(match[5] ?? "0");
+  if (!isValidCalendarDateTime(year, month, day, hour, minute)) return trimmed;
+
+  const mon = DISPLAY_MONTH_ABBREV[month - 1];
+  const datePart = `${pad2(day)}/${mon}/${String(year).slice(-2)}`;
+  return withTime ? `${datePart} ${pad2(hour)}:${pad2(minute)}` : datePart;
+}
+
 const MONTH_ABBREV: Record<string, number> = {
   JAN: 1,
   FEB: 2,

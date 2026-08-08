@@ -80,6 +80,7 @@
           <% } %>
           <div class="d-flex align-items-center justify-content-between mb-2">
             <div class="small text-muted" id="cycleTimeSummary"></div>
+            <a class="btn btn-sm btn-outline-primary disabled" id="downloadCycleTimeCsv" href="#" aria-disabled="true">Download CSV</a>
           </div>
           <div class="alert alert-primary py-2 mb-3" role="note">
             Klik salah satu baris untuk melihat dan mengedit data operasi.
@@ -91,6 +92,70 @@
             </table>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h5 class="mb-3">Export CSV</h5>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="tlu_export_scope" value="vessel" checked>
+              <span class="fw-semibold">Satu Mother Vessel</span>
+              <div class="small text-muted">Export seluruh TB dari satu Mother Vessel.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="tlu_export_scope" value="month">
+              <span class="fw-semibold">Satu Bulan</span>
+              <div class="small text-muted">Gabungkan semua Mother Vessel dalam bulan terpilih.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="tlu_export_scope" value="year">
+              <span class="fw-semibold">Satu Tahun</span>
+              <div class="small text-muted">Gabungkan seluruh bulan dan Mother Vessel dalam satu tahun.</div>
+            </label>
+          </div>
+          <div class="col-md-6 col-xl-3">
+            <label class="d-block border rounded p-2 h-100">
+              <input type="radio" name="tlu_export_scope" value="all">
+              <span class="fw-semibold">Semua Tahun</span>
+              <div class="small text-muted">Gabungkan seluruh data Mother Vessel dalam satu CSV.</div>
+            </label>
+          </div>
+        </div>
+
+        <div class="row g-3 align-items-end">
+          <div class="col-md-3" id="exportYearGroup">
+            <label for="export_year" class="form-label fw-semibold">Tahun</label>
+            <select id="export_year" class="form-select">
+              <option value="">-- Pilih Tahun --</option>
+            </select>
+          </div>
+          <div class="col-md-3" id="exportMonthGroup">
+            <label for="export_month" class="form-label fw-semibold">Bulan</label>
+            <select id="export_month" class="form-select" disabled>
+              <option value="">-- Pilih Bulan --</option>
+            </select>
+          </div>
+          <div class="col-md-4" id="exportVesselGroup">
+            <label for="export_no_pk" class="form-label fw-semibold">Mother Vessel (No PK)</label>
+            <select id="export_no_pk" class="form-select" disabled>
+              <option value="">-- Pilih Mother Vessel --</option>
+            </select>
+          </div>
+          <div class="col-md-2">
+            <button type="button" class="btn btn-success w-100" id="downloadGroupedExport">Export CSV</button>
+          </div>
+        </div>
+        <div class="form-text mt-3">
+          Data setiap Mother Vessel diurutkan berdasarkan Discharge Sequence. Satu baris kosong memisahkan Mother Vessel pada export gabungan.
+        </div>
+        <div class="alert d-none mt-3 mb-0" id="groupedExportStatus" role="alert"></div>
       </div>
     </div>
 
@@ -470,6 +535,26 @@ async function fetchJson(url) {
   return res.json();
 }
 
+// Matches csvCell (8tluoperation.php:2693-2696).
+function csvCell(value) {
+  const text = String(value ?? '');
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+// Matches the Blob-download trigger in the legacy downloadGroupedExport
+// handler (8tluoperation.php:2161-2169).
+function triggerCsvDownload(filename, csvLines) {
+  const blob = new Blob([`﻿${csvLines.join('\r\n')}`], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ===== Build both tables' shared header row =====
 
 function buildHeaderCells(rowEl, includeRowNumber) {
@@ -545,6 +630,7 @@ const cycleNoPkSelect = document.getElementById('cycle_no_pk');
 const cycleTimeBox = document.getElementById('cycleTimeBox');
 const cycleTimeBody = document.getElementById('cycleTimeBody');
 const cycleTimeSummary = document.getElementById('cycleTimeSummary');
+const downloadCycleTimeCsv = document.getElementById('downloadCycleTimeCsv');
 
 function replaceSelectOptions(select, placeholder, options) {
   select.innerHTML = '';
@@ -625,6 +711,21 @@ function renderCycleTimeTable() {
 
 cycleNoPkSelect.addEventListener('change', async () => {
   const noPk = cycleNoPkSelect.value;
+
+  // Matches loadSelectedVessel()'s downloadCsv.href assignment
+  // (8tluoperation.php:3716-3717) — not IT-gated, unlike scope=year.
+  if (downloadCycleTimeCsv) {
+    if (noPk) {
+      downloadCycleTimeCsv.href = `/tlu-operation?download=tlu_operation_template&no_pk=${encodeURIComponent(noPk)}`;
+      downloadCycleTimeCsv.classList.remove('disabled');
+      downloadCycleTimeCsv.removeAttribute('aria-disabled');
+    } else {
+      downloadCycleTimeCsv.href = '#';
+      downloadCycleTimeCsv.classList.add('disabled');
+      downloadCycleTimeCsv.setAttribute('aria-disabled', 'true');
+    }
+  }
+
   if (!noPk) {
     cycleTimeBox.classList.add('d-none');
     return;
@@ -914,6 +1015,126 @@ if (operationImportForm) {
     }
   });
 }
+
+// ===== Export CSV (grouped, scoped) =====
+// Port of the legacy Export tab's scope picker + downloadGroupedExport
+// handler (8tluoperation.php:1600-1672, 1955-2078, 2109-2176). CSV column
+// order/labels come from CYCLE_TIME_COLUMNS (this port's single source of
+// truth), not a DOM scrape of #cycleTimeTable's header — see issue #12.
+
+const exportScopeInputs = [...document.querySelectorAll('input[name="tlu_export_scope"]')];
+const exportYearGroup = document.getElementById('exportYearGroup');
+const exportMonthGroup = document.getElementById('exportMonthGroup');
+const exportVesselGroup = document.getElementById('exportVesselGroup');
+const exportYearSelect = document.getElementById('export_year');
+const exportMonthSelect = document.getElementById('export_month');
+const exportNoPkSelect = document.getElementById('export_no_pk');
+const downloadGroupedExport = document.getElementById('downloadGroupedExport');
+const groupedExportStatus = document.getElementById('groupedExportStatus');
+
+replaceSelectOptions(exportYearSelect, '-- Pilih Tahun --', availableYears.map(y => ({ value: y, label: y })));
+
+function selectedExportScope() {
+  return exportScopeInputs.find(input => input.checked)?.value || 'vessel';
+}
+
+function updateGroupedExportStatus(message = '', variant = 'danger') {
+  groupedExportStatus.textContent = message;
+  groupedExportStatus.classList.toggle('d-none', message === '');
+  groupedExportStatus.classList.toggle('alert-danger', variant === 'danger');
+  groupedExportStatus.classList.toggle('alert-info', variant === 'info');
+}
+
+function updateExportScopeFields() {
+  const scope = selectedExportScope();
+  exportYearGroup.classList.toggle('d-none', scope === 'all');
+  exportMonthGroup.classList.toggle('d-none', !['vessel', 'month'].includes(scope));
+  exportVesselGroup.classList.toggle('d-none', scope !== 'vessel');
+  updateGroupedExportStatus();
+}
+
+function updateExportMonths() {
+  const selectedYear = exportYearSelect.value;
+  const months = [...new Set(
+    vesselPeriods.filter(v => String(v.laycan_year) === selectedYear).map(v => Number(v.laycan_month))
+  )].sort((a, b) => a - b);
+  replaceSelectOptions(exportMonthSelect, '-- Pilih Bulan --', months.map(m => ({ value: String(m), label: monthNames[m - 1] })));
+  exportMonthSelect.disabled = !selectedYear;
+  replaceSelectOptions(exportNoPkSelect, '-- Pilih Mother Vessel --', []);
+  exportNoPkSelect.disabled = true;
+}
+
+function updateExportVessels() {
+  const selectedYear = exportYearSelect.value;
+  const selectedMonth = exportMonthSelect.value;
+  const vessels = vesselPeriods.filter(v =>
+    String(v.laycan_year) === selectedYear && String(Number(v.laycan_month)) === String(Number(selectedMonth))
+  );
+  replaceSelectOptions(
+    exportNoPkSelect,
+    '-- Pilih Mother Vessel --',
+    vessels.map(v => ({ value: v.no_pk, label: `${v.no_pk} — ${v.mothervessel}` }))
+  );
+  exportNoPkSelect.disabled = !selectedMonth;
+}
+
+exportScopeInputs.forEach(input => input.addEventListener('change', updateExportScopeFields));
+exportYearSelect.addEventListener('change', () => { updateExportMonths(); updateGroupedExportStatus(); });
+exportMonthSelect.addEventListener('change', () => { updateExportVessels(); updateGroupedExportStatus(); });
+exportNoPkSelect.addEventListener('change', () => updateGroupedExportStatus());
+updateExportScopeFields();
+
+downloadGroupedExport.addEventListener('click', async () => {
+  const scope = selectedExportScope();
+  const year = exportYearSelect.value;
+  const month = exportMonthSelect.value;
+  const noPk = exportNoPkSelect.value;
+
+  if (scope !== 'all' && !year) {
+    updateGroupedExportStatus('Pilih tahun terlebih dahulu.');
+    return;
+  }
+  if (['vessel', 'month'].includes(scope) && !month) {
+    updateGroupedExportStatus('Pilih bulan terlebih dahulu.');
+    return;
+  }
+  if (scope === 'vessel' && !noPk) {
+    updateGroupedExportStatus('Pilih Mother Vessel terlebih dahulu.');
+    return;
+  }
+
+  const params = new URLSearchParams({ ajax: '1', action: 'tlu_grouped_export_data', scope });
+  if (scope !== 'all') params.set('year', year);
+  if (['vessel', 'month'].includes(scope)) params.set('month', month);
+  if (scope === 'vessel') params.set('no_pk', noPk);
+
+  downloadGroupedExport.disabled = true;
+  updateGroupedExportStatus('Menyiapkan export...', 'info');
+
+  try {
+    const result = await fetchJson(`/tlu-operation?${params.toString()}`);
+    if (!result.ok) throw new Error(result.msg || 'Gagal export.');
+
+    // Rows arrive vessel-defaulted but NOT cycle-time-computed — compute here,
+    // grouped per vessel so cross-row formulas (loading rate, disch time) see
+    // only their own vessel's siblings, matching ADR-0001.
+    const headerLabels = CYCLE_TIME_COLUMNS.map(([, label]) => label);
+    const csvLines = [headerLabels.map(csvCell).join(',')];
+    groupRowsByVessel(result.rows).forEach((group, groupIndex) => {
+      if (groupIndex > 0) csvLines.push('');
+      group.forEach((row, rowIndexInVessel) => {
+        csvLines.push(buildRowValues(row, group, rowIndexInVessel, headerKeys).map(csvCell).join(','));
+      });
+    });
+
+    triggerCsvDownload(result.filename, csvLines);
+    updateGroupedExportStatus('');
+  } catch (error) {
+    updateGroupedExportStatus(error.message || 'Gagal export.', 'danger');
+  } finally {
+    downloadGroupedExport.disabled = false;
+  }
+});
 </script>
 
 <%- include('partials/footer') %>
