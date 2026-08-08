@@ -18,6 +18,7 @@ import { bargesRoutes } from "./routes/barges.js";
 import { flfRoutes } from "./routes/flf.js";
 import { jettyRoutes } from "./routes/jetty.js";
 import { shipperRoutes } from "./routes/shipper.js";
+import { sibargesRoutes } from "./routes/sibarges.js";
 import { userRoutes } from "./routes/users.js";
 import { vendorRoutes } from "./routes/vendor.js";
 import { vesselRoutes } from "./routes/vessel.js";
@@ -51,6 +52,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(bargesRoutes);
   await app.register(jettyRoutes);
   await app.register(flfRoutes);
+  await app.register(sibargesRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
   await ensureShipperLaytimeColumn(dbPool("databarging"));

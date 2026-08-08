@@ -1,0 +1,614 @@
+<%- include('partials/header', { pageTitle: 'SI Barges', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+    <h4 class="m-0">SI Barges</h4>
+  </div>
+
+  <div id="alertBox" class="alert d-none" role="alert"></div>
+
+  <% if ((divisi || '').toUpperCase() === 'IT') { %>
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-2">Import CSV</h6>
+      <div class="small text-muted mb-2">
+        Kolom wajib: no_pk, si_type, tugboat, barge, anchorage, qty_plan, jetty_code, shipper_code,
+        laycan_start, laycan_end, record_status, remarks. SI Barges di-generate otomatis per vessel;
+        laycan_end selalu dihitung ulang sebagai laycan_start + 1 hari.
+      </div>
+      <form id="formImport" class="d-flex gap-2 align-items-center">
+        <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
+        <button class="btn btn-sm btn-primary" type="submit">Import</button>
+      </form>
+    </div>
+  </div>
+  <% } %>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h6 class="mb-3">Input SI Barges</h6>
+
+      <form id="formCreate" class="row g-2">
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Vessel (No PK)</label>
+          <input id="no_pk_display" class="form-control form-control-sm" required
+                 placeholder="M. ..." list="dlVessel" autocomplete="off">
+          <input type="hidden" name="no_pk" id="no_pk">
+          <datalist id="dlVessel"></datalist>
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">Anchorage (vessel)</label>
+          <input id="anchorage_display" class="form-control form-control-sm" disabled>
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">No. SI Vessel</label>
+          <input id="no_si_vessel_display" class="form-control form-control-sm" disabled>
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">SI Type</label>
+          <select name="si_type" class="form-select form-select-sm" required>
+            <option value="SJN">SJN</option>
+            <option value="SNP">SNP</option>
+          </select>
+        </div>
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Status</label>
+          <select name="record_status" class="form-select form-select-sm">
+            <option value="ACT">ACT</option>
+            <option value="CANCEL">CANCEL</option>
+          </select>
+        </div>
+
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Tugboat</label>
+          <input name="tugboat" class="form-control form-control-sm" required
+                 placeholder="TB. ..." list="dlTugboat" autocomplete="off">
+          <datalist id="dlTugboat"></datalist>
+        </div>
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Barge</label>
+          <input name="barge" class="form-control form-control-sm" required
+                 placeholder="BG. ..." list="dlBarge" autocomplete="off">
+          <datalist id="dlBarge"></datalist>
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">Qty Plan</label>
+          <input name="qty_plan" class="form-control form-control-sm" placeholder="9000">
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">Jetty</label>
+          <select name="jetty_code" class="form-select form-select-sm" required>
+            <option value="">-- pilih --</option>
+            <% jettyRows.forEach(function(j){ %>
+              <option value="<%= j.jetty %>" title="<%= j.nama_panjang %>"><%= j.jetty %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="col-lg-2 col-6">
+          <label class="form-label mb-1">Shipper</label>
+          <select name="shipper_code" class="form-select form-select-sm" required>
+            <option value="">-- pilih --</option>
+            <% shipperRows.forEach(function(s){ %>
+              <option value="<%= s.shipper %>" title="<%= s.nama_lengkap %>"><%= s.shipper %></option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Laycan Start</label>
+          <input type="date" name="laycan_start" id="laycan_start" class="form-control form-control-sm" required>
+        </div>
+        <div class="col-lg-3 col-6">
+          <label class="form-label mb-1">Laycan End (+1, auto)</label>
+          <input type="date" id="laycan_end_display" class="form-control form-control-sm" disabled>
+        </div>
+        <div class="col-lg-6">
+          <label class="form-label mb-1">Remarks (optional)</label>
+          <input name="remarks" class="form-control form-control-sm" placeholder="optional">
+        </div>
+
+        <div class="col-12 mt-2">
+          <button class="btn btn-success" type="submit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+        <h6 class="m-0">Data SI Barges</h6>
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <input id="filterMonth" type="month" class="form-control form-control-sm" style="width:auto;" title="Filter bulan laycan">
+          <input id="filterNoPk" type="text" class="form-control form-control-sm" style="width:160px;" placeholder="Filter No PK (exact)">
+          <select id="filterDiscarded" class="form-select form-select-sm" style="width:auto;">
+            <option value="hide">ACT + CANCEL</option>
+            <option value="only">DISCARD only</option>
+            <option value="all">All</option>
+          </select>
+          <select id="sortBy" class="form-select form-select-sm" style="width:auto;">
+            <option value="created_at">Created At</option>
+            <option value="si_barges">SI Barges</option>
+            <option value="no_pk">No PK</option>
+            <option value="mothervessel">Mother Vessel</option>
+            <option value="laycan_start">Laycan Start</option>
+            <option value="record_status">Status</option>
+          </select>
+          <select id="sortDir" class="form-select form-select-sm" style="width:auto;">
+            <option value="DESC">DESC</option>
+            <option value="ASC">ASC</option>
+          </select>
+          <input id="searchBox" type="text" class="form-control form-control-sm" style="width:220px;" placeholder="Search...">
+          <button id="btnReset" class="btn btn-sm btn-outline-secondary" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="table-responsive" style="max-height:60vh;">
+        <table class="table table-sm table-bordered align-middle" style="font-size:12px; min-width:1900px;">
+          <thead class="table-light">
+            <tr>
+              <th style="width:30px;"><input type="checkbox" id="checkAll"></th>
+              <th style="min-width:190px;">SI Barges</th>
+              <th style="min-width:110px;">No PK</th>
+              <th style="min-width:160px;">Mother Vessel</th>
+              <th style="min-width:150px;">Tugboat</th>
+              <th style="min-width:150px;">Barge</th>
+              <th style="min-width:130px;">Term</th>
+              <th style="min-width:150px;">Anchorage</th>
+              <th style="min-width:90px;">Qty Plan</th>
+              <th style="min-width:100px;">Jetty</th>
+              <th style="min-width:100px;">Shipper</th>
+              <th style="min-width:120px;">Laycan Start</th>
+              <th style="min-width:120px;">Laycan End</th>
+              <th style="min-width:90px;">Status</th>
+              <th style="min-width:160px;">Remarks</th>
+              <th style="width:330px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr><td colspan="16" class="text-center text-muted">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end gap-2 mt-3">
+        <button class="btn btn-sm btn-outline-primary" id="btnDownloadSelected" type="button">Download Selected (ZIP)</button>
+        <% if ((divisi || '').toUpperCase() === 'IT') { %>
+        <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+        <% } %>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="modal fade" id="changeVesselModal" tabindex="-1" aria-labelledby="changeVesselTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title" id="changeVesselTitle">Change Vessel</h5>
+          <div class="small text-muted" id="changeVesselCurrent"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label mb-1" for="changeVesselSearch">Cari Vessel (no_pk / nama)</label>
+        <input id="changeVesselSearch" class="form-control form-control-sm mb-2" placeholder="contoh: M.26-006 / MARINER" autocomplete="off">
+        <label class="form-label mb-1" for="changeVesselNoPk">Vessel (No PK)</label>
+        <select id="changeVesselNoPk" class="form-select form-select-sm">
+          <option value="">-- pilih --</option>
+        </select>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-sm btn-primary" id="btnSaveChangeVessel">Save Change</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ANCHORAGES = ['MUARA BERAU', 'MUARA JAWA', 'PRIMA ANCHORAGE'];
+const TERMS = ['FOB', 'FAS', 'CIF'];
+
+const alertBox = document.getElementById('alertBox');
+
+function showAlert(type, msg){
+  alertBox.className = 'alert alert-' + type;
+  alertBox.textContent = msg;
+  alertBox.classList.remove('d-none');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function hideAlert(){
+  alertBox.classList.add('d-none');
+}
+
+function escapeHtml(s){
+  return String(s ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function postAjax(payload){
+  const form = new URLSearchParams(payload);
+  const res = await fetch('/sibarges', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    body: form.toString()
+  });
+  return await res.json();
+}
+
+/* ===== Create form: vessel typeahead + autofill ===== */
+const no_pk_display = document.getElementById('no_pk_display');
+const no_pk_hidden = document.getElementById('no_pk');
+const anchorage_display = document.getElementById('anchorage_display');
+const no_si_vessel_display = document.getElementById('no_si_vessel_display');
+const dlVessel = document.getElementById('dlVessel');
+const dlTugboat = document.getElementById('dlTugboat');
+const dlBarge = document.getElementById('dlBarge');
+const laycan_start = document.getElementById('laycan_start');
+const laycan_end_display = document.getElementById('laycan_end_display');
+
+let vesselTypeaheadT = null;
+no_pk_display.addEventListener('input', () => {
+  no_pk_hidden.value = '';
+  anchorage_display.value = '';
+  no_si_vessel_display.value = '';
+  clearTimeout(vesselTypeaheadT);
+  const q = no_pk_display.value.trim();
+  vesselTypeaheadT = setTimeout(async () => {
+    const res = await fetch('/sibarges?ajax=1&action=vessel_list&q=' + encodeURIComponent(q));
+    const r = await res.json();
+    if (r.ok) {
+      dlVessel.innerHTML = (r.data || []).map(v =>
+        `<option value="${escapeHtml(v.no_pk)}">${escapeHtml(v.mothervessel)}</option>`
+      ).join('');
+    }
+  }, 200);
+});
+
+no_pk_display.addEventListener('change', async () => {
+  const no_pk = no_pk_display.value.trim();
+  if (!no_pk) return;
+  const res = await fetch('/sibarges?ajax=1&action=vessel_get&no_pk=' + encodeURIComponent(no_pk));
+  const r = await res.json();
+  if (r.ok) {
+    no_pk_hidden.value = r.data.no_pk;
+    anchorage_display.value = r.data.anchorage || '';
+    no_si_vessel_display.value = r.data.no_si_vessel || '';
+  } else {
+    no_pk_hidden.value = '';
+    showAlert('danger', r.msg || 'Vessel tidak ditemukan');
+  }
+});
+
+async function refreshDatalist(input, dl, action){
+  const q = input.value.trim();
+  const res = await fetch('/sibarges?ajax=1&action=' + action + '&q=' + encodeURIComponent(q));
+  const r = await res.json();
+  if (r.ok) {
+    dl.innerHTML = (r.data || []).map(v => `<option value="${escapeHtml(v)}"></option>`).join('');
+  }
+}
+
+let tugT = null;
+document.querySelector('input[name="tugboat"]').addEventListener('input', (e) => {
+  clearTimeout(tugT);
+  tugT = setTimeout(() => refreshDatalist(e.target, dlTugboat, 'tug_list'), 200);
+});
+
+let bargeT = null;
+document.querySelector('input[name="barge"]').addEventListener('input', (e) => {
+  clearTimeout(bargeT);
+  bargeT = setTimeout(() => refreshDatalist(e.target, dlBarge, 'barge_list'), 200);
+});
+
+laycan_start.addEventListener('change', () => {
+  if (!laycan_start.value) { laycan_end_display.value = ''; return; }
+  const d = new Date(laycan_start.value + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  laycan_end_display.value = d.toISOString().slice(0, 10);
+});
+
+/* ===== Create ===== */
+const formCreate = document.getElementById('formCreate');
+formCreate.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  hideAlert();
+
+  if (!no_pk_hidden.value) {
+    showAlert('danger', 'Pilih vessel yang valid dari daftar terlebih dahulu.');
+    return;
+  }
+
+  const fd = new FormData(formCreate);
+  const payload = { action: 'create' };
+  for (const [k, v] of fd.entries()) payload[k] = v.toString().trim();
+  payload.laycan_end = laycan_end_display.value;
+
+  const r = await postAjax(payload);
+  if (r.ok){
+    showAlert('success', r.msg || 'OK');
+    formCreate.reset();
+    no_pk_hidden.value = '';
+    anchorage_display.value = '';
+    no_si_vessel_display.value = '';
+    laycan_end_display.value = '';
+    loadList();
+  } else {
+    showAlert('danger', r.msg || 'Gagal');
+  }
+});
+
+/* ===== List / filter / sort ===== */
+const tbody = document.getElementById('tbody');
+const searchBox = document.getElementById('searchBox');
+const filterMonth = document.getElementById('filterMonth');
+const filterNoPk = document.getElementById('filterNoPk');
+const filterDiscarded = document.getElementById('filterDiscarded');
+const sortBy = document.getElementById('sortBy');
+const sortDir = document.getElementById('sortDir');
+const btnReset = document.getElementById('btnReset');
+const checkAll = document.getElementById('checkAll');
+
+function rowTemplate(r){
+  const isDiscard = r.record_status === 'DISCARD';
+  const anchorageOpts = ANCHORAGES.map(a =>
+    `<option value="${a}" ${a === r.anchorage ? 'selected' : ''}>${a}</option>`
+  ).join('');
+  const termOpts = TERMS.map(t =>
+    `<option value="${t}" ${t === r.term ? 'selected' : ''}>${t}</option>`
+  ).join('');
+
+  const editableCells = isDiscard ? `
+    <td>${escapeHtml(r.tugboat)}</td>
+    <td>${escapeHtml(r.barge)}</td>
+    <td>${escapeHtml(r.term)}</td>
+    <td>${escapeHtml(r.anchorage)}</td>
+    <td>${escapeHtml(r.qty_plan)}</td>
+    <td>${escapeHtml(r.jetty_code)}</td>
+    <td>${escapeHtml(r.shipper_code)}</td>
+    <td>${escapeHtml(r.laycan_start)}</td>
+    <td>${escapeHtml(r.laycan_end)}</td>
+    <td>${escapeHtml(r.record_status)}</td>
+    <td>${escapeHtml(r.remarks)}</td>
+  ` : `
+    <td><input class="form-control form-control-sm" name="tugboat" value="${escapeHtml(r.tugboat)}"></td>
+    <td><input class="form-control form-control-sm" name="barge" value="${escapeHtml(r.barge)}"></td>
+    <td><select class="form-select form-select-sm" name="term">${termOpts}</select></td>
+    <td><select class="form-select form-select-sm" name="anchorage">${anchorageOpts}</select></td>
+    <td><input class="form-control form-control-sm" name="qty_plan" value="${escapeHtml(r.qty_plan)}"></td>
+    <td><input class="form-control form-control-sm" name="jetty_code" value="${escapeHtml(r.jetty_code)}"></td>
+    <td><input class="form-control form-control-sm" name="shipper_code" value="${escapeHtml(r.shipper_code)}"></td>
+    <td><input class="form-control form-control-sm" type="date" name="laycan_start" value="${escapeHtml(r.laycan_start)}"></td>
+    <td>${escapeHtml(r.laycan_end)}</td>
+    <td><select class="form-select form-select-sm" name="record_status">
+      <option value="ACT" ${r.record_status === 'ACT' ? 'selected' : ''}>ACT</option>
+      <option value="CANCEL" ${r.record_status === 'CANCEL' ? 'selected' : ''}>CANCEL</option>
+    </select></td>
+    <td><input class="form-control form-control-sm" name="remarks" value="${escapeHtml(r.remarks)}"></td>
+  `;
+
+  const actions = isDiscard
+    ? `<a class="btn btn-sm btn-outline-secondary" href="/sibarges?download=si_pdf&id=${r.id}">PDF</a>
+       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>`
+    : `<button class="btn btn-sm btn-primary btnUpdate" type="button">Update</button>
+       <button class="btn btn-sm btn-outline-secondary btnChangeVessel" type="button">Change Vessel</button>
+       <a class="btn btn-sm btn-outline-secondary" href="/sibarges?download=si_pdf&id=${r.id}">PDF</a>
+       <button class="btn btn-sm btn-outline-danger btnDelete" type="button">Delete</button>`;
+
+  return `
+  <tr data-id="${r.id}" data-no-pk="${escapeHtml(r.no_pk)}" data-mothervessel="${escapeHtml(r.mothervessel)}" data-si-barges="${escapeHtml(r.si_barges)}">
+    <td><input type="checkbox" class="rowCheck" value="${r.id}"></td>
+    <td>${escapeHtml(r.si_barges)}</td>
+    <td>${escapeHtml(r.no_pk)}</td>
+    <td>${escapeHtml(r.mothervessel)}</td>
+    ${editableCells}
+    <td class="d-flex gap-1 flex-wrap">${actions}</td>
+  </tr>`;
+}
+
+function listUrl(){
+  const params = new URLSearchParams({
+    ajax: '1', action: 'list',
+    q: searchBox.value.trim(),
+    filter_month: filterMonth.value,
+    filter_no_pk: filterNoPk.value.trim(),
+    filter_discarded: filterDiscarded.value,
+    sort_by: sortBy.value,
+    sort_dir: sortDir.value
+  });
+  return '/sibarges?' + params.toString();
+}
+
+async function loadList(){
+  const res = await fetch(listUrl());
+  const r = await res.json();
+  if (!r.ok){
+    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    return;
+  }
+  if (!r.data || r.data.length === 0){
+    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = r.data.map(rowTemplate).join('');
+  checkAll.checked = false;
+}
+
+let listT = null;
+function scheduleReload(){
+  hideAlert();
+  clearTimeout(listT);
+  listT = setTimeout(loadList, 250);
+}
+searchBox.addEventListener('input', scheduleReload);
+filterMonth.addEventListener('change', loadList);
+filterNoPk.addEventListener('input', scheduleReload);
+filterDiscarded.addEventListener('change', loadList);
+sortBy.addEventListener('change', loadList);
+sortDir.addEventListener('change', loadList);
+
+btnReset.addEventListener('click', () => {
+  searchBox.value = '';
+  filterMonth.value = '';
+  filterNoPk.value = '';
+  filterDiscarded.value = 'hide';
+  sortBy.value = 'created_at';
+  sortDir.value = 'DESC';
+  hideAlert();
+  loadList();
+});
+
+checkAll.addEventListener('change', () => {
+  document.querySelectorAll('.rowCheck').forEach(cb => { cb.checked = checkAll.checked; });
+});
+
+/* ===== Row actions: update / delete / change vessel ===== */
+let changeVesselModal = null;
+let changeVesselRowId = '';
+const changeVesselModalEl = document.getElementById('changeVesselModal');
+const changeVesselSearch = document.getElementById('changeVesselSearch');
+const changeVesselNoPk = document.getElementById('changeVesselNoPk');
+const changeVesselCurrent = document.getElementById('changeVesselCurrent');
+
+tbody.addEventListener('click', async (e) => {
+  const tr = e.target.closest('tr');
+  if (!tr) return;
+  const id = tr.getAttribute('data-id') || '';
+
+  if (e.target.classList.contains('btnUpdate')){
+    hideAlert();
+    const payload = { action: 'update', id };
+    tr.querySelectorAll('input[name], select[name]').forEach(el => {
+      payload[el.name] = el.value.trim();
+    });
+
+    const r = await postAjax(payload);
+    if (r.ok){
+      showAlert('success', r.msg || 'Updated');
+      loadList();
+    } else {
+      showAlert('danger', r.msg || 'Gagal update');
+    }
+  }
+
+  if (e.target.classList.contains('btnDelete')){
+    hideAlert();
+    if (!confirm('Hapus SI Barges ini?')) return;
+
+    const r = await postAjax({ action: 'delete', id });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadList();
+    } else {
+      showAlert('danger', r.msg || 'Gagal delete');
+    }
+  }
+
+  if (e.target.classList.contains('btnChangeVessel')){
+    hideAlert();
+    changeVesselRowId = id;
+    changeVesselCurrent.textContent =
+      'Current: ' + (tr.getAttribute('data-si-barges') || '') + ' (' + (tr.getAttribute('data-no-pk') || '') + ')';
+    changeVesselSearch.value = '';
+    changeVesselNoPk.innerHTML = '<option value="">-- pilih --</option>';
+    if (!changeVesselModal) changeVesselModal = new bootstrap.Modal(changeVesselModalEl);
+    changeVesselModal.show();
+  }
+});
+
+let changeVesselT = null;
+changeVesselSearch.addEventListener('input', () => {
+  clearTimeout(changeVesselT);
+  changeVesselT = setTimeout(async () => {
+    const q = changeVesselSearch.value.trim();
+    const res = await fetch('/sibarges?ajax=1&action=vessel_list&q=' + encodeURIComponent(q));
+    const r = await res.json();
+    if (r.ok) {
+      changeVesselNoPk.innerHTML = '<option value="">-- pilih --</option>' +
+        (r.data || []).map(v => `<option value="${escapeHtml(v.no_pk)}">${escapeHtml(v.no_pk)} - ${escapeHtml(v.mothervessel)}</option>`).join('');
+    }
+  }, 200);
+});
+
+document.getElementById('btnSaveChangeVessel').addEventListener('click', async () => {
+  hideAlert();
+  const no_pk = changeVesselNoPk.value;
+  if (!no_pk) { showAlert('danger', 'Pilih vessel tujuan.'); return; }
+
+  const r = await postAjax({ action: 'change_vessel', id: changeVesselRowId, no_pk });
+  if (r.ok){
+    changeVesselModal.hide();
+    showAlert('success', r.msg || 'OK');
+    loadList();
+  } else {
+    showAlert('danger', r.msg || 'Gagal change vessel');
+  }
+});
+
+/* ===== Import CSV ===== */
+const formImport = document.getElementById('formImport');
+if (formImport) {
+  formImport.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert();
+
+    const csvFile = document.getElementById('csvFile');
+    if (!csvFile.files.length) return;
+
+    const fd = new FormData();
+    fd.append('action', 'import_csv');
+    fd.append('csv', csvFile.files[0]);
+
+    const res = await fetch('/sibarges', { method: 'POST', body: fd });
+    const r = await res.json();
+    if (r.ok){
+      showAlert(r.partial ? 'warning' : 'success', r.msg || 'Import selesai');
+      formImport.reset();
+      loadList();
+    } else {
+      showAlert('danger', r.msg || 'Gagal import');
+    }
+  });
+}
+
+/* ===== Delete all / bulk PDF download ===== */
+const btnDeleteAll = document.getElementById('btnDeleteAll');
+if (btnDeleteAll) {
+  btnDeleteAll.addEventListener('click', async () => {
+    hideAlert();
+    if (!confirm('Hapus SEMUA data SI Barges? Tindakan ini tidak bisa dibatalkan.')) return;
+
+    const r = await postAjax({ action: 'delete_all' });
+    if (r.ok){
+      showAlert('success', r.msg || 'Deleted');
+      loadList();
+    } else {
+      showAlert('danger', r.msg || 'Gagal');
+    }
+  });
+}
+
+document.getElementById('btnDownloadSelected').addEventListener('click', () => {
+  hideAlert();
+  const ids = Array.from(document.querySelectorAll('.rowCheck:checked')).map(cb => cb.value);
+  if (ids.length === 0) {
+    showAlert('danger', 'Pilih minimal satu baris untuk didownload.');
+    return;
+  }
+  window.location.href = '/sibarges?download=si_pdf_all&ids=' + encodeURIComponent(ids.join(','));
+});
+
+loadList();
+</script>
+
+<%- include('partials/footer') %>
