@@ -42,6 +42,19 @@
     </a>
   <% } %>
 
+  <% if ((divisi || '').toUpperCase() === 'IT' || (divisi || '').toUpperCase() === 'VM&FAT') { %>
+    <div class="menu-group-title">VM & FAT</div>
+    <a class="nav-item-link" href="/jisdor">
+      <span>📈</span><span>Jisdor</span>
+    </a>
+    <a class="nav-item-link" href="/kurs-tengah">
+      <span>⚖️</span><span>Kurs Tengah</span>
+    </a>
+    <a class="nav-item-link" href="/fuel">
+      <span>⛽</span><span>Fuel</span>
+    </a>
+  <% } %>
+
   <div class="menu-group-title text-muted small px-3">
     Other modules still on the PHP app during migration.
   </div>

@@ -37,6 +37,19 @@ function isValidDate(year: number, month: number, day: number): boolean {
   );
 }
 
+/** Strict YYYY-MM-DD check with real-calendar-date validation (no format fallbacks). */
+export function isValidYmd(s: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return false;
+  return isValidDate(Number(m[1]), Number(m[2]), Number(m[3]));
+}
+
+/** Today's date in Asia/Jakarta (UTC+7, no DST) as YYYY-MM-DD. */
+export function todayYmdInJakarta(now: Date = new Date()): string {
+  const d = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  return `${String(d.getUTCFullYear()).padStart(4, "0")}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
 /**
  * Accepts, in order: strict YYYY-MM-DD, dd/mmm/yy(yy) (e.g. 16/Dec/25),
  * then a JS-native Date.parse fallback. Ports parseDateAny() from

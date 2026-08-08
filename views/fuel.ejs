@@ -1,0 +1,191 @@
+<%- include('partials/header', { pageTitle: 'Fuel - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <h5 class="mb-3">Input</h5>
+      <div class="row g-3">
+        <div class="col-auto">
+          <label for="tahun" class="form-label mb-1">Tahun</label>
+          <select id="tahun" class="form-select" style="max-width:150px;" onchange="location.href='?tahun='+this.value">
+            <% tahunOptions.forEach(function (y) { %>
+              <option value="<%= y %>"<%= y === tahun ? ' selected' : '' %>><%= y %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label for="ppnRate" class="form-label mb-1">PPN</label>
+          <div class="input-group" style="max-width:150px;">
+            <input type="text" inputmode="decimal" id="ppnRate" class="form-control rate-input" data-field="ppn_rate" value="<%= ppnRateDisplay %>">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+        <div class="col-auto">
+          <label for="pbbkbRate" class="form-label mb-1">PBBKB</label>
+          <div class="input-group" style="max-width:150px;">
+            <input type="text" inputmode="decimal" id="pbbkbRate" class="form-control rate-input" data-field="pbbkb_rate" value="<%= pbbkbRateDisplay %>">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+        <div class="col-auto">
+          <label for="pph22Rate" class="form-label mb-1">PPH22</label>
+          <div class="input-group" style="max-width:150px;">
+            <input type="text" inputmode="decimal" id="pph22Rate" class="form-control rate-input" data-field="pph22_rate" value="<%= pph22RateDisplay %>">
+            <span class="input-group-text">%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <table class="table mb-0 align-middle">
+        <thead>
+          <tr>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Bulan-Tahun</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Periode</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Pertamina</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PPN</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PBBKB</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PPH22</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Total</th>
+            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">ICI-3</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.forEach(function (row) { %>
+            <tr class="fuel-row">
+              <% if (row.periode === 1) { %>
+              <td class="px-4" rowspan="2"><%= row.bulanTahun %></td>
+              <% } %>
+              <td class="px-4"><%= row.periode %></td>
+              <td class="px-4">
+                <input type="text" inputmode="decimal" class="form-control pertamina-input"
+                       name="pertamina[<%= row.bulanTahun %>][<%= row.periode %>]"
+                       data-field="pertamina" data-bulan-tahun="<%= row.bulanTahun %>" data-periode="<%= row.periode %>"
+                       value="<%= row.pertaminaDisplay %>">
+              </td>
+              <td class="px-4"><input type="text" class="form-control ppn-output" readonly tabindex="-1"></td>
+              <td class="px-4"><input type="text" class="form-control pbbkb-output" readonly tabindex="-1"></td>
+              <td class="px-4"><input type="text" class="form-control pph22-output" readonly tabindex="-1"></td>
+              <td class="px-4"><input type="text" class="form-control total-output" readonly tabindex="-1"></td>
+              <td class="px-4">
+                <input type="text" inputmode="decimal" class="form-control ici3-input"
+                       name="ici3[<%= row.bulanTahun %>][<%= row.periode %>]"
+                       data-field="ici3" data-bulan-tahun="<%= row.bulanTahun %>" data-periode="<%= row.periode %>"
+                       value="<%= row.ici3Display %>">
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const rateInputs = {
+    ppn_rate:   document.getElementById('ppnRate'),
+    pbbkb_rate: document.getElementById('pbbkbRate'),
+    pph22_rate: document.getElementById('pph22Rate'),
+  };
+
+  function parseNumber(str) {
+    return parseFloat(String(str).replace(/,/g, '')) || 0;
+  }
+
+  function formatNumber(n) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function calcRow(input) {
+    const row = input.closest('tr');
+
+    if (input.value.trim() === '') {
+      row.querySelector('.ppn-output').value   = '';
+      row.querySelector('.pbbkb-output').value = '';
+      row.querySelector('.pph22-output').value = '';
+      row.querySelector('.total-output').value = '';
+      return;
+    }
+
+    const pertamina = parseNumber(input.value);
+    const ppnRate   = parseNumber(rateInputs.ppn_rate.value) / 100;
+    const pbbkbRate = parseNumber(rateInputs.pbbkb_rate.value) / 100;
+    const pph22Rate = parseNumber(rateInputs.pph22_rate.value) / 100;
+
+    const ppn   = pertamina * ppnRate;
+    const pbbkb = pertamina * pbbkbRate;
+    const pph22 = pertamina * pph22Rate;
+    const total = pertamina + ppn + pbbkb + pph22;
+
+    row.querySelector('.ppn-output').value   = formatNumber(ppn);
+    row.querySelector('.pbbkb-output').value = formatNumber(pbbkb);
+    row.querySelector('.pph22-output').value = formatNumber(pph22);
+    row.querySelector('.total-output').value = formatNumber(total);
+  }
+
+  function calcAllRows() {
+    document.querySelectorAll('.pertamina-input').forEach(calcRow);
+  }
+
+  function saveRow(input) {
+    const body = new URLSearchParams({
+      action: 'save_fuel',
+      bulan_tahun: input.dataset.bulanTahun,
+      periode: input.dataset.periode,
+      field: input.dataset.field,
+      value: parseNumber(input.value),
+    });
+    fetch(window.location.pathname, { method: 'POST', body });
+  }
+
+  function saveRate(input) {
+    const body = new URLSearchParams({
+      action: 'save_fuel_rate',
+      tahun: document.getElementById('tahun').value,
+      field: input.dataset.field,
+      value: parseNumber(input.value),
+    });
+    fetch(window.location.pathname, { method: 'POST', body });
+  }
+
+  document.querySelectorAll('.pertamina-input').forEach(function (input) {
+    input.addEventListener('input', function () {
+      calcRow(input);
+    });
+
+    input.addEventListener('blur', function () {
+      if (input.value !== '') {
+        input.value = formatNumber(parseNumber(input.value));
+      }
+      saveRow(input);
+    });
+  });
+
+  document.querySelectorAll('.ici3-input').forEach(function (input) {
+    input.addEventListener('blur', function () {
+      if (input.value !== '') {
+        input.value = formatNumber(parseNumber(input.value));
+      }
+      saveRow(input);
+    });
+  });
+
+  Object.values(rateInputs).forEach(function (input) {
+    input.addEventListener('input', calcAllRows);
+
+    input.addEventListener('blur', function () {
+      if (input.value !== '') {
+        input.value = parseNumber(input.value);
+      }
+      saveRate(input);
+    });
+  });
+
+  calcAllRows();
+</script>
+
+<%- include('partials/footer') %>

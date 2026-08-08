@@ -1,0 +1,77 @@
+<%- include('partials/header', { pageTitle: 'Kurs Tengah - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <h5 class="mb-3">Periode</h5>
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-auto">
+          <label for="dari" class="form-label mb-1">Dari</label>
+          <input type="date" id="dari" name="dari" class="form-control" value="<%= dariInput %>">
+        </div>
+        <div class="col-auto">
+          <label for="sampai" class="form-label mb-1">Sampai</label>
+          <input type="date" id="sampai" name="sampai" class="form-control" value="<%= sampaiInput %>">
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-primary px-4" style="background:#0d4d94; border-color:#0d4d94;">Cari</button>
+        </div>
+        <div class="col-auto">
+          <a href="/kurs-tengah" class="btn btn-outline-secondary px-4">15 Hari Terakhir</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <table class="table mb-0 align-middle">
+        <thead>
+          <tr>
+            <th class="py-3 px-4 text-white" style="background:#0d4d94;">Tanggal</th>
+            <th class="py-3 px-4 text-white" style="background:#0d4d94;">Kurs Jual</th>
+            <th class="py-3 px-4 text-white" style="background:#0d4d94;">Kurs Beli</th>
+            <th class="py-3 px-4 text-white" style="background:#0d4d94;">Kurs Tengah</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (shouldAutoReload) { %>
+            <tr><td colspan="4" class="text-center text-muted py-4">Loading&hellip;</td></tr>
+          <% } else if (fetchFailed) { %>
+            <tr><td colspan="4" class="text-center text-muted py-4">Gagal memuat data. <a href="<%= retryUrl %>">Coba lagi</a>.</td></tr>
+          <% } else if (rows.length === 0) { %>
+            <tr><td colspan="4" class="text-center text-muted py-4">Data tidak tersedia.</td></tr>
+          <% } else { rows.forEach(function (row) { %>
+            <tr>
+              <td class="px-4"><%= formatTanggalID(row.tanggal) %></td>
+              <td class="px-4"><%= formatRupiah(row.jual) %></td>
+              <td class="px-4"><%= formatRupiah(row.beli) %></td>
+              <td class="px-4"><%= formatRupiah(row.tengah) %></td>
+            </tr>
+          <% }); } %>
+        </tbody>
+      </table>
+    </div>
+
+    <% if (!shouldAutoReload && !fetchFailed && totalRows > 0) { %>
+      <div class="card-footer d-flex justify-content-between align-items-center bg-white">
+        <a href="<%= pageUrl(page - 1) %>"
+           class="btn btn-outline-secondary btn-sm<%= page <= 1 ? ' disabled' : '' %>">&laquo; Sebelumnya</a>
+        <span class="text-muted small">Halaman <%= page %> dari <%= totalPages %></span>
+        <a href="<%= pageUrl(page + 1) %>"
+           class="btn btn-outline-secondary btn-sm<%= page >= totalPages ? ' disabled' : '' %>">Berikutnya &raquo;</a>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<% if (shouldAutoReload) { %>
+<script>
+  setTimeout(function () {
+    window.location.href = <%- JSON.stringify(reloadUrl) %>;
+  }, 2000);
+</script>
+<% } %>
+
+<%- include('partials/footer') %>

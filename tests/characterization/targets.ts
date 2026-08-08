@@ -17,6 +17,9 @@ export interface Target {
     sibarges: string;
     tluOperation: string;
     coalBarging: string;
+    jisdor: string;
+    kursTengah: string;
+    fuel: string;
   };
 }
 
@@ -38,6 +41,9 @@ export const targets: Target[] = [
       sibarges: "/Operation/7sibarges.php",
       tluOperation: "/Operation/8tluoperation.php",
       coalBarging: "/Operation/9coalbarging.php",
+      jisdor: "/VM&FAT/1jisdor.php",
+      kursTengah: "/VM&FAT/2kurstengah.php",
+      fuel: "/VM&FAT/3fuel.php",
     },
   },
   {
@@ -57,6 +63,9 @@ export const targets: Target[] = [
       sibarges: "/sibarges",
       tluOperation: "/tlu-operation",
       coalBarging: "/coal-barging",
+      jisdor: "/jisdor",
+      kursTengah: "/kurs-tengah",
+      fuel: "/fuel",
     },
   },
 ];

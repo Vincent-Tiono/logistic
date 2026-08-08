@@ -233,3 +233,50 @@ export async function ensureVendorTable(pool: mysql.Pool): Promise<void> {
     )
   `);
 }
+
+/**
+ * Ports VM&FAT/3fuel.php's ensure_fuel_table(): creates `fuel` and
+ * `fuel_rates` if missing, and self-heals the `ici3` column PHP added
+ * lazily after the original `fuel` table shipped. PHP re-checks this on
+ * every request (guarded by a static flag per-request); called once at
+ * startup here instead, same as the other ensure*() helpers.
+ */
+export async function ensureFuelTables(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fuel (
+      bulan_tahun VARCHAR(10) NOT NULL,
+      periode TINYINT NOT NULL,
+      pertamina DECIMAL(15,2) NOT NULL DEFAULT 0,
+      ici3 DECIMAL(15,2) NOT NULL DEFAULT 0,
+      PRIMARY KEY (bulan_tahun, periode)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  const [dbRows] = await pool.query<mysql.RowDataPacket[]>(
+    "SELECT DATABASE() AS db_name"
+  );
+  const database = String(dbRows[0]?.db_name ?? "");
+  if (database) {
+    const [columns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'fuel' AND COLUMN_NAME = 'ici3'`,
+      [database]
+    );
+    if (columns.length === 0) {
+      await pool.query(
+        "ALTER TABLE fuel ADD COLUMN ici3 DECIMAL(15,2) NOT NULL DEFAULT 0"
+      );
+    }
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fuel_rates (
+      tahun SMALLINT NOT NULL,
+      ppn_rate DECIMAL(6,3) NOT NULL DEFAULT 11,
+      pbbkb_rate DECIMAL(6,3) NOT NULL DEFAULT 7.5,
+      pph22_rate DECIMAL(6,3) NOT NULL DEFAULT 0.3,
+      PRIMARY KEY (tahun)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
