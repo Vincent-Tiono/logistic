@@ -1,0 +1,513 @@
+<%- include('partials/header', { pageTitle: 'TLU Operation', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<main class="main">
+  <div class="content">
+
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <h4 class="m-0">TLU Operation</h4>
+    </div>
+
+    <div class="card" id="allOperationsCard">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <h5 class="m-0">All Years / All Vessels</h5>
+          <div class="small text-muted" id="allOperationsSummary"></div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm align-middle mb-0" id="allOperationsTable">
+            <thead class="table-light"><tr id="allOperationsHeaderRow"></tr></thead>
+            <tbody id="allOperationsBody">
+              <tr><td class="text-center text-muted py-3">Memuat data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex align-items-center justify-content-between mt-3">
+          <div class="small text-muted" id="allOperationsPageInfo"></div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="allOperationsPrev">Previous</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="allOperationsNext">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card mt-3">
+      <div class="card-body">
+        <h5 class="mb-3">Cycle Time — Per Vessel</h5>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label for="cycle_year" class="form-label fw-semibold">Pilih Tahun</label>
+            <select id="cycle_year" class="form-select">
+              <option value="">-- Pilih Tahun --</option>
+            </select>
+          </div>
+          <div class="col-md-3">
+            <label for="cycle_month" class="form-label fw-semibold">Pilih Bulan</label>
+            <select id="cycle_month" class="form-select" disabled>
+              <option value="">-- Pilih Bulan --</option>
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label for="cycle_no_pk" class="form-label fw-semibold">Pilih Mother Vessel (No PK)</label>
+            <select id="cycle_no_pk" class="form-select" disabled>
+              <option value="">-- Pilih Mother Vessel --</option>
+            </select>
+          </div>
+        </div>
+
+        <% if (!vesselPeriods || !vesselPeriods.length) { %>
+          <div class="form-text text-muted">
+            Belum ada Mother Vessel dengan Laycan Start pada Data Barges.
+          </div>
+        <% } %>
+
+        <div class="mt-3 d-none" id="cycleTimeBox">
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="small text-muted" id="cycleTimeSummary"></div>
+          </div>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-0" id="cycleTimeTable">
+              <thead class="table-light"><tr id="cycleTimeHeaderRow"></tr></thead>
+              <tbody id="cycleTimeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script type="module">
+import { getFieldValue, formatCycleTimeNumber, computeCycleTimeFields } from '/assets/js/cycle-time.mjs';
+
+// Read-only port of the "All Years / All Vessels" landing table and the
+// per-vessel Cycle Time timeline view from Operation/8tluoperation.php.
+// Per docs/adr/0001-tlu-grouped-export-computes-client-side.md, the server
+// hands over raw (vessel-defaulted, not cycle-time-computed) rows; every
+// cycle-time column below is computed here via the shared
+// assets/js/cycle-time.mjs module, exactly as the legacy inline script does.
+// No save/edit affordance exists here on purpose — this ticket ports the
+// read-only surface only (see issue #10); editing is a separate ticket.
+
+const vesselPeriods = <%- JSON.stringify(vesselPeriods || []) %>;
+
+// Column order/labels for both the landing table and the Cycle Time table —
+// single source of truth, read from the live #cycleTimeTable header the same
+// way the legacy page's cycleTimeExportHeaderCells() does, once this script
+// has built it below.
+const CYCLE_TIME_COLUMNS = [
+  ['no_pk', 'No. Reff'],
+  ['buyer', 'Buyer'],
+  ['mothervessel', 'Mother Vessel'],
+  ['stowageplan_mt', 'Stowage Plan'],
+  ['jetty_code', 'Jetty'],
+  ['shipper_code', 'Shipper'],
+  ['tugboat', 'Tugboat'],
+  ['barge', 'Barge'],
+  ['barge_vendor', 'Barge Vendor'],
+  ['qty', 'QTY'],
+  ['qty_disc', 'QTY DISC'],
+  ['rc', 'RC'],
+  ['qty_actual', 'QTY Actual'],
+  ['pbm_vendor', 'PBM Vendor'],
+  ['floating_crane', 'Floating Crane'],
+  ['waiting_loading_jetty', 'Waiting Loading Jetty'],
+  ['check_waiting_loading_jetty', 'Check Waiting Loading Jetty'],
+  ['barges_arrival_early', 'Barges Arrival Early'],
+  ['waiting_plan_loading', 'Waiting Plan Loading'],
+  ['loading_time_jetty', 'Loading Time Jetty'],
+  ['laycan_start', 'Laycan Start'],
+  ['laycan_end', 'Laycan End'],
+  ['arrival_jetty', 'Arrival Jetty'],
+  ['start_loading', 'Start Loading'],
+  ['completed_loading', 'Completed Loading'],
+  ['part_1', 'Part 1'],
+  ['check_part_1', 'Check Part 1'],
+  ['lhv_time', 'LHV Time'],
+  ['spog_time', 'SPOG Time'],
+  ['clear_pass_time', 'Clear Pass Time'],
+  ['lhv', 'LHV'],
+  ['spog_zona_2', 'SPOG ZONA 2'],
+  ['pkk', 'PKK'],
+  ['rkbm', 'RKBM'],
+  ['sts_spb', 'STS/SPB'],
+  ['start_mooring', 'Start Mooring'],
+  ['end_mooring', 'End Mooring'],
+  ['mooring_place_1', 'Mooring Place 1'],
+  ['clear_pass', 'Clear Pass'],
+  ['start_mooring_clear_pass', 'Start Mooring Clear Pass'],
+  ['cast_off_mooring_clear_pass', 'Cast Off Mooring Clear Pass'],
+  ['mooring_place_2', 'Mooring Place 2'],
+  ['part_2', 'Part 2'],
+  ['check_part_2', 'Check Part 2'],
+  ['mooring_2', 'Mooring 2'],
+  ['sailing_time', 'Sailing Time'],
+  ['total_waiting_disch_mv', 'Total Waiting Disch MV'],
+  ['check_total_waiting_disch_mv', 'Check Total Waiting Disch MV'],
+  ['waiting_cargo_readiness', 'Waiting Cargo Readiness (P2)'],
+  ['waiting_mv', 'Waiting MV (P2)'],
+  ['waiting_flf', 'Waiting FLF (P2)'],
+  ['waiting_queueing', 'Waiting Queueing (P2)'],
+  ['waiting_sequence', 'Waiting Sequence (P2)'],
+  ['other_factor', 'Other Factor (P2)'],
+  ['back_to_jetty_time', 'Back to Jetty Time'],
+  ['ta_barges_actual', 'TA Barges Actual'],
+  ['ta_mv', 'TA MV'],
+  ['ta_flf', 'TA FLF'],
+  ['cargo_readiness_actual', 'Cargo Readiness Actual'],
+  ['start_disch', 'Start Disch'],
+  ['completed_disch', 'Completed Disch'],
+  ['discharge_sequence', 'Discharge Sequence'],
+  ['back_to_jetty', 'Back to Jetty'],
+  ['loading_rate', 'Loading Rate'],
+  ['disch_time_loading_rate', 'Disch Time for Loading Rate'],
+  ['disch_time_percent', 'Disch Time'],
+  ['cargo_readiness_p3', '% Cargo Readiness (P3)'],
+  ['pure_time', 'Pure Time'],
+  ['waiting_cargo_readiness_p3', 'Waiting Cargo Readiness (P3)'],
+  ['waiting_mv_p3', 'Waiting MV (P3)'],
+  ['waiting_flf_p3', 'Waiting FLF (P3)'],
+  ['waiting_queuing_p3', 'Waiting Queuing (P3)'],
+  ['waiting_sequence_p3', 'Waiting Sequence (P3)'],
+  ['other_factor_p3', 'Other Factor (P3)'],
+  ['check_waiting_time_disch_mv', 'Check Waiting Time Disch MV'],
+  ['total_ct_ltc', 'Total CT LTC'],
+  ['laytime', 'Laytime'],
+  ['ltc_rate', 'LTC Rate'],
+  ['ltc_day', 'LTC Day'],
+  ['ltc_total', 'LTC Total'],
+  ['operation_remarks', 'Remarks'],
+  ['created_by', 'Created By'],
+  ['created_at', 'Created At'],
+  ['updated_at', 'Updated At'],
+];
+
+const formattedNumberFields = new Set([
+  'qty', 'qty_disc', 'rc', 'qty_actual',
+  'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading',
+  'loading_time_jetty', 'part_1', 'lhv_time', 'spog_time', 'clear_pass_time',
+  'part_2', 'mooring_2', 'sailing_time', 'total_waiting_disch_mv',
+  'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf', 'waiting_queueing',
+  'waiting_sequence', 'other_factor', 'back_to_jetty_time',
+  'loading_rate', 'disch_time_loading_rate', 'disch_time_percent',
+  'pure_time', 'waiting_cargo_readiness_p3',
+  'waiting_mv_p3', 'waiting_flf_p3', 'waiting_queuing_p3',
+  'waiting_sequence_p3', 'other_factor_p3',
+  'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
+]);
+const CYCLE_TIME_PERCENT_FIELDS = new Set(['cargo_readiness_p3']);
+const operationDateTimeFields = new Set([
+  'arrival_jetty', 'start_loading', 'completed_loading', 'lhv', 'spog_zona_2',
+  'pkk', 'rkbm', 'sts_spb', 'start_mooring', 'end_mooring', 'clear_pass',
+  'start_mooring_clear_pass', 'cast_off_mooring_clear_pass', 'ta_barges_actual',
+  'ta_mv', 'ta_flf', 'cargo_readiness_actual', 'start_disch', 'completed_disch',
+  'back_to_jetty'
+]);
+const CYCLE_TIME_4DP_NUMBER_FIELDS = new Set([
+  'waiting_loading_jetty', 'barges_arrival_early', 'waiting_plan_loading', 'loading_time_jetty',
+  'part_1', 'lhv_time', 'spog_time', 'clear_pass_time',
+  'part_2', 'mooring_2', 'sailing_time', 'total_waiting_disch_mv',
+  'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf', 'waiting_queueing',
+  'waiting_sequence', 'other_factor', 'back_to_jetty_time',
+  'loading_rate', 'disch_time_loading_rate', 'disch_time_percent',
+  'pure_time', 'waiting_cargo_readiness_p3',
+  'waiting_mv_p3', 'waiting_flf_p3', 'waiting_queuing_p3',
+  'waiting_sequence_p3', 'other_factor_p3',
+  'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total'
+]);
+
+function esc(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function displayValue(value) {
+  const text = String(value ?? '').trim();
+  return text === '' ? '-' : esc(text);
+}
+
+function formatDisplayNumber(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 6 }).format(Number(normalized));
+}
+
+function formatCargoReadinessPercent(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const normalized = text.replaceAll(',', '').replaceAll(' ', '');
+  if (!/^-?\d+(\.\d+)?$/.test(normalized)) return text;
+  return `${Math.round(Number(normalized))}%`;
+}
+
+const DDMONYY_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+function fmtDDMonYY(val, withTime = false) {
+  const s = String(val ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/);
+  if (!m) return s;
+  const yy = m[1].slice(-2);
+  const mon = DDMONYY_MONTHS[parseInt(m[2], 10) - 1] || '';
+  const dd = m[3];
+  let out = `${dd}/${mon}/${yy}`;
+  if (withTime && m[4]) out += ` ${m[4]}:${m[5]}`;
+  return out;
+}
+
+function fmtLaycanDateTime(value) {
+  const datePart = fmtDDMonYY(value, false);
+  if (datePart === '') return '';
+  const m = String(value ?? '').trim().match(/(\d{2}):(\d{2})/);
+  return m ? `${datePart} ${m[1]}:${m[2]}` : `${datePart} 00:00`;
+}
+
+// Matches rowMarkup()/columnDisplayValue() in Operation/8tluoperation.php:2731-2740.
+function columnDisplayValue(row, key, allRows = [row]) {
+  const raw = getFieldValue(row, key, allRows);
+  if (key === 'laycan_start' || key === 'laycan_end') return fmtLaycanDateTime(raw);
+  if (key === 'created_at' || key === 'updated_at') return fmtDDMonYY(raw, true);
+  if (operationDateTimeFields.has(key)) return fmtDDMonYY(raw, true);
+  if (CYCLE_TIME_PERCENT_FIELDS.has(key)) return formatCargoReadinessPercent(raw);
+  if (CYCLE_TIME_4DP_NUMBER_FIELDS.has(key)) return formatCycleTimeNumber(raw);
+  if (formattedNumberFields.has(key)) return formatDisplayNumber(raw);
+  return (raw ?? '').toString();
+}
+
+// Matches groupRowsByVessel (8tluoperation.php:2398-2412): buckets an
+// already-sorted flat row list by vessel, since cross-row cycle-time
+// formulas only ever compare a row against its own vessel's siblings.
+function groupRowsByVessel(rows) {
+  const groups = [];
+  let current = null;
+  let currentKey = null;
+  for (const row of rows) {
+    const key = `${row.no_pk} ${row.mothervessel}`;
+    if (key !== currentKey) {
+      current = [];
+      groups.push(current);
+      currentKey = key;
+    }
+    current.push(row);
+  }
+  return groups;
+}
+
+function buildRowValues(row, allRows, rowIndexInVessel, headerKeys) {
+  return headerKeys.map(key => key === 'stowageplan_mt'
+    ? (rowIndexInVessel === 0 ? formatDisplayNumber(getFieldValue(row, 'stowageplan_mt', allRows)) : '')
+    : columnDisplayValue(row, key, allRows));
+}
+
+// Matches urutkanSesuaiDenganDischargeSequence (8tluoperation.php:2704-2723):
+// the ordering cross-row cycle-time formulas (loading rate sum, disch time
+// prev/next) treat as each vessel's sibling order.
+function dischargeSequenceSortValue(row) {
+  let operationData = {};
+  try {
+    operationData = row.operation_data && typeof row.operation_data === 'object'
+      ? row.operation_data
+      : JSON.parse(row.operation_data || '{}');
+  } catch {
+    operationData = {};
+  }
+  const sequence = Number(String(operationData.discharge_sequence ?? '').trim());
+  return Number.isFinite(sequence) && sequence > 0 ? sequence : null;
+}
+
+function urutkanSesuaiDenganDischargeSequence(rows) {
+  return [...rows].sort((left, right) => {
+    const leftSequence = dischargeSequenceSortValue(left);
+    const rightSequence = dischargeSequenceSortValue(right);
+    if (leftSequence === null && rightSequence !== null) return 1;
+    if (leftSequence !== null && rightSequence === null) return -1;
+    if (leftSequence !== null && rightSequence !== null && leftSequence !== rightSequence) {
+      return leftSequence - rightSequence;
+    }
+    const leftBargeSequence = Number(left.barge_seq) || 0;
+    const rightBargeSequence = Number(right.barge_seq) || 0;
+    if (leftBargeSequence !== rightBargeSequence) return leftBargeSequence - rightBargeSequence;
+    return (Number(left.id) || 0) - (Number(right.id) || 0);
+  });
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+  return res.json();
+}
+
+// ===== Build both tables' shared header row =====
+
+function buildHeaderCells(rowEl, includeRowNumber) {
+  rowEl.innerHTML = (includeRowNumber ? ['<th>No.</th>'] : [])
+    .concat(CYCLE_TIME_COLUMNS.map(([key, label]) => `<th data-key="${esc(key)}">${esc(label)}</th>`))
+    .join('');
+}
+
+buildHeaderCells(document.getElementById('cycleTimeHeaderRow'), true);
+buildHeaderCells(document.getElementById('allOperationsHeaderRow'), false);
+
+const headerKeys = CYCLE_TIME_COLUMNS.map(([key]) => key);
+
+// ===== All Years / All Vessels (landing table, client-side paginated) =====
+
+const ALL_OPERATIONS_PAGE_SIZE = 100;
+let allOperationsCurrentPage = 1;
+let allOperationsDisplayEntries = [];
+
+const allOperationsBody = document.getElementById('allOperationsBody');
+const allOperationsSummary = document.getElementById('allOperationsSummary');
+const allOperationsPageInfo = document.getElementById('allOperationsPageInfo');
+const allOperationsPrev = document.getElementById('allOperationsPrev');
+const allOperationsNext = document.getElementById('allOperationsNext');
+
+function renderAllOperationsPage(page) {
+  const totalRows = allOperationsDisplayEntries.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / ALL_OPERATIONS_PAGE_SIZE));
+  allOperationsCurrentPage = Math.min(Math.max(page, 1), totalPages);
+
+  const start = (allOperationsCurrentPage - 1) * ALL_OPERATIONS_PAGE_SIZE;
+  const pageEntries = allOperationsDisplayEntries.slice(start, start + ALL_OPERATIONS_PAGE_SIZE);
+
+  allOperationsBody.innerHTML = pageEntries.length
+    ? pageEntries.map(entry => entry === null
+        ? `<tr class="table-secondary"><td colspan="${headerKeys.length}"></td></tr>`
+        : `<tr>${buildRowValues(entry.row, entry.allRows, entry.rowIndexInVessel, headerKeys).map(value => `<td>${displayValue(value)}</td>`).join('')}</tr>`
+      ).join('')
+    : `<tr><td colspan="${headerKeys.length}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+
+  allOperationsSummary.textContent = totalRows ? `${totalRows} baris` : '';
+  allOperationsPageInfo.textContent = totalRows
+    ? `Halaman ${allOperationsCurrentPage} dari ${totalPages} (baris ${start + 1}-${Math.min(start + ALL_OPERATIONS_PAGE_SIZE, totalRows)} dari ${totalRows})`
+    : '';
+
+  allOperationsPrev.classList.toggle('disabled', allOperationsCurrentPage <= 1);
+  allOperationsNext.classList.toggle('disabled', allOperationsCurrentPage >= totalPages);
+}
+
+allOperationsPrev.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage - 1));
+allOperationsNext.addEventListener('click', () => renderAllOperationsPage(allOperationsCurrentPage + 1));
+
+(async function loadAllOperations() {
+  const result = await fetchJson('/tlu-operation?ajax=1&action=all_operations');
+  const rows = result.ok ? (result.data || []) : [];
+  allOperationsDisplayEntries = groupRowsByVessel(rows).flatMap((group, groupIndex) => [
+    ...(groupIndex > 0 ? [null] : []),
+    ...group.map((row, rowIndexInVessel) => ({ row, allRows: group, rowIndexInVessel }))
+  ]);
+  renderAllOperationsPage(1);
+})();
+
+// ===== Cycle Time — per vessel =====
+
+const monthNames = [
+  'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+  'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+];
+
+const cycleYearSelect = document.getElementById('cycle_year');
+const cycleMonthSelect = document.getElementById('cycle_month');
+const cycleNoPkSelect = document.getElementById('cycle_no_pk');
+const cycleTimeBox = document.getElementById('cycleTimeBox');
+const cycleTimeBody = document.getElementById('cycleTimeBody');
+const cycleTimeSummary = document.getElementById('cycleTimeSummary');
+
+function replaceSelectOptions(select, placeholder, options) {
+  select.innerHTML = '';
+  select.appendChild(new Option(placeholder, ''));
+  options.forEach(option => select.appendChild(new Option(option.label, option.value)));
+}
+
+const availableYears = [...new Set(vesselPeriods.map(v => String(v.laycan_year)))]
+  .sort((a, b) => Number(b) - Number(a));
+replaceSelectOptions(cycleYearSelect, '-- Pilih Tahun --', availableYears.map(y => ({ value: y, label: y })));
+
+cycleYearSelect.addEventListener('change', () => {
+  cycleTimeBox.classList.add('d-none');
+  replaceSelectOptions(cycleNoPkSelect, '-- Pilih Mother Vessel --', []);
+  cycleNoPkSelect.disabled = true;
+
+  const year = cycleYearSelect.value;
+  if (!year) {
+    replaceSelectOptions(cycleMonthSelect, '-- Pilih Bulan --', []);
+    cycleMonthSelect.disabled = true;
+    return;
+  }
+  const months = [...new Set(
+    vesselPeriods.filter(v => String(v.laycan_year) === year).map(v => Number(v.laycan_month))
+  )].sort((a, b) => a - b);
+  replaceSelectOptions(cycleMonthSelect, '-- Pilih Bulan --', months.map(m => ({ value: String(m), label: monthNames[m - 1] })));
+  cycleMonthSelect.disabled = false;
+});
+
+cycleMonthSelect.addEventListener('change', () => {
+  cycleTimeBox.classList.add('d-none');
+  const year = cycleYearSelect.value;
+  const month = cycleMonthSelect.value;
+  if (!year || !month) {
+    replaceSelectOptions(cycleNoPkSelect, '-- Pilih Mother Vessel --', []);
+    cycleNoPkSelect.disabled = true;
+    return;
+  }
+  const vessels = vesselPeriods
+    .filter(v => String(v.laycan_year) === year && String(Number(v.laycan_month)) === String(Number(month)))
+    .sort((a, b) => a.mothervessel.localeCompare(b.mothervessel));
+  replaceSelectOptions(
+    cycleNoPkSelect,
+    '-- Pilih Mother Vessel --',
+    vessels.map(v => ({ value: v.no_pk, label: `${v.mothervessel} (${v.no_pk})` }))
+  );
+  cycleNoPkSelect.disabled = false;
+});
+
+cycleNoPkSelect.addEventListener('change', async () => {
+  const noPk = cycleNoPkSelect.value;
+  if (!noPk) {
+    cycleTimeBox.classList.add('d-none');
+    return;
+  }
+
+  cycleTimeBody.innerHTML = `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Memuat data...</td></tr>`;
+  cycleTimeBox.classList.remove('d-none');
+
+  const result = await fetchJson(`/tlu-operation?ajax=1&action=si_barges_by_vessel&no_pk=${encodeURIComponent(noPk)}`);
+  if (!result.ok) {
+    cycleTimeBody.innerHTML = `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-danger py-3">${esc(result.msg || 'Gagal memuat data.')}</td></tr>`;
+    cycleTimeSummary.textContent = '';
+    return;
+  }
+
+  const allRows = urutkanSesuaiDenganDischargeSequence(result.data || []);
+  // Default display order matches legacy's default sort (completed_disch
+  // ascending, 8tluoperation.php:3990 `defaultSort: { key: 'completed_disch' }`).
+  // allRows (discharge-sequence order) stays the cross-row basis passed into
+  // every getFieldValue/columnDisplayValue call below, independent of display order.
+  const displayRows = [...allRows].sort((a, b) => {
+    const parse = v => {
+      const t = v ? Date.parse(String(v).replace(' ', 'T')) : NaN;
+      return isNaN(t) ? -Infinity : t;
+    };
+    return parse(getFieldValue(a, 'completed_disch', allRows)) - parse(getFieldValue(b, 'completed_disch', allRows));
+  });
+
+  // Single-vessel table: unlike the landing table's grouped rows, every row
+  // here shows its own Stowage Plan (the value is identical vessel-wide, no
+  // need to blank it after the first row).
+  cycleTimeSummary.textContent = `${displayRows.length} baris`;
+  cycleTimeBody.innerHTML = displayRows.length
+    ? displayRows.map((row, index) => `<tr><td>${index + 1}</td>${
+        headerKeys.map(key => `<td>${displayValue(columnDisplayValue(row, key, allRows))}</td>`).join('')
+      }</tr>`).join('')
+    : `<tr><td colspan="${headerKeys.length + 1}" class="text-center text-muted py-3">Data tidak ditemukan.</td></tr>`;
+});
+</script>
+
+<%- include('partials/footer') %>

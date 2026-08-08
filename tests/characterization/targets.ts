@@ -15,6 +15,7 @@ export interface Target {
     jetty: string;
     flf: string;
     sibarges: string;
+    tluOperation: string;
   };
 }
 
@@ -34,6 +35,7 @@ export const targets: Target[] = [
       jetty: "/Operation/5jetty.php",
       flf: "/Operation/6flf.php",
       sibarges: "/Operation/7sibarges.php",
+      tluOperation: "/Operation/8tluoperation.php",
     },
   },
   {
@@ -51,6 +53,7 @@ export const targets: Target[] = [
       jetty: "/jetty",
       flf: "/flf",
       sibarges: "/sibarges",
+      tluOperation: "/tlu-operation",
     },
   },
 ];
