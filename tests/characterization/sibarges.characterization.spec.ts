@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { IMPORT_REQUIRED_COLUMNS as SIBARGES_TEMPLATE_COLUMNS } from "../../src/services/sibarges.service.js";
 import { deleteUserRow, seedLegacyUser } from "./db-fixture.js";
 import { HttpClient } from "./http-client.js";
 import { deleteJettyRow, seedJettyRow } from "./jetty-fixture.js";
@@ -482,5 +483,20 @@ describe.each(targets)("sibarges — $name", (target) => {
     const client = await loginAs(opUser, opPassword);
     const res = await client.get(`${target.paths.sibarges}?download=si_pdf&id=${id}`);
     expect(res.status).toBe(200);
+  });
+
+  describe("download=sibarges_template", () => {
+    it("returns the template CSV with the expected header and filename", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(`${target.paths.sibarges}?download=sibarges_template`);
+      expect(res.status).toBe(200);
+      expect(res.contentType).toContain("text/csv");
+      expect(res.contentDisposition).toContain("sibarges_template.csv");
+      // .toContain, not .toBe: this repo's local PHP 8.5 prints a fputcsv()
+      // $escape-param deprecation notice ahead of each CSV line (legacy PHP
+      // predates that deprecation) — an environment quirk, not a behavior
+      // difference worth characterizing line-for-line here.
+      expect(res.body).toContain(SIBARGES_TEMPLATE_COLUMNS.join(","));
+    });
   });
 });

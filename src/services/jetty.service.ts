@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -105,7 +105,16 @@ export async function deleteAllJetties(pool: Pool): Promise<ActionResult> {
   return { ok: true, msg: "Semua data jetty berhasil dihapus." };
 }
 
-const IMPORT_REQUIRED_COLUMNS = ["jetty", "nama_panjang"];
+export const IMPORT_REQUIRED_COLUMNS = ["jetty", "nama_panjang"];
+
+/** Port of the `?download=jetty_template` handler (Operation/5jetty.php:20-32). */
+export function buildJettyTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(IMPORT_REQUIRED_COLUMNS),
+    buildCsvLine(["ABK", "JETTY PT ANUGERAH BARA KALTIM, EAST KALIMANTAN, INDONESIA"]),
+  ];
+  return { filename: "jetty_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importJettyCsv(
   pool: Pool,

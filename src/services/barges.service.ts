@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -133,7 +133,16 @@ export async function deleteAllBarges(pool: Pool): Promise<ActionResult> {
   return { ok: true, msg: "Semua data barges berhasil dihapus." };
 }
 
-const IMPORT_REQUIRED_COLUMNS = ["tugboat", "barge", "vendor", "kontrak", "muatan", "penalty"];
+export const IMPORT_REQUIRED_COLUMNS = ["tugboat", "barge", "vendor", "kontrak", "muatan", "penalty"];
+
+/** Port of the `?download=barges_template` handler (Operation/4barges.php:28-39). */
+export function buildBargesTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(IMPORT_REQUIRED_COLUMNS),
+    buildCsvLine(["TB. MARINA 2201", "BG. MARINE POWER 3037", "BMC", "DEDICATED", "8200", "Deadfreight"]),
+  ];
+  return { filename: "barges_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importBargesCsv(
   pool: Pool,

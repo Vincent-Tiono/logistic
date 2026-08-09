@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { IMPORT_REQUIRED_COLUMNS as JETTY_TEMPLATE_COLUMNS } from "../../src/services/jetty.service.js";
 import { deleteUserRow, seedLegacyUser } from "./db-fixture.js";
 import { HttpClient } from "./http-client.js";
 import { deleteJettyRow, seedJettyRow } from "./jetty-fixture.js";
@@ -187,5 +188,20 @@ describe.each(targets)("jetty — $name", (target) => {
     });
     expect(res.ok).toBe(false);
     expect(res.msg).toContain("Hanya Divisi IT");
+  });
+
+  describe("download=jetty_template", () => {
+    it("returns the template CSV with the expected header and filename", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(`${target.paths.jetty}?download=jetty_template`);
+      expect(res.status).toBe(200);
+      expect(res.contentType).toContain("text/csv");
+      expect(res.contentDisposition).toContain("jetty_template.csv");
+      // .toContain, not .toBe: this repo's local PHP 8.5 prints a fputcsv()
+      // $escape-param deprecation notice ahead of each CSV line (legacy PHP
+      // predates that deprecation) — an environment quirk, not a behavior
+      // difference worth characterizing line-for-line here.
+      expect(res.body).toContain(JETTY_TEMPLATE_COLUMNS.join(","));
+    });
   });
 });

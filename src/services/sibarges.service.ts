@@ -1,6 +1,6 @@
 import type { Pool, PoolConnection, RowDataPacket } from "mysql2/promise";
 import { addDaysYmd, parseDateAny, romanMonth } from "../lib/date.js";
-import { detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, detectCsvDelimiter, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -780,7 +780,7 @@ export interface ImportResult {
   errors?: number;
 }
 
-const IMPORT_REQUIRED_COLUMNS = [
+export const IMPORT_REQUIRED_COLUMNS = [
   "no_pk",
   "si_type",
   "tugboat",
@@ -794,6 +794,18 @@ const IMPORT_REQUIRED_COLUMNS = [
   "record_status",
   "remarks",
 ];
+
+/** Port of the `?download=sibarges_template` handler (Operation/7sibarges.php:672-688). */
+export function buildSibargesTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(IMPORT_REQUIRED_COLUMNS),
+    buildCsvLine([
+      "G.25-052", "SJN", "TB. PRIMA STAR 16", "BG. TAURUS 11", "MUARA BERAU",
+      "9000", "CAM", "MHU", "2025-12-16", "2025-12-17", "ACT", "Plan awal",
+    ]),
+  ];
+  return { filename: "sibarges_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importSibargesCsv(
   pool: Pool,

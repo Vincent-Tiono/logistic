@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -111,12 +111,21 @@ export async function deleteAllFlf(pool: Pool): Promise<ActionResult> {
   return { ok: true, msg: "Semua data flf berhasil dihapus." };
 }
 
-const IMPORT_REQUIRED_COLUMNS = [
+export const IMPORT_REQUIRED_COLUMNS = [
   "floating_crane",
   "vendor_flf",
   "pbm",
   "anchorage",
 ];
+
+/** Port of the `?download=flf_template` handler (Operation/6flf.php:20-32). */
+export function buildFlfTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(IMPORT_REQUIRED_COLUMNS),
+    buildCsvLine(["FC RATU DEWATA", "PSS", "FLOATING CRANE", "M.BERAU"]),
+  ];
+  return { filename: "flf_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importFlfCsv(
   pool: Pool,

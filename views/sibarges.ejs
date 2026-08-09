@@ -9,26 +9,38 @@
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
 
-  <% if ((divisi || '').toUpperCase() === 'IT') { %>
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="mb-2">Import CSV</h6>
-      <div class="small text-muted mb-2">
-        Kolom wajib: no_pk, si_type, tugboat, barge, anchorage, qty_plan, jetty_code, shipper_code,
-        laycan_start, laycan_end, record_status, remarks. SI Barges di-generate otomatis per vessel;
-        laycan_end selalu dihitung ulang sebagai laycan_start + 1 hari.
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <h6 class="mb-1">Import CSV</h6>
+          <div class="small text-muted">
+            Kolom wajib: no_pk, si_type, tugboat, barge, anchorage, qty_plan, jetty_code, shipper_code,
+            laycan_start, laycan_end, record_status, remarks. SI Barges di-generate otomatis per vessel;
+            laycan_end selalu dihitung ulang sebagai laycan_start + 1 hari.
+          </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <a class="btn btn-sm btn-outline-primary" href="/sibarges?download=sibarges_template">Download Template CSV</a>
+          <% if ((divisi || '').toUpperCase() === 'IT') { %>
+          <form id="formImport" class="d-flex gap-2 align-items-center">
+            <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
+            <button class="btn btn-sm btn-primary" type="submit">Import</button>
+          </form>
+          <% } %>
+        </div>
       </div>
-      <form id="formImport" class="d-flex gap-2 align-items-center">
-        <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
-        <button class="btn btn-sm btn-primary" type="submit">Import</button>
-      </form>
     </div>
   </div>
-  <% } %>
 
   <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseInputSibarges" aria-expanded="false" aria-controls="collapseInputSibarges">
+      <h6 class="m-0">Input SI Barges</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapseInputSibarges">
     <div class="card-body">
-      <h6 class="mb-3">Input SI Barges</h6>
 
       <form id="formCreate" class="row g-2">
         <div class="col-lg-3 col-6">
@@ -114,6 +126,7 @@
         </div>
       </form>
     </div>
+    </div>
   </div>
 
   <div class="card">
@@ -173,11 +186,33 @@
         </table>
       </div>
 
-      <div class="d-flex justify-content-end gap-2 mt-3">
-        <button class="btn btn-sm btn-outline-primary" id="btnDownloadSelected" type="button">Download Selected (ZIP)</button>
-        <% if ((divisi || '').toUpperCase() === 'IT') { %>
-        <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
-        <% } %>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+        <div class="d-flex align-items-center gap-2 small text-muted">
+          Show
+          <select id="pageSizeSelect" class="form-select form-select-sm" style="width:auto;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          entries (<span id="pageInfo">Showing 0 to 0 of 0 entries</span>)
+        </div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0" id="pageButtons"></ul>
+        </nav>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2 small">
+          <span id="selectedCount" class="text-muted">0 selected</span>
+          <button class="btn btn-sm btn-link p-0" id="btnClearSelection" type="button" disabled>Clear selection</button>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-primary" id="btnDownloadSelected" type="button">Download Selected (ZIP)</button>
+          <% if ((divisi || '').toUpperCase() === 'IT') { %>
+          <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
+          <% } %>
+        </div>
       </div>
     </div>
   </div>
@@ -358,6 +393,16 @@ const sortBy = document.getElementById('sortBy');
 const sortDir = document.getElementById('sortDir');
 const btnReset = document.getElementById('btnReset');
 const checkAll = document.getElementById('checkAll');
+const pageSizeSelect = document.getElementById('pageSizeSelect');
+const pageInfo = document.getElementById('pageInfo');
+const pageButtons = document.getElementById('pageButtons');
+const selectedCountEl = document.getElementById('selectedCount');
+const btnClearSelection = document.getElementById('btnClearSelection');
+
+let allRows = [];
+let currentPage = 1;
+let pageSize = Number(pageSizeSelect.value);
+const selectedIds = new Set();
 
 function rowTemplate(r){
   const isDiscard = r.record_status === 'DISCARD';
@@ -433,16 +478,115 @@ async function loadList(){
   const res = await fetch(listUrl());
   const r = await res.json();
   if (!r.ok){
+    allRows = [];
+    currentPage = 1;
     tbody.innerHTML = `<tr><td colspan="16" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    renderPageInfo(0, 0, 0);
+    renderPageButtons(1);
+    updateSelectedCount();
     return;
   }
-  if (!r.data || r.data.length === 0){
-    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = r.data.map(rowTemplate).join('');
-  checkAll.checked = false;
+  allRows = r.data || [];
+  currentPage = 1;
+  renderPage();
 }
+
+function renderPage(){
+  const total = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const start = total === 0 ? 0 : (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, total);
+  const pageRows = allRows.slice(start, end);
+
+  tbody.innerHTML = pageRows.length === 0
+    ? `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`
+    : pageRows.map(rowTemplate).join('');
+
+  syncCheckboxes();
+  updateCheckAllState();
+  renderPageInfo(total, start, end);
+  renderPageButtons(totalPages);
+  updateSelectedCount();
+}
+
+function syncCheckboxes(){
+  document.querySelectorAll('.rowCheck').forEach(cb => {
+    cb.checked = selectedIds.has(cb.value);
+  });
+}
+
+function updateCheckAllState(){
+  const boxes = Array.from(document.querySelectorAll('.rowCheck'));
+  checkAll.checked = boxes.length > 0 && boxes.every(cb => cb.checked);
+  checkAll.indeterminate = boxes.some(cb => cb.checked) && !checkAll.checked;
+}
+
+function updateSelectedCount(){
+  selectedCountEl.textContent = selectedIds.size + ' selected';
+  btnClearSelection.disabled = selectedIds.size === 0;
+}
+
+function renderPageInfo(total, start, end){
+  const from = total === 0 ? 0 : start + 1;
+  pageInfo.textContent = `Showing ${from} to ${end} of ${total} entries`;
+}
+
+function renderPageButtons(totalPages){
+  function pageItem(label, page, opts = {}){
+    const cls = 'page-item' + (opts.disabled ? ' disabled' : '') + (opts.active ? ' active' : '');
+    return `<li class="${cls}"><button class="page-link" type="button" data-page="${page}">${label}</button></li>`;
+  }
+
+  const btns = [];
+  btns.push(pageItem('&laquo;', 1, { disabled: currentPage === 1 }));
+  btns.push(pageItem('&lsaquo;', currentPage - 1, { disabled: currentPage === 1 }));
+
+  const windowSize = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(windowSize / 2));
+  let endPage = Math.min(totalPages, startPage + windowSize - 1);
+  startPage = Math.max(1, endPage - windowSize + 1);
+
+  for (let p = startPage; p <= endPage; p++){
+    btns.push(pageItem(String(p), p, { active: p === currentPage }));
+  }
+
+  btns.push(pageItem('&rsaquo;', currentPage + 1, { disabled: currentPage === totalPages }));
+  btns.push(pageItem('&raquo;', totalPages, { disabled: currentPage === totalPages }));
+
+  pageButtons.innerHTML = btns.join('');
+}
+
+pageButtons.addEventListener('click', (e) => {
+  const item = e.target.closest('.page-item');
+  const btn = e.target.closest('button[data-page]');
+  if (!btn || !item || item.classList.contains('disabled') || item.classList.contains('active')) return;
+  currentPage = Number(btn.getAttribute('data-page'));
+  renderPage();
+});
+
+pageSizeSelect.addEventListener('change', () => {
+  pageSize = Number(pageSizeSelect.value);
+  currentPage = 1;
+  renderPage();
+});
+
+btnClearSelection.addEventListener('click', () => {
+  selectedIds.clear();
+  syncCheckboxes();
+  updateCheckAllState();
+  updateSelectedCount();
+});
+
+tbody.addEventListener('change', (e) => {
+  if (e.target.classList.contains('rowCheck')){
+    if (e.target.checked) selectedIds.add(e.target.value); else selectedIds.delete(e.target.value);
+    updateCheckAllState();
+    updateSelectedCount();
+  }
+});
 
 let listT = null;
 function scheduleReload(){
@@ -469,7 +613,11 @@ btnReset.addEventListener('click', () => {
 });
 
 checkAll.addEventListener('change', () => {
-  document.querySelectorAll('.rowCheck').forEach(cb => { cb.checked = checkAll.checked; });
+  document.querySelectorAll('.rowCheck').forEach(cb => {
+    cb.checked = checkAll.checked;
+    if (checkAll.checked) selectedIds.add(cb.value); else selectedIds.delete(cb.value);
+  });
+  updateSelectedCount();
 });
 
 /* ===== Row actions: update / delete / change vessel ===== */
@@ -507,6 +655,7 @@ tbody.addEventListener('click', async (e) => {
 
     const r = await postAjax({ action: 'delete', id });
     if (r.ok){
+      selectedIds.delete(id);
       showAlert('success', r.msg || 'Deleted');
       loadList();
     } else {
@@ -590,6 +739,7 @@ if (btnDeleteAll) {
 
     const r = await postAjax({ action: 'delete_all' });
     if (r.ok){
+      selectedIds.clear();
       showAlert('success', r.msg || 'Deleted');
       loadList();
     } else {
@@ -600,7 +750,7 @@ if (btnDeleteAll) {
 
 document.getElementById('btnDownloadSelected').addEventListener('click', () => {
   hideAlert();
-  const ids = Array.from(document.querySelectorAll('.rowCheck:checked')).map(cb => cb.value);
+  const ids = Array.from(selectedIds);
   if (ids.length === 0) {
     showAlert('danger', 'Pilih minimal satu baris untuk didownload.');
     return;

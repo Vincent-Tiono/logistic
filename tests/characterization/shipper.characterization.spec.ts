@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { SHIPPER_TEMPLATE_COLUMNS } from "../../src/services/shipper.service.js";
 import { deleteUserRow, seedLegacyUser } from "./db-fixture.js";
 import { HttpClient } from "./http-client.js";
 import { deleteShipperRow, seedShipperRow } from "./shipper-fixture.js";
@@ -206,5 +207,20 @@ describe.each(targets)("shipper — $name", (target) => {
     });
     expect(res.ok).toBe(false);
     expect(res.msg).toContain("Hanya Divisi IT");
+  });
+
+  describe("download=shipper_template", () => {
+    it("returns the template CSV with the expected header and filename", async () => {
+      const client = await loginAs(opUser, opPassword);
+      const res = await client.get(`${target.paths.shipper}?download=shipper_template`);
+      expect(res.status).toBe(200);
+      expect(res.contentType).toContain("text/csv");
+      expect(res.contentDisposition).toContain("shipper_template.csv");
+      // .toContain, not .toBe: this repo's local PHP 8.5 prints a fputcsv()
+      // $escape-param deprecation notice ahead of each CSV line (legacy PHP
+      // predates that deprecation) — an environment quirk, not a behavior
+      // difference worth characterizing line-for-line here.
+      expect(res.body).toContain(SHIPPER_TEMPLATE_COLUMNS.join(","));
+    });
   });
 });

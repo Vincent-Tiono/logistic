@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbPool } from "../config/database.js";
+import { contentDispositionAttachment } from "../lib/http-headers.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import { listJetties } from "../services/jetty.service.js";
 import { listShippers } from "../services/shipper.service.js";
@@ -11,6 +12,7 @@ import {
   renderSibargesZip,
 } from "../services/sibarges-pdf.service.js";
 import {
+  buildSibargesTemplateCsv,
   changeVessel,
   createSibarges,
   deleteAllSibarges,
@@ -59,6 +61,14 @@ export async function sibargesRoutes(app: FastifyInstance) {
     { preHandler: requireGate },
     async (req, reply) => {
       const pool = dbPool("databarging");
+
+      if (req.query.download === "sibarges_template") {
+        const { filename, csv } = buildSibargesTemplateCsv();
+        return reply
+          .type("text/csv; charset=utf-8")
+          .header("Content-Disposition", contentDispositionAttachment(filename))
+          .send(csv);
+      }
 
       if (req.query.download === "si_pdf") {
         const id = Number(req.query.id ?? 0);

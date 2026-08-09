@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -254,6 +254,30 @@ const IMPORT_REQUIRED_COLUMNS = [
   "laytime",
   "ltc_rate",
 ];
+
+/** Port of the `?download=vendor_template` handler (Operation/3vendor.php:94-103).
+ * freight is optional in importVendorCsv (see hasFreight below) — resolveDefaults
+ * computes it from shipper when blank — but it's still a real column, so it
+ * stays in the template. */
+export const VENDOR_TEMPLATE_COLUMNS: readonly string[] = [
+  "vendor",
+  "shipper",
+  "freight",
+  "tonnage",
+  "penalty",
+  "discount",
+  "contract",
+  "laytime",
+  "ltc_rate",
+];
+
+export function buildVendorTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(VENDOR_TEMPLATE_COLUMNS),
+    buildCsvLine(["BMC", "MHU", "51500", "8200", "DF", "0", "3", "9", "1500"]),
+  ];
+  return { filename: "vendor_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importVendorCsv(
   pool: Pool,

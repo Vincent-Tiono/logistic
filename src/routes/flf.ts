@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbPool } from "../config/database.js";
+import { contentDispositionAttachment } from "../lib/http-headers.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import {
+  buildFlfTemplateCsv,
   createFlf,
   deleteAllFlf,
   deleteFlf,
@@ -18,6 +20,7 @@ interface AjaxBody extends Partial<FlfInput> {
 interface ListQuery {
   ajax?: string;
   action?: string;
+  download?: string;
   q?: string;
 }
 
@@ -41,6 +44,14 @@ export async function flfRoutes(app: FastifyInstance) {
     "/flf",
     { preHandler: requireGate },
     async (req, reply) => {
+      if (req.query.download === "flf_template") {
+        const { filename, csv } = buildFlfTemplateCsv();
+        return reply
+          .type("text/csv; charset=utf-8")
+          .header("Content-Disposition", contentDispositionAttachment(filename))
+          .send(csv);
+      }
+
       if (req.query.ajax === "1") {
         if (req.query.action === "list") {
           const pool = dbPool("databarging");

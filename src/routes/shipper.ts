@@ -1,7 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbPool } from "../config/database.js";
+import { contentDispositionAttachment } from "../lib/http-headers.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import {
+  buildShipperTemplateCsv,
   createShipper,
   deleteAllShippers,
   deleteShipper,
@@ -18,6 +20,7 @@ interface AjaxBody extends Partial<ShipperInput> {
 interface ListQuery {
   ajax?: string;
   action?: string;
+  download?: string;
   q?: string;
 }
 
@@ -41,6 +44,14 @@ export async function shipperRoutes(app: FastifyInstance) {
     "/shipper",
     { preHandler: requireGate },
     async (req, reply) => {
+      if (req.query.download === "shipper_template") {
+        const { filename, csv } = buildShipperTemplateCsv();
+        return reply
+          .type("text/csv; charset=utf-8")
+          .header("Content-Disposition", contentDispositionAttachment(filename))
+          .send(csv);
+      }
+
       if (req.query.ajax === "1") {
         if (req.query.action === "list") {
           const pool = dbPool("databarging");

@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -267,6 +267,39 @@ const IMPORT_REQUIRED_COLUMNS = [
   "stowageplan_mt",
   "loading_rate_kontrak",
 ];
+
+/** Port of the `?download=vessel_template` handler (Operation/1vessel.php:72-89).
+ * Includes pkk/rkbm too — read by importVesselCsv even though not in
+ * IMPORT_REQUIRED_COLUMNS above. */
+export const VESSEL_TEMPLATE_COLUMNS: readonly string[] = [
+  "no_pk",
+  "no_si_vessel",
+  "buyer",
+  "mothervessel",
+  "anchorage",
+  "term",
+  "laycan_start",
+  "laycan_end",
+  "ta_vessel",
+  "pkk",
+  "rkbm",
+  "single_mt",
+  "blending_mt",
+  "stowageplan_mt",
+  "loading_rate_kontrak",
+];
+
+export function buildVesselTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(VESSEL_TEMPLATE_COLUMNS),
+    buildCsvLine([
+      "G.25-052", "060", "BCPCL", "MV. KENZEN", "MUARA BERAU", "FOB",
+      "2025-11-05", "2025-11-14", "2025-11-07 08:00", "2025-11-08 09:00",
+      "2025-11-09 10:00", "60500", "0", "60500", "10000",
+    ]),
+  ];
+  return { filename: "vessel_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importVesselCsv(
   pool: Pool,

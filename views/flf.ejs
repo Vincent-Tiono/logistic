@@ -14,22 +14,34 @@
 
   <div id="alertBox" class="alert d-none" role="alert"></div>
 
-  <% if ((divisi || '').toUpperCase() === 'IT') { %>
   <div class="card mb-3">
     <div class="card-body">
-      <h6 class="mb-2">Import CSV</h6>
-      <div class="small text-muted mb-2">Duplicate Floating Crane akan di-skip.</div>
-      <form id="formImport" class="d-flex gap-2 align-items-center">
-        <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
-        <button class="btn btn-sm btn-primary" type="submit">Import</button>
-      </form>
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div>
+          <h6 class="mb-1">Import CSV</h6>
+          <div class="small text-muted">Download template dulu, isi datanya, lalu upload. Duplicate Floating Crane akan di-skip.</div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+          <a class="btn btn-sm btn-outline-primary" href="/flf?download=flf_template">Download Template CSV</a>
+          <% if ((divisi || '').toUpperCase() === 'IT') { %>
+          <form id="formImport" class="d-flex gap-2 align-items-center">
+            <input type="file" name="csv" id="csvFile" class="form-control form-control-sm" accept=".csv" required>
+            <button class="btn btn-sm btn-primary" type="submit">Import</button>
+          </form>
+          <% } %>
+        </div>
+      </div>
     </div>
   </div>
-  <% } %>
 
   <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseInputFlf" aria-expanded="false" aria-controls="collapseInputFlf">
+      <h6 class="m-0">Input FLF</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapseInputFlf">
     <div class="card-body">
-      <h6 class="mb-3">Input FLF</h6>
 
       <form id="formCreate" class="row g-2">
         <div class="col-md-4">
@@ -52,6 +64,7 @@
           <button class="btn btn-success" type="submit">Save</button>
         </div>
       </form>
+    </div>
     </div>
   </div>
 

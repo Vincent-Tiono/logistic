@@ -1,5 +1,5 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
-import { parseCsv } from "../lib/csv-parser.js";
+import { buildCsvLine, parseCsv } from "../lib/csv-parser.js";
 
 export type ActionResult =
   | { ok: true; msg: string }
@@ -124,6 +124,29 @@ export async function deleteAllShippers(pool: Pool): Promise<ActionResult> {
 }
 
 const IMPORT_REQUIRED_COLUMNS = ["shipper", "pt", "nama_lengkap"];
+
+/** Port of the `?download=shipper_template` handler (Operation/2shipper.php:26-38).
+ * laytime is optional in importShipperCsv (see hasLaytime below) but still a
+ * real, DB-backed column, so it stays in the template. */
+export const SHIPPER_TEMPLATE_COLUMNS: readonly string[] = [
+  "shipper",
+  "pt",
+  "nama_lengkap",
+  "laytime",
+];
+
+export function buildShipperTemplateCsv(): { filename: string; csv: string } {
+  const lines = [
+    buildCsvLine(SHIPPER_TEMPLATE_COLUMNS),
+    buildCsvLine([
+      "MHU",
+      "PT. MULTI HARAPAN UTAMA",
+      "PT MULTI HARAPAN UTAMA\nCFX TOWER LANTAI 3-4, JALAN JENDERAL GATOT SUBROTO,\nKAVELING 35-36,\nKUNINGAN TIMUR, SETIABUDI, KOTA ADM. JAKARTA SELATAN,\nDKI JAKARTA, INDONESIA, 12950",
+      "9",
+    ]),
+  ];
+  return { filename: "shipper_template.csv", csv: lines.join("\n") + "\n" };
+}
 
 export async function importShipperCsv(
   pool: Pool,
