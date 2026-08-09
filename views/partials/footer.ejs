@@ -1,4 +1,42 @@
 </div> <!-- end .app -->
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+(function(){
+  var app = document.querySelector('.app');
+  var toggle = document.getElementById('sidebarToggle');
+  if (app && toggle) {
+    toggle.addEventListener('click', function(){
+      var collapsed = !app.classList.contains('sidebar-collapsed');
+      app.classList.toggle('sidebar-collapsed', collapsed);
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+      localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0');
+    });
+    toggle.setAttribute('aria-expanded', String(!app.classList.contains('sidebar-collapsed')));
+  }
+  var path = window.location.pathname;
+  var activeLink = null;
+  document.querySelectorAll('.nav-item-link').forEach(function(link){
+    if (link.getAttribute('href') === path) {
+      link.classList.add('active');
+      activeLink = link;
+    }
+  });
+
+  document.querySelectorAll('[data-section-toggle]').forEach(function(btn){
+    var section = btn.getAttribute('data-section-toggle');
+    var body = btn.nextElementSibling;
+    var storageKey = 'sidebarSection:' + section;
+    var containsActive = activeLink && body && body.contains(activeLink);
+    var expanded = containsActive || localStorage.getItem(storageKey) !== '0';
+    btn.setAttribute('aria-expanded', String(expanded));
+
+    btn.addEventListener('click', function(){
+      var next = btn.getAttribute('aria-expanded') !== 'true';
+      btn.setAttribute('aria-expanded', String(next));
+      localStorage.setItem(storageKey, next ? '1' : '0');
+    });
+  });
+})();
+</script>
 </body>
 </html>
