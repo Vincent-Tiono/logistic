@@ -2,9 +2,15 @@
 <%- include('partials/sidebar', { divisi }) %>
 
 <div class="content">
-  <div class="card shadow-sm mb-3">
+  <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapsePeriodeKursTengah" aria-expanded="false" aria-controls="collapsePeriodeKursTengah">
+      <h6 class="m-0">Periode Kurs Tengah</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapsePeriodeKursTengah">
     <div class="card-body">
-      <h5 class="mb-3">Periode</h5>
+
       <form method="get" class="row g-3 align-items-end">
         <div class="col-auto">
           <label for="dari" class="form-label mb-1">Dari</label>
@@ -21,6 +27,7 @@
           <a href="/kurs-tengah" class="btn btn-outline-secondary px-4">15 Hari Terakhir</a>
         </div>
       </form>
+    </div>
     </div>
   </div>
 

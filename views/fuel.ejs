@@ -2,9 +2,15 @@
 <%- include('partials/sidebar', { divisi }) %>
 
 <div class="content">
-  <div class="card shadow-sm mb-3">
+  <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseInputFuel" aria-expanded="false" aria-controls="collapseInputFuel">
+      <h6 class="m-0">Input Fuel</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapseInputFuel">
     <div class="card-body">
-      <h5 class="mb-3">Input</h5>
+
       <div class="row g-3">
         <div class="col-auto">
           <label for="tahun" class="form-label mb-1">Tahun</label>
@@ -36,6 +42,7 @@
           </div>
         </div>
       </div>
+    </div>
     </div>
   </div>
 
