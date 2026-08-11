@@ -1,0 +1,552 @@
+<%- include('partials/header', { pageTitle: 'Fuel & Kurs - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="m-0">Fuel & Kurs</h4>
+  </div>
+
+  <% const rd = function (n) { return n === 0 ? '' : n; }; %>
+  <% const rdValue = function (n) { return n === 0 ? '' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }; %>
+
+  <style>
+    .rate-param-list { display: flex; flex-direction: column; gap: 0.9rem; }
+    .rate-param-row { display: flex; align-items: flex-start; gap: 0.75rem; }
+    .rate-param-label { flex: 0 0 110px; padding-top: 0.375rem; font-weight: 500; }
+    .rate-param-control { flex: 1 1 auto; }
+    .rate-picker-select { max-width: 260px; }
+    .rate-picker-periode { flex: 0 0 80px; }
+  </style>
+
+  <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseFuelKursRates" aria-expanded="false" aria-controls="collapseFuelKursRates">
+      <h6 class="m-0">Rates</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapseFuelKursRates">
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <% [
+            { key: 'mhu', title: 'Freight MHU', marginTop: false },
+            { key: 'cam', title: 'Freight CAM', marginTop: true },
+          ].forEach(function (tt) { %>
+          <h6 class="<%= tt.marginTop ? 'mt-4 pt-4 border-top' : '' %>"><%= tt.title %></h6>
+          <div class="table-responsive mb-4">
+            <table class="table align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th class="py-3 px-4 text-center" style="white-space:nowrap;">Tier</th>
+                  <th class="py-3 px-4 text-center">USD/MT</th>
+                  <th class="py-3 px-4 text-center">FLF</th>
+                  <th class="py-3 px-4 text-center">STV</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% [['lt60', '<60'], ['t60to65', '60-65'], ['gt65', '>65']].forEach(function (t) { %>
+                <tr>
+                  <td class="py-3 px-4 text-center" style="white-space:nowrap;"><%= t[1] %></td>
+                  <td class="py-3 px-4"><input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.usdMt" value="<%= rdValue(rates[tt.key][t[0]].usdMt) %>"></td>
+                  <td class="py-3 px-4"><input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.flf" value="<%= rdValue(rates[tt.key][t[0]].flf) %>"></td>
+                  <td class="py-3 px-4"><input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.stv" value="<%= rdValue(rates[tt.key][t[0]].stv) %>"></td>
+                </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% }); %>
+        </div>
+
+        <div class="col-lg-6">
+          <h6>R/F Base Parameter</h6>
+          <div class="rate-param-list mb-4">
+            <div class="rate-param-row">
+              <div class="rate-param-label">Fuel</div>
+              <div class="rate-param-control">
+                <div class="input-group" style="max-width:150px;">
+                  <input type="text" inputmode="decimal" class="form-control text-end rate-input" data-field="rf.fuelPct" value="<%= rd(rates.rf.fuelPct) %>">
+                  <span class="input-group-text">%</span>
+                </div>
+              </div>
+            </div>
+            <div class="rate-param-row">
+              <div class="rate-param-label"></div>
+              <div class="rate-param-control">
+                <div class="input-group rate-picker-select">
+                  <select id="fuelValueBulanTahun" class="form-select">
+                    <option value="">-</option>
+                    <% Object.keys(pertaminaLookup).forEach(function (bt) { %>
+                    <option value="<%= bt %>"<%= rates.rf.fuelValueBulanTahun === bt ? ' selected' : '' %>><%= bt %></option>
+                    <% }); %>
+                  </select>
+                  <select id="fuelValuePeriode" class="form-select rate-picker-periode">
+                    <option value="">-</option>
+                  </select>
+                </div>
+                <div class="small text-muted mt-1">Pertamina: <span id="fuelValueDisplay">-</span></div>
+              </div>
+            </div>
+            <div class="rate-param-row">
+              <div class="rate-param-label">Forex</div>
+              <div class="rate-param-control">
+                <input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="rf.forexValue" value="<%= rdValue(rates.rf.forexValue) %>" style="max-width:150px;">
+              </div>
+            </div>
+            <div class="rate-param-row">
+              <div class="rate-param-label">Fixed Cost</div>
+              <div class="rate-param-control">
+                <div class="input-group" style="max-width:150px;">
+                  <input type="text" inputmode="decimal" class="form-control text-end rate-input" data-field="rf.fixedCostPct" value="<%= rd(rates.rf.fixedCostPct) %>">
+                  <span class="input-group-text">%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h6 class="mt-4 pt-4 border-top">Tolerance</h6>
+          <div class="rate-param-list">
+            <div class="rate-param-row">
+              <div class="rate-param-label">+10%</div>
+              <div class="rate-param-control">
+                <input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="tolerance.plus10" value="<%= rdValue(rates.tolerance.plus10) %>" style="max-width:150px;">
+              </div>
+            </div>
+            <div class="rate-param-row">
+              <div class="rate-param-label">Base</div>
+              <div class="rate-param-control">
+                <div class="input-group rate-picker-select">
+                  <select id="toleranceBaseBulanTahun" class="form-select">
+                    <option value="">-</option>
+                    <% Object.keys(pertaminaLookup).forEach(function (bt) { %>
+                    <option value="<%= bt %>"<%= rates.tolerance.baseBulanTahun === bt ? ' selected' : '' %>><%= bt %></option>
+                    <% }); %>
+                  </select>
+                  <select id="toleranceBasePeriode" class="form-select rate-picker-periode">
+                    <option value="">-</option>
+                  </select>
+                </div>
+                <div class="small text-muted mt-1">Pertamina: <span id="toleranceBaseValue">-</span></div>
+              </div>
+            </div>
+            <div class="rate-param-row">
+              <div class="rate-param-label">-10%</div>
+              <div class="rate-param-control">
+                <input type="text" inputmode="decimal" class="form-control text-end rate-input value-input" data-field="tolerance.minus10" value="<%= rdValue(rates.tolerance.minus10) %>" style="max-width:150px;">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div id="fuelKursLanding">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-bargesMhu">
+          <div class="fw-semibold fs-5">Barges MHU</div>
+        </button>
+      </div>
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-bargesCam">
+          <div class="fw-semibold fs-5">Barges CAM</div>
+        </button>
+      </div>
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-flf">
+          <div class="fw-semibold fs-5">FLF</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <% const submodules = [
+    { id: 'bargesMhu', title: 'Barges MHU' },
+    { id: 'bargesCam', title: 'Barges CAM' },
+    { id: 'flf', title: 'FLF' },
+  ]; %>
+  <% const columns = [
+    'Bulan', 'Tanggal', 'Kurs tengah', 'Jisdor', 'Period Fn', 'Fuel [usd]', 'RF',
+    'MHU ICI <60', 'MHU ICI >60', 'BBS/BMC - BERAU', 'BBS/BMC - PDP',
+    'BDD', 'DLS', 'GLS', 'GMS', 'TML', 'KSU', 'TMS', 'AYU', 'CNB', 'PPSJ',
+  ]; %>
+
+  <% submodules.forEach(function (sm) { %>
+  <div class="card mt-3 d-none fuelkurs-section" id="section-<%= sm.id %>">
+    <div class="card-body">
+      <button type="button" class="btn btn-sm btn-link px-0 mb-2 fuelkurs-back-btn">&laquo; Kembali</button>
+      <h5 class="mb-3"><%= sm.title %></h5>
+
+      <% if (sm.id === 'bargesMhu') { %>
+      <div id="bargesMhu-mode-chooser" class="mb-3">
+        <div class="small text-muted mb-2">Tampilkan data:</div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm bargesMhu-mode-btn" data-mode="month">Per Bulan</button>
+          <button type="button" class="btn btn-outline-primary btn-sm bargesMhu-mode-btn" data-mode="all">Semua Bulan</button>
+        </div>
+      </div>
+
+      <div id="bargesMhu-month-picker" class="mb-3 d-none">
+        <label class="form-label small text-muted mb-1" for="bargesMhu-month-select">Pilih Bulan</label>
+        <select id="bargesMhu-month-select" class="form-select form-select-sm" style="max-width:200px;">
+          <option value="">-- Pilih Bulan --</option>
+        </select>
+      </div>
+      <% } %>
+
+      <div id="content-<%= sm.id %>"<%= sm.id === 'bargesMhu' ? ' class="d-none"' : '' %>>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <% columns.forEach(function (c) { %>
+                <th class="text-center" style="min-width:110px;"><%= c %></th>
+              <% }); %>
+            </tr>
+          </thead>
+          <tbody id="tbody-<%= sm.id %>">
+            <tr><td colspan="<%= columns.length %>" class="text-center text-muted">No data</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2 small text-muted">
+          Show
+          <select id="pageSize-<%= sm.id %>" class="form-select form-select-sm" style="width:auto;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          entries (<span id="pageInfo-<%= sm.id %>">Showing 0 to 0 of 0 entries</span>)
+        </div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0" id="pageButtons-<%= sm.id %>"></ul>
+        </nav>
+      </div>
+      </div>
+    </div>
+  </div>
+  <% }); %>
+
+</div>
+
+<script>
+// Live rates, kept in sync with the editable cells above; the Barges
+// MHU/CAM and FLF submodules read this for their calculations.
+window.fuelKursRates = <%- JSON.stringify(rates) %>;
+
+function fuelKursParseNumber(str) {
+  return parseFloat(String(str).replace(/,/g, '')) || 0;
+}
+
+function fuelKursSetNested(obj, path, value) {
+  const parts = path.split('.');
+  let target = obj;
+  for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]];
+  target[parts[parts.length - 1]] = value;
+}
+
+function fuelKursSaveRate(field, value) {
+  fuelKursSetNested(window.fuelKursRates, field, value);
+  const body = new URLSearchParams({ action: 'save_rate', field: field, value: value });
+  fetch(window.location.pathname, { method: 'POST', body });
+}
+
+function fuelKursFormatValue(n) {
+  return n === 0 ? '' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+document.querySelectorAll('.rate-input').forEach(function (input) {
+  input.addEventListener('blur', function () {
+    const value = fuelKursParseNumber(input.value);
+    const isValueInput = input.classList.contains('value-input');
+    input.value = isValueInput ? fuelKursFormatValue(value) : (value === 0 ? '' : value);
+    fuelKursSaveRate(input.dataset.field, value);
+
+    // STV defaults to FLF - 0.55 for Freight MHU/CAM; still directly editable.
+    if (input.dataset.field.endsWith('.flf')) {
+      const stvField = input.dataset.field.replace(/\.flf$/, '.stv');
+      const stvInput = document.querySelector('.rate-input[data-field="' + stvField + '"]');
+      if (stvInput) {
+        const stvValue = Math.round((value - 0.55) * 100) / 100;
+        stvInput.value = fuelKursFormatValue(stvValue);
+        fuelKursSaveRate(stvField, stvValue);
+      }
+    }
+  });
+});
+
+// Base pickers: user picks a Bulan-Tahun/Periode, value pulled live from
+// the Fuel module's Pertamina cell. Used by Tolerance Base and R/F Fuel Value.
+window.fuelKursPertaminaLookup = <%- JSON.stringify(pertaminaLookup) %>;
+
+function makeBasePicker(opts) {
+  const btSelect = document.getElementById(opts.btSelectId);
+  const periodeSelect = document.getElementById(opts.periodeSelectId);
+  const valueEl = document.getElementById(opts.valueElId);
+
+  function formatNumber(n) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function refreshPeriodeOptions(selectedPeriode) {
+    const periods = window.fuelKursPertaminaLookup[btSelect.value] || {};
+    periodeSelect.innerHTML = '<option value="">-</option>' +
+      Object.keys(periods).map(function (p) {
+        return '<option value="' + p + '"' + (String(selectedPeriode) === p ? ' selected' : '') + '>' + p + '</option>';
+      }).join('');
+  }
+
+  let currentPertamina;
+
+  function refreshValue() {
+    const periods = window.fuelKursPertaminaLookup[btSelect.value];
+    currentPertamina = periods ? periods[periodeSelect.value] : undefined;
+    valueEl.textContent = currentPertamina ? formatNumber(currentPertamina) : '-';
+    fuelKursSetNested(window.fuelKursRates, opts.fieldBulanTahun, btSelect.value);
+    fuelKursSetNested(window.fuelKursRates, opts.fieldPeriode, periodeSelect.value ? Number(periodeSelect.value) : 0);
+  }
+
+  function saveBase() {
+    const body = new URLSearchParams({
+      action: opts.saveAction,
+      bulan_tahun: btSelect.value,
+      periode: periodeSelect.value || '0',
+    });
+    fetch(window.location.pathname, { method: 'POST', body });
+  }
+
+  refreshPeriodeOptions(opts.initialPeriode);
+  refreshValue();
+
+  btSelect.addEventListener('change', function () {
+    refreshPeriodeOptions();
+    refreshValue();
+    saveBase();
+  });
+
+  periodeSelect.addEventListener('change', function () {
+    refreshValue();
+    saveBase();
+    if (opts.onPick) opts.onPick(currentPertamina);
+  });
+}
+
+// Tolerance Base: +10%/-10% default off it once picked; still directly editable after.
+makeBasePicker({
+  btSelectId: 'toleranceBaseBulanTahun',
+  periodeSelectId: 'toleranceBasePeriode',
+  valueElId: 'toleranceBaseValue',
+  fieldBulanTahun: 'tolerance.baseBulanTahun',
+  fieldPeriode: 'tolerance.basePeriode',
+  saveAction: 'save_tolerance_base',
+  initialPeriode: '<%= rates.tolerance.basePeriode || "" %>',
+  onPick: function (pertamina) {
+    if (!pertamina) return;
+    const plus10 = Math.round(pertamina * 1.1 * 100) / 100;
+    const minus10 = Math.round(pertamina * 0.9 * 100) / 100;
+    const plusInput = document.querySelector('.rate-input[data-field="tolerance.plus10"]');
+    const minusInput = document.querySelector('.rate-input[data-field="tolerance.minus10"]');
+    if (plusInput) {
+      plusInput.value = plus10;
+      fuelKursSaveRate('tolerance.plus10', plus10);
+    }
+    if (minusInput) {
+      minusInput.value = minus10;
+      fuelKursSaveRate('tolerance.minus10', minus10);
+    }
+  },
+});
+
+// R/F Fuel Value: picked Pertamina value saved straight into rf.fuelValue.
+makeBasePicker({
+  btSelectId: 'fuelValueBulanTahun',
+  periodeSelectId: 'fuelValuePeriode',
+  valueElId: 'fuelValueDisplay',
+  fieldBulanTahun: 'rf.fuelValueBulanTahun',
+  fieldPeriode: 'rf.fuelValuePeriode',
+  saveAction: 'save_fuel_value_base',
+  initialPeriode: '<%= rates.rf.fuelValuePeriode || "" %>',
+  onPick: function (pertamina) {
+    if (!pertamina) return;
+    fuelKursSaveRate('rf.fuelValue', pertamina);
+  },
+});
+
+const COLSPAN = <%= columns.length %>;
+
+function makeTableController(id) {
+  let pageSize = 10;
+  let currentPage = 1;
+  let rows = [];
+
+  const tbody = document.getElementById('tbody-' + id);
+  const pageInfo = document.getElementById('pageInfo-' + id);
+  const pageSizeSelect = document.getElementById('pageSize-' + id);
+  const pageButtons = document.getElementById('pageButtons-' + id);
+
+  function renderPage(page) {
+    const totalRows = rows.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    currentPage = Math.min(Math.max(page, 1), totalPages);
+
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(start + pageSize, totalRows);
+    const pageRows = rows.slice(start, end);
+
+    tbody.innerHTML = pageRows.length
+      ? pageRows.map(function (r) {
+          return '<tr>' + r.map(function (v) { return '<td>' + v + '</td>'; }).join('') + '</tr>';
+        }).join('')
+      : '<tr><td colspan="' + COLSPAN + '" class="text-center text-muted">No data</td></tr>';
+
+    pageInfo.textContent = 'Showing ' + (totalRows === 0 ? 0 : start + 1) + ' to ' + end + ' of ' + totalRows + ' entries';
+    renderPageButtons(totalPages);
+  }
+
+  function renderPageButtons(totalPages) {
+    function pageItem(label, page, opts) {
+      opts = opts || {};
+      const cls = 'page-item' + (opts.disabled ? ' disabled' : '') + (opts.active ? ' active' : '');
+      return '<li class="' + cls + '"><button class="page-link" type="button" data-page="' + page + '">' + label + '</button></li>';
+    }
+
+    const btns = [];
+    btns.push(pageItem('&laquo;', 1, { disabled: currentPage === 1 }));
+    btns.push(pageItem('&lsaquo;', currentPage - 1, { disabled: currentPage === 1 }));
+
+    const windowSize = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(windowSize / 2));
+    let endPage = Math.min(totalPages, startPage + windowSize - 1);
+    startPage = Math.max(1, endPage - windowSize + 1);
+
+    for (let p = startPage; p <= endPage; p++) {
+      btns.push(pageItem(String(p), p, { active: p === currentPage }));
+    }
+
+    btns.push(pageItem('&rsaquo;', currentPage + 1, { disabled: currentPage === totalPages }));
+    btns.push(pageItem('&raquo;', totalPages, { disabled: currentPage === totalPages }));
+
+    pageButtons.innerHTML = btns.join('');
+  }
+
+  pageButtons.addEventListener('click', function (e) {
+    const item = e.target.closest('.page-item');
+    const btn = e.target.closest('button[data-page]');
+    if (!btn || !item || item.classList.contains('disabled') || item.classList.contains('active')) return;
+    renderPage(Number(btn.getAttribute('data-page')));
+  });
+
+  pageSizeSelect.addEventListener('change', function () {
+    pageSize = Number(pageSizeSelect.value);
+    renderPage(1);
+  });
+
+  renderPage(1);
+
+  return {
+    setRows: function (newRows) { rows = newRows; renderPage(1); },
+  };
+}
+
+const fuelKursTables = {
+  bargesMhu: makeTableController('bargesMhu'),
+  bargesCam: makeTableController('bargesCam'),
+  flf: makeTableController('flf'),
+};
+
+// ===== Landing: submodule switcher =====
+
+const fuelKursLanding = document.getElementById('fuelKursLanding');
+
+document.querySelectorAll('.fuelkurs-option-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    fuelKursLanding.classList.add('d-none');
+    document.getElementById(btn.getAttribute('data-target')).classList.remove('d-none');
+  });
+});
+
+document.querySelectorAll('.fuelkurs-back-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.fuelkurs-section').forEach(function (section) { section.classList.add('d-none'); });
+    fuelKursLanding.classList.remove('d-none');
+  });
+});
+
+// ===== Barges MHU: choose per-bulan or semua-bulan before showing table =====
+(function () {
+  const BULAN_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+  const chooser = document.getElementById('bargesMhu-mode-chooser');
+  const monthPicker = document.getElementById('bargesMhu-month-picker');
+  const monthSelect = document.getElementById('bargesMhu-month-select');
+  const content = document.getElementById('content-bargesMhu');
+
+  Object.keys(window.fuelKursPertaminaLookup || {}).forEach(function (bt) {
+    const opt = document.createElement('option');
+    opt.value = bt;
+    opt.textContent = bt;
+    monthSelect.appendChild(opt);
+  });
+
+  // bulanTahun is "Mmm-YY" (e.g. "Jan-26"); rows get one per day: Bulan="Jan-26", Tanggal="1-Jan-26".
+  function rowsForMonth(bulanTahun) {
+    const mmm = bulanTahun.split('-')[0];
+    const yy = bulanTahun.split('-')[1];
+    const monthIndex = BULAN_NAMES.indexOf(mmm);
+    if (monthIndex < 0) return [];
+    const daysInMonth = new Date(2000 + Number(yy), monthIndex + 1, 0).getDate();
+    const rows = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const row = new Array(COLSPAN).fill('');
+      row[0] = bulanTahun;
+      row[1] = d + '-' + bulanTahun;
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  function rowsForAllMonths() {
+    return Object.keys(window.fuelKursPertaminaLookup || {}).reduce(function (acc, bt) {
+      return acc.concat(rowsForMonth(bt));
+    }, []);
+  }
+
+  function resetBargesMhuChooser() {
+    chooser.classList.remove('d-none');
+    monthPicker.classList.add('d-none');
+    content.classList.add('d-none');
+    monthSelect.value = '';
+  }
+
+  document.querySelectorAll('.bargesMhu-mode-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      chooser.classList.add('d-none');
+      if (btn.dataset.mode === 'month') {
+        monthPicker.classList.remove('d-none');
+      } else {
+        fuelKursTables.bargesMhu.setRows(rowsForAllMonths());
+        content.classList.remove('d-none');
+      }
+    });
+  });
+
+  monthSelect.addEventListener('change', function () {
+    if (!monthSelect.value) {
+      content.classList.add('d-none');
+      return;
+    }
+    fuelKursTables.bargesMhu.setRows(rowsForMonth(monthSelect.value));
+    content.classList.remove('d-none');
+  });
+
+  document.querySelector('#section-bargesMhu .fuelkurs-back-btn').addEventListener('click', resetBargesMhuChooser);
+})();
+</script>
+
+<%- include('partials/footer') %>
