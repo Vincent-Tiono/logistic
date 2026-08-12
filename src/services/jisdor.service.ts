@@ -36,6 +36,11 @@ export interface JisdorResult extends PageResult<JisdorRow> {
   fetchFailed: boolean;
 }
 
+/** Unpaginated fetch for a specific date range, used by the Barges MHU daily engine. */
+export function getJisdorRange(startDate: string, endDate: string): Promise<JisdorRow[] | null> {
+  return fetchBiKursCached(config, MTS, startDate, endDate);
+}
+
 export async function getJisdorPage(query: JisdorQuery): Promise<JisdorResult> {
   const dari = validDateStr(query.dari ?? "");
   const sampai = validDateStr(query.sampai ?? "");

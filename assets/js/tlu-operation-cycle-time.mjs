@@ -90,6 +90,34 @@ const OPERATION_EDIT_META = {
   operation_remarks: { inputType: 'textarea', remarksColumn: true },
 };
 
+// Visual grouping for the row-detail modal — splits CYCLE_TIME_COLUMNS' 84
+// fields into named, color-coded sections so the flat field grid is
+// scannable. Keyed by each group's first column; must stay contiguous with
+// CYCLE_TIME_COLUMNS' order (tlu-operation-shared.mjs). Part 1/Part 2/Loading
+// Rate colors match the header colors in views/tlu-operation.ejs's
+// cycle-time-part1-col/part2-col/loadingrate-col (ported from legacy
+// 8tluoperation.php:1816-1834).
+const OPERATION_DETAIL_GROUP_DEFS = [
+  ['no_pk', 'No. Reff — Floating Crane', '#e9ecef'],
+  ['waiting_loading_jetty', 'Waiting Loading Jetty — Loading Time Jetty', '#fff3cd'],
+  ['laycan_start', 'Laycan Start — Completed Loading', '#d1ecf1'],
+  ['part_1', 'Part 1 — Clear Pass Time', '#d0ebff'],
+  ['lhv', 'LHV — Mooring Place 2', '#cff4fc'],
+  ['part_2', 'Part 2 — Back to Jetty Time', '#d3f9d8'],
+  ['ta_barges_actual', 'TA Barges Actual — Back to Jetty', '#ffe5d0'],
+  ['loading_rate', 'Loading Rate — LTC Total', '#e5d4f5'],
+  ['operation_remarks', 'Remarks — Updated At', '#f1f3f5'],
+];
+
+const OPERATION_DETAIL_COLUMN_KEYS = CYCLE_TIME_COLUMNS.map(([key]) => key);
+
+const OPERATION_DETAIL_GROUPS = OPERATION_DETAIL_GROUP_DEFS.map(([start, label, color], i) => {
+  const startIndex = OPERATION_DETAIL_COLUMN_KEYS.indexOf(start);
+  const nextStart = OPERATION_DETAIL_GROUP_DEFS[i + 1]?.[0];
+  const endIndex = nextStart ? OPERATION_DETAIL_COLUMN_KEYS.indexOf(nextStart) : CYCLE_TIME_COLUMNS.length;
+  return { label, color, columns: CYCLE_TIME_COLUMNS.slice(startIndex, endIndex) };
+});
+
 // Matches urutkanSesuaiDenganDischargeSequence (8tluoperation.php:2704-2723):
 // the ordering cross-row cycle-time formulas (loading rate sum, disch time
 // prev/next) treat as each vessel's sibling order.
@@ -386,13 +414,18 @@ export function init({ vesselPeriods, optionLists }) {
     operationSaveStatus.textContent = '';
     operationSaveStatus.className = 'me-auto small';
 
-    operationDetailBody.innerHTML = CYCLE_TIME_COLUMNS.map(([key, label]) => {
-      const meta = OPERATION_EDIT_META[key];
-      const value = getFieldValue(row, key, currentAllRows);
-      const widget = meta
-        ? operationFieldWidget(key, meta, value, currentAllRows)
-        : `<div class="form-control form-control-sm bg-light border-0">${displayValue(columnDisplayValue(row, key, currentAllRows))}</div>`;
-      return `<div class="col-md-4 si-detail-row"><label class="form-label small fw-semibold mb-1">${esc(label)}</label>${widget}</div>`;
+    operationDetailBody.innerHTML = OPERATION_DETAIL_GROUPS.map(group => {
+      const fields = group.columns.map(([key, label]) => {
+        const meta = OPERATION_EDIT_META[key];
+        const value = getFieldValue(row, key, currentAllRows);
+        const widget = meta
+          ? operationFieldWidget(key, meta, value, currentAllRows)
+          : `<div class="form-control form-control-sm bg-white border-0">${displayValue(columnDisplayValue(row, key, currentAllRows))}</div>`;
+        return `<div class="col-md-4 si-detail-row"><label class="form-label small fw-semibold mb-1">${esc(label)}</label>${widget}</div>`;
+      }).join('');
+      return `<div class="col-12 si-detail-group" style="background-color:${group.color}">` +
+        `<h6 class="text-uppercase small fw-bold mb-2">${esc(group.label)}</h6>` +
+        `<div class="row g-3">${fields}</div></div>`;
     }).join('');
 
     updateCalculatedQtyActual();

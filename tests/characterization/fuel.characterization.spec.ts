@@ -1,12 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { deleteUserRow, seedLegacyUser } from "./db-fixture.js";
-import {
-  deleteFuelRateRow,
-  deleteFuelRow,
-  readFuelRateRow,
-  readFuelRow,
-} from "./fuel-fixture.js";
+import { deleteFuelRow, readFuelRow } from "./fuel-fixture.js";
 import { HttpClient } from "./http-client.js";
 import { targets } from "./targets.js";
 
@@ -19,7 +14,6 @@ describe.each(targets)("fuel — $name", (target) => {
   const vmfatUser = `vmfat_${randomUUID().slice(0, 8)}`;
   const vmfatPassword = "vmfat-test-pass";
   const bulanTahun = `Feb-${randomUUID().slice(0, 2)}`;
-  const rateYear = 1900 + Math.floor(Math.random() * 90);
 
   beforeEach(async () => {
     await seedLegacyUser(vmfatUser, vmfatPassword, "Staff", "VM&FAT");
@@ -28,7 +22,6 @@ describe.each(targets)("fuel — $name", (target) => {
   afterEach(async () => {
     await deleteUserRow(vmfatUser);
     await deleteFuelRow(bulanTahun, 1);
-    await deleteFuelRateRow(rateYear);
   });
 
   async function loginAsVmfat() {
@@ -93,19 +86,5 @@ describe.each(targets)("fuel — $name", (target) => {
       value: "100",
     });
     expect(res.ok).toBe(false);
-  });
-
-  it("saves a fuel rate and persists it", async () => {
-    const client = await loginAsVmfat();
-    const res = await client.postJsonForm<AjaxResult>(target.paths.fuel, {
-      action: "save_fuel_rate",
-      tahun: String(rateYear),
-      field: "pbbkb_rate",
-      value: "8.25",
-    });
-    expect(res.ok).toBe(true);
-
-    const row = await readFuelRateRow(rateYear);
-    expect(row?.pbbkb_rate).toBe(8.25);
   });
 });

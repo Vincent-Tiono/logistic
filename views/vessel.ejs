@@ -19,9 +19,6 @@
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div>
           <h6 class="mb-1">Import CSV</h6>
-          <div class="small text-muted">
-            Download template dulu, isi datanya, lalu upload. Duplicate No. Reff akan di-skip.
-          </div>
         </div>
         <div class="d-flex gap-2 align-items-center">
           <a class="btn btn-sm btn-outline-primary" href="/vessel?download=vessel_template">Download Template CSV</a>
@@ -155,6 +152,22 @@
         </table>
       </div>
 
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2 small text-muted">
+          Show
+          <select id="vesselPageSize" class="form-select form-select-sm" style="width:auto;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          entries (<span id="vesselPageInfo">Showing 0 to 0 of 0 entries</span>)
+        </div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0" id="vesselPageButtons"></ul>
+        </nav>
+      </div>
+
       <% if ((divisi || '').toUpperCase() === 'IT') { %>
       <div class="d-flex justify-content-end mt-3">
         <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
@@ -240,18 +253,80 @@ function rowTemplate(r){
   </tr>`;
 }
 
+let vesselPageSize = 10;
+let vesselCurrentPage = 1;
+let vesselRows = [];
+
+const vesselPageInfo = document.getElementById('vesselPageInfo');
+const vesselPageSizeSelect = document.getElementById('vesselPageSize');
+const vesselPageButtons = document.getElementById('vesselPageButtons');
+
+function renderVesselPage(page){
+  const totalRows = vesselRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalRows / vesselPageSize));
+  vesselCurrentPage = Math.min(Math.max(page, 1), totalPages);
+
+  const start = (vesselCurrentPage - 1) * vesselPageSize;
+  const end = Math.min(start + vesselPageSize, totalRows);
+  const pageRows = vesselRows.slice(start, end);
+
+  tbody.innerHTML = pageRows.length
+    ? pageRows.map(rowTemplate).join('')
+    : `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
+
+  vesselPageInfo.textContent = `Showing ${totalRows === 0 ? 0 : start + 1} to ${end} of ${totalRows} entries`;
+  renderVesselPageButtons(totalPages);
+}
+
+function renderVesselPageButtons(totalPages){
+  function pageItem(label, page, opts = {}){
+    const cls = 'page-item' + (opts.disabled ? ' disabled' : '') + (opts.active ? ' active' : '');
+    return `<li class="${cls}"><button class="page-link" type="button" data-page="${page}">${label}</button></li>`;
+  }
+
+  const btns = [];
+  btns.push(pageItem('&laquo;', 1, { disabled: vesselCurrentPage === 1 }));
+  btns.push(pageItem('&lsaquo;', vesselCurrentPage - 1, { disabled: vesselCurrentPage === 1 }));
+
+  const windowSize = 5;
+  let startPage = Math.max(1, vesselCurrentPage - Math.floor(windowSize / 2));
+  let endPage = Math.min(totalPages, startPage + windowSize - 1);
+  startPage = Math.max(1, endPage - windowSize + 1);
+
+  for (let p = startPage; p <= endPage; p++){
+    btns.push(pageItem(String(p), p, { active: p === vesselCurrentPage }));
+  }
+
+  btns.push(pageItem('&rsaquo;', vesselCurrentPage + 1, { disabled: vesselCurrentPage === totalPages }));
+  btns.push(pageItem('&raquo;', totalPages, { disabled: vesselCurrentPage === totalPages }));
+
+  vesselPageButtons.innerHTML = btns.join('');
+}
+
+vesselPageButtons.addEventListener('click', (e) => {
+  const item = e.target.closest('.page-item');
+  const btn = e.target.closest('button[data-page]');
+  if (!btn || !item || item.classList.contains('disabled') || item.classList.contains('active')) return;
+  renderVesselPage(Number(btn.getAttribute('data-page')));
+});
+
+vesselPageSizeSelect.addEventListener('change', () => {
+  vesselPageSize = Number(vesselPageSizeSelect.value);
+  renderVesselPage(1);
+});
+
 async function loadVessels(q=''){
   const res = await fetch('/vessel?ajax=1&action=list&q=' + encodeURIComponent(q));
   const r = await res.json();
   if (!r.ok){
+    vesselRows = [];
     tbody.innerHTML = `<tr><td colspan="16" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    vesselPageInfo.textContent = 'Showing 0 to 0 of 0 entries';
+    vesselPageButtons.innerHTML = '';
     return;
   }
-  if (!r.data || r.data.length === 0){
-    tbody.innerHTML = `<tr><td colspan="16" class="text-center text-muted">No data</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = r.data.map(rowTemplate).join('');
+  vesselRows = r.data || [];
+  renderVesselPage(1);
 }
 
 const searchBox = document.getElementById('searchBox');

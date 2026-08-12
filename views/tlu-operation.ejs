@@ -7,40 +7,58 @@
       <h4 class="m-0">TLU Operation</h4>
     </div>
 
-    <div class="card" id="allOperationsCard">
-      <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between mb-3">
-          <h5 class="m-0">All Years / All Vessels</h5>
-          <div class="small text-muted" id="allOperationsSummary"></div>
+    <div id="tluLanding">
+      <div class="row g-3">
+        <div class="col-md-6">
+          <button type="button" class="btn btn-outline-primary w-100 h-100 py-2 text-start tlu-option-btn" data-target="cycleTimeSection">
+            <div class="fw-semibold fs-6">Cycle Time</div>
+            <div class="small text-muted">Lihat dan edit cycle time per Mother Vessel.</div>
+          </button>
         </div>
-        <div class="table-responsive">
-          <table class="table table-bordered table-sm align-middle mb-0" id="allOperationsTable">
-            <thead class="table-light"><tr id="allOperationsHeaderRow"></tr></thead>
-            <tbody id="allOperationsBody">
-              <tr><td class="text-center text-muted py-3">Memuat data...</td></tr>
-            </tbody>
-          </table>
+        <div class="col-md-6">
+          <button type="button" class="btn btn-outline-primary w-100 h-100 py-2 text-start tlu-option-btn" data-target="exportCsvSection">
+            <div class="fw-semibold fs-6">Export CSV</div>
+            <div class="small text-muted">Export data operasi ke CSV.</div>
+          </button>
         </div>
-        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
-          <div class="d-flex align-items-center gap-2 small text-muted">
-            Show
-            <select id="allOperationsPageSize" class="form-select form-select-sm" style="width:auto;">
-              <option value="10">10</option>
-              <option value="25">25</option>
-              <option value="50">50</option>
-              <option value="100">100</option>
-            </select>
-            entries (<span id="allOperationsPageInfo">Showing 0 to 0 of 0 entries</span>)
+      </div>
+
+      <div class="card mt-3" id="allOperationsCard">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between mb-3">
+            <h5 class="m-0">All Years / All Vessels</h5>
+            <div class="small text-muted" id="allOperationsSummary"></div>
           </div>
-          <nav>
-            <ul class="pagination pagination-sm mb-0" id="allOperationsPageButtons"></ul>
-          </nav>
+          <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle mb-0" id="allOperationsTable" style="font-size: 0.8rem">
+              <thead class="table-light"><tr id="allOperationsHeaderRow"></tr></thead>
+              <tbody id="allOperationsBody">
+                <tr><td class="text-center text-muted py-3">Memuat data...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+            <div class="d-flex align-items-center gap-2 small text-muted">
+              Show
+              <select id="allOperationsPageSize" class="form-select form-select-sm" style="width:auto;">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+              entries (<span id="allOperationsPageInfo">Showing 0 to 0 of 0 entries</span>)
+            </div>
+            <nav>
+              <ul class="pagination pagination-sm mb-0" id="allOperationsPageButtons"></ul>
+            </nav>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card mt-3">
+    <div class="card mt-3 d-none tlu-section" id="cycleTimeSection">
       <div class="card-body">
+        <button type="button" class="btn btn-sm btn-link px-0 mb-2 tlu-back-btn">&laquo; Kembali</button>
         <h5 class="mb-3">Cycle Time — Per Vessel</h5>
         <div class="row g-3">
           <div class="col-md-3">
@@ -102,8 +120,9 @@
       </div>
     </div>
 
-    <div class="card mt-3">
+    <div class="card mt-3 d-none tlu-section" id="exportCsvSection">
       <div class="card-body">
+        <button type="button" class="btn btn-sm btn-link px-0 mb-2 tlu-back-btn">&laquo; Kembali</button>
         <h5 class="mb-3">Export CSV</h5>
         <div class="row g-3 mb-3">
           <div class="col-md-6 col-xl-3">
@@ -167,6 +186,37 @@
     </div>
 
   </div>
+
+  <style>
+    #cycleTimeTable thead th,
+    #allOperationsTable thead th {
+      white-space: nowrap;
+    }
+    /* Cycle Time module: editable columns get a distinct header color,
+       matching legacy 8tluoperation.php:1816-1834. */
+    #cycleTimeTable thead th.cycle-time-editable-col,
+    #allOperationsTable thead th.cycle-time-editable-col {
+      background-color: #fff3cd;
+    }
+    #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part1-col,
+    #allOperationsTable thead th.cycle-time-editable-col.cycle-time-part1-col {
+      background-color: #d0ebff;
+    }
+    #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-part2-col,
+    #allOperationsTable thead th.cycle-time-editable-col.cycle-time-part2-col {
+      background-color: #d3f9d8;
+    }
+    #cycleTimeTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col,
+    #allOperationsTable thead th.cycle-time-editable-col.cycle-time-loadingrate-col {
+      background-color: #e5d4f5;
+    }
+    /* Row-detail modal: color-coded field groups (issue: too many flat
+       fields to scan per row). */
+    #operationDetailBody .si-detail-group {
+      border-radius: 0.5rem;
+      padding: 1rem;
+    }
+  </style>
 
   <div class="modal fade" id="operationDetailModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -291,6 +341,24 @@ allOperationsPageSizeSelect.addEventListener('change', () => {
 
 initCycleTime({ vesselPeriods, optionLists });
 initExportCsv({ vesselPeriods });
+
+// ===== Landing: two-option switcher (Cycle Time / Export CSV) =====
+
+const tluLanding = document.getElementById('tluLanding');
+
+document.querySelectorAll('.tlu-option-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    tluLanding.classList.add('d-none');
+    document.getElementById(btn.getAttribute('data-target')).classList.remove('d-none');
+  });
+});
+
+document.querySelectorAll('.tlu-back-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tlu-section').forEach(section => section.classList.add('d-none'));
+    tluLanding.classList.remove('d-none');
+  });
+});
 </script>
 
 <%- include('partials/footer') %>

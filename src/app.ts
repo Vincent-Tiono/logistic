@@ -9,6 +9,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   dbPool,
   ensureCoalBargingDatabase,
+  ensureFuelKursTables,
   ensureFuelTables,
   ensureShipperLaytimeColumn,
   ensureVendorTable,
@@ -20,6 +21,7 @@ import { bargesRoutes } from "./routes/barges.js";
 import { coalBargingRoutes } from "./routes/coal-barging.js";
 import { flfRoutes } from "./routes/flf.js";
 import { fuelRoutes } from "./routes/fuel.js";
+import { fuelKursRoutes } from "./routes/fuel-kurs.js";
 import { jettyRoutes } from "./routes/jetty.js";
 import { jisdorRoutes } from "./routes/jisdor.js";
 import { kursTengahRoutes } from "./routes/kurs-tengah.js";
@@ -65,12 +67,14 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(jisdorRoutes);
   await app.register(kursTengahRoutes);
   await app.register(fuelRoutes);
+  await app.register(fuelKursRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
   await ensureShipperLaytimeColumn(dbPool("databarging"));
   await ensureVendorTable(dbPool("databarging"));
   await ensureCoalBargingDatabase();
   await ensureFuelTables(dbPool("databarging"));
+  await ensureFuelKursTables(dbPool("databarging"));
 
   return app;
 }

@@ -1,8 +1,8 @@
 <%- include('partials/header', { pageTitle: 'Fuel - MLP Logistic', username, divisi }) %>
 <%- include('partials/sidebar', { divisi }) %>
 
-<div class="content">
-  <div class="card mb-3">
+<div class="content" style="display: flex; flex-direction: column; overflow: hidden;">
+  <div class="card mb-3" style="flex: 0 0 auto;">
     <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
          data-bs-toggle="collapse" data-bs-target="#collapseInputFuel" aria-expanded="false" aria-controls="collapseInputFuel">
       <h6 class="m-0">Input Fuel</h6>
@@ -14,9 +14,17 @@
       <div class="row g-3">
         <div class="col-auto">
           <label for="tahun" class="form-label mb-1">Tahun</label>
-          <select id="tahun" class="form-select" style="max-width:150px;" onchange="location.href='?tahun='+this.value">
+          <select id="tahun" class="form-select" style="max-width:150px;" onchange="location.href='?tahun='+this.value+'&bulan='+document.getElementById('bulan').value">
             <% tahunOptions.forEach(function (y) { %>
               <option value="<%= y %>"<%= y === tahun ? ' selected' : '' %>><%= y %></option>
+            <% }); %>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label for="bulan" class="form-label mb-1">Bulan</label>
+          <select id="bulan" class="form-select" style="max-width:120px;" onchange="location.href='?tahun='+document.getElementById('tahun').value+'&bulan='+this.value">
+            <% bulanNames.forEach(function (m) { %>
+              <option value="<%= m %>"<%= m === bulan ? ' selected' : '' %>><%= m %></option>
             <% }); %>
           </select>
         </div>
@@ -46,19 +54,20 @@
     </div>
   </div>
 
-  <div class="card shadow-sm">
-    <div class="card-body p-0">
+  <div class="card shadow-sm" style="flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column;">
+    <div class="card-body p-0" style="min-height: 0; display: flex; flex-direction: column;">
+      <div class="table-responsive fuel-table-scroll" style="min-height: 0; overflow-y: auto;">
       <table class="table mb-0 align-middle">
-        <thead>
+        <thead class="table-light" style="position: sticky; top: 0; z-index: 1;">
           <tr>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Bulan-Tahun</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Periode</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Pertamina</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PPN</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PBBKB</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">PPH22</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">Total</th>
-            <th class="py-3 px-4 text-white text-center align-middle" style="background:#0d4d94;">ICI-3</th>
+            <th class="py-3 px-4 text-center align-middle text-nowrap">Bulan-Tahun</th>
+            <th class="py-3 px-4 text-center align-middle">Periode</th>
+            <th class="py-3 px-4 text-center align-middle">Pertamina</th>
+            <th class="py-3 px-4 text-center align-middle">PPN</th>
+            <th class="py-3 px-4 text-center align-middle">PBBKB</th>
+            <th class="py-3 px-4 text-center align-middle">PPH22</th>
+            <th class="py-3 px-4 text-center align-middle">Total</th>
+            <th class="py-3 px-4 text-center align-middle">ICI-3</th>
           </tr>
         </thead>
         <tbody>
@@ -78,26 +87,28 @@
               <td class="px-4"><input type="text" class="form-control pbbkb-output" readonly tabindex="-1"></td>
               <td class="px-4"><input type="text" class="form-control pph22-output" readonly tabindex="-1"></td>
               <td class="px-4"><input type="text" class="form-control total-output" readonly tabindex="-1"></td>
-              <td class="px-4">
+              <% if (row.periode === 1) { %>
+              <td class="px-4" rowspan="2">
                 <input type="text" inputmode="decimal" class="form-control ici3-input"
-                       name="ici3[<%= row.bulanTahun %>][<%= row.periode %>]"
-                       data-field="ici3" data-bulan-tahun="<%= row.bulanTahun %>" data-periode="<%= row.periode %>"
+                       name="ici3[<%= row.bulanTahun %>]"
+                       data-field="ici3" data-bulan-tahun="<%= row.bulanTahun %>"
                        value="<%= row.ici3Display %>">
               </td>
+              <% } %>
             </tr>
           <% }); %>
         </tbody>
       </table>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-  const rateInputs = {
-    ppn_rate:   document.getElementById('ppnRate'),
-    pbbkb_rate: document.getElementById('pbbkbRate'),
-    pph22_rate: document.getElementById('pph22Rate'),
-  };
+  // Effective (carried-forward) PPN/PBBKB/PPH22 rate per bulan_tahun, computed
+  // server-side so each row uses the rate that was in force for its own month.
+  const fuelRatesByMonth = <%- JSON.stringify(ratesByMonth) %>;
+  const DEFAULT_FUEL_RATES = { ppnRate: 11, pbbkbRate: 7.5, pph22Rate: 0.3 };
 
   function parseNumber(str) {
     return parseFloat(String(str).replace(/,/g, '')) || 0;
@@ -118,10 +129,11 @@
       return;
     }
 
+    const rates = fuelRatesByMonth[input.dataset.bulanTahun] || DEFAULT_FUEL_RATES;
     const pertamina = parseNumber(input.value);
-    const ppnRate   = parseNumber(rateInputs.ppn_rate.value) / 100;
-    const pbbkbRate = parseNumber(rateInputs.pbbkb_rate.value) / 100;
-    const pph22Rate = parseNumber(rateInputs.pph22_rate.value) / 100;
+    const ppnRate   = rates.ppnRate / 100;
+    const pbbkbRate = rates.pbbkbRate / 100;
+    const pph22Rate = rates.pph22Rate / 100;
 
     const ppn   = pertamina * ppnRate;
     const pbbkb = pertamina * pbbkbRate;
@@ -149,14 +161,32 @@
     fetch(window.location.pathname, { method: 'POST', body });
   }
 
+  function saveIci3(input) {
+    [1, 2].forEach(function (periode) {
+      const body = new URLSearchParams({
+        action: 'save_fuel',
+        bulan_tahun: input.dataset.bulanTahun,
+        periode: periode,
+        field: input.dataset.field,
+        value: parseNumber(input.value),
+      });
+      fetch(window.location.pathname, { method: 'POST', body });
+    });
+  }
+
   function saveRate(input) {
+    const tahun = document.getElementById('tahun').value;
+    const bulan = document.getElementById('bulan').value;
+    const bulanTahun = bulan + '-' + String(tahun).slice(-2);
     const body = new URLSearchParams({
       action: 'save_fuel_rate',
-      tahun: document.getElementById('tahun').value,
+      bulan_tahun: bulanTahun,
       field: input.dataset.field,
       value: parseNumber(input.value),
     });
-    fetch(window.location.pathname, { method: 'POST', body });
+    fetch(window.location.pathname, { method: 'POST', body }).then(function () {
+      location.reload();
+    });
   }
 
   document.querySelectorAll('.pertamina-input').forEach(function (input) {
@@ -177,13 +207,11 @@
       if (input.value !== '') {
         input.value = formatNumber(parseNumber(input.value));
       }
-      saveRow(input);
+      saveIci3(input);
     });
   });
 
-  Object.values(rateInputs).forEach(function (input) {
-    input.addEventListener('input', calcAllRows);
-
+  document.querySelectorAll('.rate-input').forEach(function (input) {
     input.addEventListener('blur', function () {
       if (input.value !== '') {
         input.value = parseNumber(input.value);

@@ -36,19 +36,19 @@ export async function readFuelRow(
   return row ? { pertamina: Number(row.pertamina), ici3: Number(row.ici3) } : null;
 }
 
-export async function deleteFuelRateRow(tahun: number): Promise<void> {
+export async function deleteFuelRateRow(bulanTahun: string): Promise<void> {
   const p = pool();
-  await p.query("DELETE FROM fuel_rates WHERE tahun = ?", [tahun]);
+  await p.query("DELETE FROM fuel_rates WHERE bulan_tahun = ?", [bulanTahun]);
   await p.end();
 }
 
 export async function readFuelRateRow(
-  tahun: number
+  bulanTahun: string
 ): Promise<{ ppn_rate: number; pbbkb_rate: number; pph22_rate: number } | null> {
   const p = pool();
   const [rows] = await p.query<mysql.RowDataPacket[]>(
-    "SELECT ppn_rate, pbbkb_rate, pph22_rate FROM fuel_rates WHERE tahun = ?",
-    [tahun]
+    "SELECT ppn_rate, pbbkb_rate, pph22_rate FROM fuel_rates WHERE bulan_tahun = ?",
+    [bulanTahun]
   );
   await p.end();
   const row = rows[0];

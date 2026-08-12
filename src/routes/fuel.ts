@@ -2,7 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { dbPool } from "../config/database.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import {
-  getFuelRates,
+  BULAN_NAMES,
+  computeEffectiveRates,
+  getFuelRatesByMonth,
   listFuelData,
   saveFuelRate,
   saveFuelValue,
@@ -10,6 +12,7 @@ import {
 
 interface FuelQuerystring {
   tahun?: string;
+  bulan?: string;
 }
 
 interface FuelBody {
@@ -18,23 +21,7 @@ interface FuelBody {
   periode?: string;
   field?: string;
   value?: string;
-  tahun?: string;
 }
-
-const BULAN_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "Mei",
-  "Jun",
-  "Jul",
-  "Agu",
-  "Sep",
-  "Okt",
-  "Nov",
-  "Des",
-];
 
 function parseNumericInput(raw: string | undefined): number {
   return Number(String(raw ?? "0").replace(/,/g, "")) || 0;
@@ -64,13 +51,22 @@ export async function fuelRoutes(app: FastifyInstance) {
       const tahun = Number.parseInt(req.query.tahun ?? "", 10) || currentYear;
       const tahunOptions = Array.from({ length: 11 }, (_, i) => currentYear + i);
 
-      const [fuelData, rates] = await Promise.all([
+      const bulan = BULAN_NAMES.includes(
+        (req.query.bulan ?? "") as (typeof BULAN_NAMES)[number]
+      )
+        ? (req.query.bulan as (typeof BULAN_NAMES)[number])
+        : "Jan";
+
+      const [fuelData, rateOverrides] = await Promise.all([
         listFuelData(pool),
-        getFuelRates(pool, tahun),
+        getFuelRatesByMonth(pool),
       ]);
 
       const yy = String(tahun).slice(-2);
       const bulanTahunList = BULAN_NAMES.map((m) => `${m}-${yy}`);
+      const ratesByMonth = computeEffectiveRates(rateOverrides, bulanTahunList);
+      const selectedBulanTahun = `${bulan}-${yy}`;
+      const selectedRates = ratesByMonth[selectedBulanTahun];
 
       const rows = bulanTahunList.flatMap((bt) =>
         [1, 2].map((periode) => {
@@ -90,10 +86,13 @@ export async function fuelRoutes(app: FastifyInstance) {
         divisi: req.session.divisi,
         tahun,
         tahunOptions,
+        bulan,
+        bulanNames: BULAN_NAMES,
         rows,
-        ppnRateDisplay: trimTrailingZeros(rates.ppnRate),
-        pbbkbRateDisplay: trimTrailingZeros(rates.pbbkbRate),
-        pph22RateDisplay: trimTrailingZeros(rates.pph22Rate),
+        ratesByMonth,
+        ppnRateDisplay: trimTrailingZeros(selectedRates.ppnRate),
+        pbbkbRateDisplay: trimTrailingZeros(selectedRates.pbbkbRate),
+        pph22RateDisplay: trimTrailingZeros(selectedRates.pph22Rate),
       });
     }
   );
@@ -118,7 +117,7 @@ export async function fuelRoutes(app: FastifyInstance) {
 
       if (action === "save_fuel_rate") {
         const result = await saveFuelRate(pool, {
-          tahun: Number.parseInt(req.body.tahun ?? "0", 10),
+          bulanTahun: req.body.bulan_tahun ?? "",
           field: req.body.field ?? "",
           value: parseNumericInput(req.body.value),
         });

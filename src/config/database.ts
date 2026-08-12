@@ -1,4 +1,5 @@
 import mysql from "mysql2/promise";
+import { DEFAULT_FUEL_KURS_RATES } from "../services/fuel-kurs.service.js";
 
 const pools = new Map<string, mysql.Pool>();
 
@@ -272,11 +273,61 @@ export async function ensureFuelTables(pool: mysql.Pool): Promise<void> {
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS fuel_rates (
-      tahun SMALLINT NOT NULL,
+      bulan_tahun VARCHAR(10) NOT NULL,
       ppn_rate DECIMAL(6,3) NOT NULL DEFAULT 11,
       pbbkb_rate DECIMAL(6,3) NOT NULL DEFAULT 7.5,
       pph22_rate DECIMAL(6,3) NOT NULL DEFAULT 0.3,
-      PRIMARY KEY (tahun)
+      PRIMARY KEY (bulan_tahun)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
   `);
+
+  if (database) {
+    const [fuelRatesColumns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'fuel_rates' AND COLUMN_NAME IN ('tahun', 'bulan_tahun')`,
+      [database]
+    );
+    const fuelRatesColumnNames = new Set(
+      fuelRatesColumns.map((c) => String(c.COLUMN_NAME))
+    );
+    // Pre-migration installs had `fuel_rates` keyed by `tahun` (one rate per
+    // whole year). Migrate each existing row to an explicit override anchored
+    // at Jan of that year, then re-key the table by `bulan_tahun` so rates can
+    // carry forward month-to-month. `tahun` is left in place as an inert
+    // leftover column rather than dropped.
+    if (
+      fuelRatesColumnNames.has("tahun") &&
+      !fuelRatesColumnNames.has("bulan_tahun")
+    ) {
+      await pool.query(
+        "ALTER TABLE fuel_rates ADD COLUMN bulan_tahun VARCHAR(10) NULL AFTER tahun"
+      );
+      await pool.query(
+        "UPDATE fuel_rates SET bulan_tahun = CONCAT('Jan-', RIGHT(tahun, 2)) WHERE bulan_tahun IS NULL"
+      );
+      await pool.query(
+        "ALTER TABLE fuel_rates MODIFY bulan_tahun VARCHAR(10) NOT NULL, MODIFY tahun SMALLINT NULL, DROP PRIMARY KEY, ADD PRIMARY KEY (bulan_tahun)"
+      );
+    }
+  }
+}
+
+/**
+ * Creates the single-row `fuel_kurs_rates` table backing the Freight
+ * MHU/CAM, R/F Base Parameter, and Tolerance tables on the Fuel & Kurs
+ * page, seeded with all-zero values if the row doesn't exist yet.
+ */
+export async function ensureFuelKursTables(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS fuel_kurs_rates (
+      id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+      rates_json JSON NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  await pool.query(
+    "INSERT IGNORE INTO fuel_kurs_rates (id, rates_json) VALUES (1, ?)",
+    [JSON.stringify(DEFAULT_FUEL_KURS_RATES)]
+  );
 }

@@ -244,10 +244,40 @@ export const CYCLE_TIME_COLUMNS = [
 
 export const headerKeys = CYCLE_TIME_COLUMNS.map(([key]) => key);
 
+// Header cell coloring by editable-column group — ported from
+// 8tluoperation.php's cycle-time-editable-col/part1/part2/loadingrate
+// classes (8tluoperation.php:1517-1581) so the JS table matches the
+// legacy PHP table's header row colors (issue tracked in CLAUDE.md).
+const CYCLE_TIME_PART1_KEYS = new Set(['part_1', 'check_part_1', 'lhv_time', 'spog_time', 'clear_pass_time']);
+const CYCLE_TIME_PART2_KEYS = new Set([
+  'part_2', 'check_part_2', 'mooring_2', 'sailing_time', 'total_waiting_disch_mv',
+  'check_total_waiting_disch_mv', 'waiting_cargo_readiness', 'waiting_mv', 'waiting_flf',
+  'waiting_queueing', 'waiting_sequence', 'other_factor', 'back_to_jetty_time',
+]);
+const CYCLE_TIME_LOADINGRATE_KEYS = new Set([
+  'loading_rate', 'disch_time_loading_rate', 'disch_time_percent', 'cargo_readiness_p3',
+  'pure_time', 'waiting_cargo_readiness_p3', 'waiting_mv_p3', 'waiting_flf_p3',
+  'waiting_queuing_p3', 'waiting_sequence_p3', 'other_factor_p3', 'check_waiting_time_disch_mv',
+  'total_ct_ltc', 'laytime', 'ltc_rate', 'ltc_day', 'ltc_total',
+]);
+const CYCLE_TIME_DEFAULT_EDITABLE_KEYS = new Set([
+  'waiting_loading_jetty', 'check_waiting_loading_jetty', 'barges_arrival_early',
+  'waiting_plan_loading', 'loading_time_jetty',
+]);
+
+function cycleTimeHeaderClass(key) {
+  if (CYCLE_TIME_PART1_KEYS.has(key)) return 'cycle-time-editable-col cycle-time-part1-col';
+  if (CYCLE_TIME_PART2_KEYS.has(key)) return 'cycle-time-editable-col cycle-time-part2-col';
+  if (CYCLE_TIME_LOADINGRATE_KEYS.has(key)) return 'cycle-time-editable-col cycle-time-loadingrate-col';
+  if (CYCLE_TIME_DEFAULT_EDITABLE_KEYS.has(key)) return 'cycle-time-editable-col';
+  return '';
+}
+
 // ===== Build both tables' shared header row =====
 
 export function buildHeaderCells(rowEl, includeRowNumber) {
   rowEl.innerHTML = (includeRowNumber ? ['<th>No.</th>'] : [])
-    .concat(CYCLE_TIME_COLUMNS.map(([key, label]) => `<th data-key="${esc(key)}">${esc(label)}</th>`))
+    .concat(CYCLE_TIME_COLUMNS.map(([key, label]) =>
+      `<th data-key="${esc(key)}" class="${cycleTimeHeaderClass(key)}">${esc(label)}</th>`))
     .join('');
 }

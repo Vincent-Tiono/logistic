@@ -57,18 +57,75 @@ export const DEFAULT_FUEL_RATES: FuelRates = {
   pph22Rate: 0.3,
 };
 
-export async function getFuelRates(pool: Pool, tahun: number): Promise<FuelRates> {
-  const [rows] = await pool.query<RowDataPacket[]>(
-    "SELECT ppn_rate, pbbkb_rate, pph22_rate FROM fuel_rates WHERE tahun = ?",
-    [tahun]
-  );
-  const row = rows[0];
-  if (!row) return { ...DEFAULT_FUEL_RATES };
-  return {
-    ppnRate: Number(row.ppn_rate),
-    pbbkbRate: Number(row.pbbkb_rate),
-    pph22Rate: Number(row.pph22_rate),
-  };
+export const BULAN_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "Mei",
+  "Jun",
+  "Jul",
+  "Agu",
+  "Sep",
+  "Okt",
+  "Nov",
+  "Des",
+] as const;
+
+function bulanTahunSortKey(bulanTahun: string): number {
+  const [mmm, yy] = bulanTahun.split("-");
+  const monthIndex = BULAN_NAMES.indexOf(mmm as (typeof BULAN_NAMES)[number]);
+  return (2000 + Number(yy)) * 12 + monthIndex;
+}
+
+/** All explicit rate overrides ever saved, keyed by bulan_tahun. */
+export async function getFuelRatesByMonth(
+  pool: Pool
+): Promise<Record<string, FuelRates>> {
+  const [rows] = await pool.query<
+    (RowDataPacket & {
+      bulan_tahun: string;
+      ppn_rate: string;
+      pbbkb_rate: string;
+      pph22_rate: string;
+    })[]
+  >("SELECT bulan_tahun, ppn_rate, pbbkb_rate, pph22_rate FROM fuel_rates");
+
+  const overrides: Record<string, FuelRates> = {};
+  for (const row of rows) {
+    overrides[row.bulan_tahun] = {
+      ppnRate: Number(row.ppn_rate),
+      pbbkbRate: Number(row.pbbkb_rate),
+      pph22Rate: Number(row.pph22_rate),
+    };
+  }
+  return overrides;
+}
+
+/**
+ * Resolves the effective rate for each requested bulan_tahun by carrying
+ * forward the most recent override at or before that month; falls back to
+ * DEFAULT_FUEL_RATES if no override has ever been set that early.
+ */
+export function computeEffectiveRates(
+  overrides: Record<string, FuelRates>,
+  bulanTahunList: string[]
+): Record<string, FuelRates> {
+  const sortedOverrides = Object.entries(overrides)
+    .map(([bt, rates]) => ({ sortKey: bulanTahunSortKey(bt), rates }))
+    .sort((a, b) => a.sortKey - b.sortKey);
+
+  const result: Record<string, FuelRates> = {};
+  for (const bt of bulanTahunList) {
+    const targetKey = bulanTahunSortKey(bt);
+    let effective: FuelRates = DEFAULT_FUEL_RATES;
+    for (const entry of sortedOverrides) {
+      if (entry.sortKey > targetKey) break;
+      effective = entry.rates;
+    }
+    result[bt] = effective;
+  }
+  return result;
 }
 
 export interface SaveFuelValueInput {
@@ -101,7 +158,7 @@ export async function saveFuelValue(
 }
 
 export interface SaveFuelRateInput {
-  tahun: number;
+  bulanTahun: string;
   field: string;
   value: number;
 }
@@ -110,15 +167,16 @@ export async function saveFuelRate(
   pool: Pool,
   input: SaveFuelRateInput
 ): Promise<ActionResult> {
-  if (input.tahun <= 0 || !isFuelRateField(input.field)) {
+  const bulanTahun = input.bulanTahun.trim();
+  if (bulanTahun === "" || !isFuelRateField(input.field)) {
     return { ok: false, error: "Invalid input" };
   }
 
   const field = input.field;
   await pool.query(
-    `INSERT INTO fuel_rates (tahun, ${field}) VALUES (?, ?)
+    `INSERT INTO fuel_rates (bulan_tahun, ${field}) VALUES (?, ?)
      ON DUPLICATE KEY UPDATE ${field} = VALUES(${field})`,
-    [input.tahun, input.value]
+    [bulanTahun, input.value]
   );
   return { ok: true };
 }

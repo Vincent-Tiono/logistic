@@ -41,6 +41,14 @@ export interface KursTengahResult extends PageResult<KursTengahRow> {
   fetchFailed: boolean;
 }
 
+/** Unpaginated fetch for a specific date range, used by the Barges MHU daily engine. */
+export function getKursTengahRange(
+  startDate: string,
+  endDate: string
+): Promise<KursTengahRow[] | null> {
+  return fetchBiKursCached(config, MTS, startDate, endDate);
+}
+
 export async function getKursTengahPage(
   query: KursTengahQuery
 ): Promise<KursTengahResult> {

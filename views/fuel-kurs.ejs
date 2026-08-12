@@ -1,0 +1,1105 @@
+<%- include('partials/header', { pageTitle: 'Fuel & Kurs - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h4 class="m-0">Fuel & Kurs</h4>
+  </div>
+
+  <% const rd = function (n) { return n === 0 ? '' : n; }; %>
+  <% const rdValue = function (n) { return n === 0 ? '' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }; %>
+
+  <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseFuelKursRates" aria-expanded="false" aria-controls="collapseFuelKursRates">
+      <h6 class="m-0">Rates</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse" id="collapseFuelKursRates">
+    <div class="card-body">
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <% [
+            { key: 'mhu', title: 'Freight MHU', marginTop: false },
+            { key: 'cam', title: 'Freight CAM', marginTop: true },
+          ].forEach(function (tt) { %>
+          <h6 class="<%= tt.marginTop ? 'mt-4' : '' %>"><%= tt.title %></h6>
+          <div class="table-responsive mb-2">
+            <table class="table table-sm table-bordered text-center align-middle mb-0">
+              <thead class="table-light">
+                <tr><th style="white-space:nowrap;">Tier</th><th>USD/MT</th><th>FLF</th><th>STV</th></tr>
+              </thead>
+              <tbody>
+                <% [['lt60', '<60'], ['t60to65', '60-65'], ['gt65', '>65']].forEach(function (t) { %>
+                <tr>
+                  <td style="white-space:nowrap;"><%= t[1] %></td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.usdMt" value="<%= rdValue(rates[tt.key][t[0]].usdMt) %>"></td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.flf" value="<%= rdValue(rates[tt.key][t[0]].flf) %>"></td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="<%= tt.key %>.<%= t[0] %>.stv" value="<%= rdValue(rates[tt.key][t[0]].stv) %>"></td>
+                </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+          <% }); %>
+        </div>
+
+        <div class="col-lg-6">
+          <h6>R/F Base Parameter</h6>
+          <div class="table-responsive mb-2">
+            <table class="table table-sm table-bordered text-center align-middle mb-0">
+              <thead class="table-light">
+                <tr><th></th><th>%</th><th>Value</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="text-start">Fuel</td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input" data-field="rf.fuelPct" value="<%= rd(rates.rf.fuelPct) %>"></td>
+                  <td>
+                    <div class="d-flex gap-1 mb-1">
+                      <select id="fuelValueBulanTahun" class="form-select form-select-sm">
+                        <option value="">-</option>
+                        <% Object.keys(pertaminaLookup).forEach(function (bt) { %>
+                        <option value="<%= bt %>"<%= rates.rf.fuelValueBulanTahun === bt ? ' selected' : '' %>><%= bt %></option>
+                        <% }); %>
+                      </select>
+                      <select id="fuelValuePeriode" class="form-select form-select-sm" style="max-width:70px;">
+                        <option value="">-</option>
+                      </select>
+                    </div>
+                    <div class="small text-muted">Pertamina: <span id="fuelValueDisplay">-</span></div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="text-start">Forex</td>
+                  <td></td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="rf.forexValue" value="<%= rdValue(rates.rf.forexValue) %>"></td>
+                </tr>
+                <tr>
+                  <td class="text-start">Fixed Cost</td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input" data-field="rf.fixedCostPct" value="<%= rd(rates.rf.fixedCostPct) %>"></td>
+                  <td></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h6 class="mt-4">Tolerance</h6>
+          <div class="table-responsive mb-2">
+            <table class="table table-sm table-bordered text-center align-middle mb-0">
+              <tbody>
+                <tr>
+                  <td class="text-start">+10%</td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="tolerance.plus10" value="<%= rdValue(rates.tolerance.plus10) %>"></td>
+                </tr>
+                <tr>
+                  <td class="text-start align-middle">Base</td>
+                  <td>
+                    <div class="d-flex gap-1 mb-1">
+                      <select id="toleranceBaseBulanTahun" class="form-select form-select-sm">
+                        <option value="">-</option>
+                        <% Object.keys(pertaminaLookup).forEach(function (bt) { %>
+                        <option value="<%= bt %>"<%= rates.tolerance.baseBulanTahun === bt ? ' selected' : '' %>><%= bt %></option>
+                        <% }); %>
+                      </select>
+                      <select id="toleranceBasePeriode" class="form-select form-select-sm" style="max-width:70px;">
+                        <option value="">-</option>
+                      </select>
+                    </div>
+                    <div class="small text-muted">Pertamina: <span id="toleranceBaseValue">-</span></div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="text-start">-10%</td>
+                  <td><input type="text" inputmode="decimal" class="form-control form-control-sm text-end rate-input value-input" data-field="tolerance.minus10" value="<%= rdValue(rates.tolerance.minus10) %>"></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <div id="fuelKursLanding">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-bargesMhu">
+          <div class="fw-semibold fs-5">Barges MHU</div>
+        </button>
+      </div>
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-bargesCam">
+          <div class="fw-semibold fs-5">Barges CAM</div>
+        </button>
+      </div>
+      <div class="col-md-4">
+        <button type="button" class="btn btn-outline-primary w-100 h-100 py-4 text-start fuelkurs-option-btn" data-target="section-flf">
+          <div class="fw-semibold fs-5">FLF</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <% const submodules = [
+    { id: 'bargesMhu', title: 'Barges MHU' },
+    { id: 'bargesCam', title: 'Barges CAM' },
+    { id: 'flf', title: 'FLF' },
+  ]; %>
+  <% const columnsFor = function (smId) {
+    const iciLabel = smId === 'bargesCam' ? 'CAM ICI' : 'MHU ICI';
+    return [
+      'Lock', 'Bulan', 'Tanggal', 'Kurs tengah', 'Jisdor', 'Period Fn', 'Fuel [usd]', 'RF',
+      iciLabel + ' <60', iciLabel + ' >60', 'BBS - BERAU', 'BBS - PDP',
+      'BDD', 'DLS', 'GLS', 'GMS', 'TML', 'KSU', 'TMS', 'AYU', 'CNB', 'PPSJ',
+    ];
+  }; %>
+  <% const columns = columnsFor('bargesMhu'); %>
+
+  <% submodules.forEach(function (sm) { %>
+  <div class="card mt-3 d-none fuelkurs-section" id="section-<%= sm.id %>">
+    <div class="card-body">
+      <button type="button" class="btn btn-sm btn-link px-0 mb-2 fuelkurs-back-btn">&laquo; Kembali</button>
+      <h5 class="mb-3"><%= sm.title %></h5>
+
+      <% if (sm.id === 'bargesMhu' || sm.id === 'bargesCam') { %>
+      <% if (sm.id === 'bargesMhu' && bargesMhu.fetchFailed) { %>
+      <div class="alert alert-warning py-2 px-3 small mb-3">
+        Gagal mengambil data Jisdor/Kurs Tengah dari BI. Kolom terkait bisa kosong/0 — muat ulang halaman untuk mencoba lagi.
+      </div>
+      <% } %>
+      <div id="<%= sm.id %>-mode-chooser" class="mb-3 fuelkurs-mode-chooser">
+        <div class="small text-muted mb-2">Tampilkan data:</div>
+        <div class="d-flex gap-2">
+          <button type="button" class="btn btn-outline-primary btn-sm fuelkurs-mode-btn" data-mode="month">Per Bulan</button>
+          <button type="button" class="btn btn-outline-primary btn-sm fuelkurs-mode-btn" data-mode="all">Semua Bulan</button>
+        </div>
+      </div>
+
+      <div id="<%= sm.id %>-month-picker" class="mb-3 d-none">
+        <label class="form-label small text-muted mb-1" for="<%= sm.id %>-month-select">Pilih Bulan</label>
+        <select id="<%= sm.id %>-month-select" class="form-select form-select-sm" style="max-width:200px;">
+          <option value="">-- Pilih Bulan --</option>
+        </select>
+      </div>
+
+      <% const bbsBmcCols = [
+        ['berau', 'BBS - BERAU'], ['pdp', 'BBS - PDP'], ['bdd', 'BDD'],
+        ['dls', 'DLS'], ['gls', 'GLS'], ['gms', 'GMS'], ['tml', 'TML'],
+        ['ksu', 'KSU'], ['tms', 'TMS'], ['ayu', 'AYU'], ['cnb', 'CNB'], ['ppsj', 'PPSJ'],
+      ]; %>
+      <div class="card mb-3 d-none" id="bbsBmcModeCard-<%= sm.id %>">
+        <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+             data-bs-toggle="collapse" data-bs-target="#collapseBbsBmcMode-<%= sm.id %>" aria-expanded="false" aria-controls="collapseBbsBmcMode-<%= sm.id %>">
+          <h6 class="m-0">Pilih All-in atau Adjust per kolom:</h6>
+          <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="collapse" id="collapseBbsBmcMode-<%= sm.id %>">
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle mb-0">
+              <thead class="table-light">
+                <tr><th>Kolom</th><th>Mode</th><th>Nilai</th></tr>
+              </thead>
+              <tbody>
+                <% bbsBmcCols.forEach(function (c) { %>
+                <tr class="bbsBmc-col-row" data-col="<%= c[0] %>">
+                  <td class="text-start text-nowrap"><%= c[1] %></td>
+                  <td class="text-nowrap">
+                    <div class="form-check form-check-inline mb-0">
+                      <input class="form-check-input bbsBmc-mode-radio" type="radio" name="bbsBmcMode-<%= sm.id %>-<%= c[0] %>" id="bbsBmcMode-<%= sm.id %>-<%= c[0] %>-allin" value="allin" checked>
+                      <label class="form-check-label" for="bbsBmcMode-<%= sm.id %>-<%= c[0] %>-allin">All-in</label>
+                    </div>
+                    <div class="form-check form-check-inline mb-0">
+                      <input class="form-check-input bbsBmc-mode-radio" type="radio" name="bbsBmcMode-<%= sm.id %>-<%= c[0] %>" id="bbsBmcMode-<%= sm.id %>-<%= c[0] %>-adjust" value="adjust">
+                      <label class="form-check-label" for="bbsBmcMode-<%= sm.id %>-<%= c[0] %>-adjust">Adjust</label>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="bbsBmc-allin-wrap">
+                      <input type="text" inputmode="decimal" class="form-control form-control-sm text-end bbsBmc-allin-input" data-col="<%= c[0] %>">
+                    </div>
+                    <div class="bbsBmc-adjust-wrap row g-2 d-none">
+                      <div class="col-6 col-md-3">
+                        <div class="small text-muted mb-1">Base Freight</div>
+                        <input type="text" inputmode="decimal" class="form-control form-control-sm bbsBmc-basefreight-input" data-col="<%= c[0] %>" placeholder="Base Freight">
+                      </div>
+                      <div class="col-6 col-md-3">
+                        <div class="small text-muted mb-1">Conversi Fuel</div>
+                        <input type="text" inputmode="decimal" class="form-control form-control-sm bbsBmc-conversifuel-input" data-col="<%= c[0] %>" placeholder="Conversi Fuel">
+                      </div>
+                      <div class="col-6 col-md-3">
+                        <div class="small text-muted mb-1">Ko</div>
+                        <select class="form-select form-select-sm bbsBmc-ko-select" data-col="<%= c[0] %>">
+                          <option value="">Ko: pilih tanggal</option>
+                        </select>
+                        <div class="small text-muted bbsBmc-ko-value">-</div>
+                      </div>
+                      <div class="col-6 col-md-3">
+                        <div class="small text-muted mb-1">Fo</div>
+                        <div class="d-flex gap-1">
+                          <select class="form-select form-select-sm bbsBmc-fo-bulan-select" data-col="<%= c[0] %>">
+                            <option value="">Fo: Bulan</option>
+                          </select>
+                          <select class="form-select form-select-sm bbsBmc-fo-periode-select" data-col="<%= c[0] %>" style="max-width:60px;">
+                            <option value="">-</option>
+                          </select>
+                        </div>
+                        <div class="small text-muted bbsBmc-fo-value">-</div>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        </div>
+      </div>
+      <% } %>
+
+      <% const cols = columnsFor(sm.id); %>
+      <div id="content-<%= sm.id %>"<%= (sm.id === 'bargesMhu' || sm.id === 'bargesCam') ? ' class="d-none"' : '' %>>
+      <div class="table-responsive">
+        <table class="table table-sm table-bordered align-middle">
+          <thead class="table-light">
+            <tr>
+              <% cols.forEach(function (c) { %>
+                <% if (c === 'Lock') { %>
+                <th class="text-center" style="min-width:80px;white-space:nowrap;">
+                  <input class="form-check-input lock-all-checkbox" type="checkbox" id="lockAll-<%= sm.id %>" title="Lock/unlock all rows on this page">
+                  Lock
+                </th>
+                <% } else { %>
+                <th class="text-center" style="min-width:110px;white-space:nowrap;"><%= c %></th>
+                <% } %>
+              <% }); %>
+            </tr>
+          </thead>
+          <tbody id="tbody-<%= sm.id %>">
+            <tr><td colspan="<%= cols.length %>" class="text-center text-muted">No data</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2 small text-muted">
+          Show
+          <select id="pageSize-<%= sm.id %>" class="form-select form-select-sm" style="width:auto;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          entries (<span id="pageInfo-<%= sm.id %>">Showing 0 to 0 of 0 entries</span>)
+        </div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0" id="pageButtons-<%= sm.id %>"></ul>
+        </nav>
+      </div>
+      </div>
+    </div>
+  </div>
+  <% }); %>
+
+</div>
+
+<script>
+// Live rates, kept in sync with the editable cells above; the Barges
+// MHU/CAM and FLF submodules read this for their calculations.
+window.fuelKursRates = <%- JSON.stringify(rates) %>;
+
+// Barges MHU daily engine inputs: dense (carry-forward) Jisdor/Kurs tengah
+// series from BI, the Section 2 fuel-price/tax lookup table, and the fixed
+// RF/BBS-BMC/BDD anchor config. See fuel-kurs.ts for how these are built.
+window.bargesMhuData = <%- JSON.stringify(bargesMhu) %>;
+
+function fuelKursParseNumber(str) {
+  return parseFloat(String(str).replace(/,/g, '')) || 0;
+}
+
+function fuelKursSetNested(obj, path, value) {
+  const parts = path.split('.');
+  let target = obj;
+  for (let i = 0; i < parts.length - 1; i++) target = target[parts[i]];
+  target[parts[parts.length - 1]] = value;
+}
+
+function fuelKursSaveRate(field, value) {
+  fuelKursSetNested(window.fuelKursRates, field, value);
+  const body = new URLSearchParams({ action: 'save_rate', field: field, value: value });
+  fetch(window.location.pathname, { method: 'POST', body });
+}
+
+function fuelKursFormatValue(n) {
+  return n === 0 ? '' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+document.querySelectorAll('.rate-input').forEach(function (input) {
+  input.addEventListener('blur', function () {
+    const value = fuelKursParseNumber(input.value);
+    const isValueInput = input.classList.contains('value-input');
+    input.value = isValueInput ? fuelKursFormatValue(value) : (value === 0 ? '' : value);
+    fuelKursSaveRate(input.dataset.field, value);
+
+    // STV defaults to FLF - 0.55 for Freight MHU/CAM; still directly editable.
+    if (input.dataset.field.endsWith('.flf')) {
+      const stvField = input.dataset.field.replace(/\.flf$/, '.stv');
+      const stvInput = document.querySelector('.rate-input[data-field="' + stvField + '"]');
+      if (stvInput) {
+        const stvValue = Math.round((value - 0.55) * 100) / 100;
+        stvInput.value = fuelKursFormatValue(stvValue);
+        fuelKursSaveRate(stvField, stvValue);
+      }
+    }
+  });
+});
+
+// Base pickers: user picks a Bulan-Tahun/Periode, value pulled live from
+// the Fuel module's Pertamina cell. Used by Tolerance Base and R/F Fuel Value.
+window.fuelKursPertaminaLookup = <%- JSON.stringify(pertaminaLookup) %>;
+
+function makeBasePicker(opts) {
+  const btSelect = document.getElementById(opts.btSelectId);
+  const periodeSelect = document.getElementById(opts.periodeSelectId);
+  const valueEl = document.getElementById(opts.valueElId);
+
+  function formatNumber(n) {
+    return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function refreshPeriodeOptions(selectedPeriode) {
+    const periods = window.fuelKursPertaminaLookup[btSelect.value] || {};
+    periodeSelect.innerHTML = '<option value="">-</option>' +
+      Object.keys(periods).map(function (p) {
+        return '<option value="' + p + '"' + (String(selectedPeriode) === p ? ' selected' : '') + '>' + p + '</option>';
+      }).join('');
+  }
+
+  let currentPertamina;
+
+  function refreshValue() {
+    const periods = window.fuelKursPertaminaLookup[btSelect.value];
+    currentPertamina = periods ? periods[periodeSelect.value] : undefined;
+    valueEl.textContent = currentPertamina ? formatNumber(currentPertamina) : '-';
+    fuelKursSetNested(window.fuelKursRates, opts.fieldBulanTahun, btSelect.value);
+    fuelKursSetNested(window.fuelKursRates, opts.fieldPeriode, periodeSelect.value ? Number(periodeSelect.value) : 0);
+  }
+
+  function saveBase() {
+    const body = new URLSearchParams({
+      action: opts.saveAction,
+      bulan_tahun: btSelect.value,
+      periode: periodeSelect.value || '0',
+    });
+    fetch(window.location.pathname, { method: 'POST', body });
+  }
+
+  refreshPeriodeOptions(opts.initialPeriode);
+  refreshValue();
+
+  btSelect.addEventListener('change', function () {
+    refreshPeriodeOptions();
+    refreshValue();
+    saveBase();
+  });
+
+  periodeSelect.addEventListener('change', function () {
+    refreshValue();
+    saveBase();
+    if (opts.onPick) opts.onPick(currentPertamina);
+  });
+}
+
+// Tolerance Base: +10%/-10% default off it once picked; still directly editable after.
+makeBasePicker({
+  btSelectId: 'toleranceBaseBulanTahun',
+  periodeSelectId: 'toleranceBasePeriode',
+  valueElId: 'toleranceBaseValue',
+  fieldBulanTahun: 'tolerance.baseBulanTahun',
+  fieldPeriode: 'tolerance.basePeriode',
+  saveAction: 'save_tolerance_base',
+  initialPeriode: '<%= rates.tolerance.basePeriode || "" %>',
+  onPick: function (pertamina) {
+    if (!pertamina) return;
+    const plus10 = Math.round(pertamina * 1.1 * 100) / 100;
+    const minus10 = Math.round(pertamina * 0.9 * 100) / 100;
+    const plusInput = document.querySelector('.rate-input[data-field="tolerance.plus10"]');
+    const minusInput = document.querySelector('.rate-input[data-field="tolerance.minus10"]');
+    if (plusInput) {
+      plusInput.value = plus10;
+      fuelKursSaveRate('tolerance.plus10', plus10);
+    }
+    if (minusInput) {
+      minusInput.value = minus10;
+      fuelKursSaveRate('tolerance.minus10', minus10);
+    }
+  },
+});
+
+// R/F Fuel Value: picked Pertamina value saved straight into rf.fuelValue.
+makeBasePicker({
+  btSelectId: 'fuelValueBulanTahun',
+  periodeSelectId: 'fuelValuePeriode',
+  valueElId: 'fuelValueDisplay',
+  fieldBulanTahun: 'rf.fuelValueBulanTahun',
+  fieldPeriode: 'rf.fuelValuePeriode',
+  saveAction: 'save_fuel_value_base',
+  initialPeriode: '<%= rates.rf.fuelValuePeriode || "" %>',
+  onPick: function (pertamina) {
+    if (!pertamina) return;
+    fuelKursSaveRate('rf.fuelValue', pertamina);
+  },
+});
+
+const COLSPAN = <%= columns.length %>;
+
+function makeTableController(id, onAfterRender) {
+  let pageSize = 10;
+  let currentPage = 1;
+  let rows = [];
+
+  const tbody = document.getElementById('tbody-' + id);
+  const pageInfo = document.getElementById('pageInfo-' + id);
+  const pageSizeSelect = document.getElementById('pageSize-' + id);
+  const pageButtons = document.getElementById('pageButtons-' + id);
+
+  function renderPage(page) {
+    const totalRows = rows.length;
+    const totalPages = Math.max(1, Math.ceil(totalRows / pageSize));
+    currentPage = Math.min(Math.max(page, 1), totalPages);
+
+    const start = (currentPage - 1) * pageSize;
+    const end = Math.min(start + pageSize, totalRows);
+    const pageRows = rows.slice(start, end);
+
+    tbody.innerHTML = pageRows.length
+      ? pageRows.map(function (r) {
+          const cells = Array.isArray(r) ? r : r.cells;
+          const trClass = !Array.isArray(r) && r.red ? ' class="table-danger"' : '';
+          return '<tr' + trClass + '>' + cells.map(function (v) { return '<td>' + v + '</td>'; }).join('') + '</tr>';
+        }).join('')
+      : '<tr><td colspan="' + COLSPAN + '" class="text-center text-muted">No data</td></tr>';
+
+    pageInfo.textContent = 'Showing ' + (totalRows === 0 ? 0 : start + 1) + ' to ' + end + ' of ' + totalRows + ' entries';
+    renderPageButtons(totalPages);
+    if (onAfterRender) onAfterRender();
+  }
+
+  function renderPageButtons(totalPages) {
+    function pageItem(label, page, opts) {
+      opts = opts || {};
+      const cls = 'page-item' + (opts.disabled ? ' disabled' : '') + (opts.active ? ' active' : '');
+      return '<li class="' + cls + '"><button class="page-link" type="button" data-page="' + page + '">' + label + '</button></li>';
+    }
+
+    const btns = [];
+    btns.push(pageItem('&laquo;', 1, { disabled: currentPage === 1 }));
+    btns.push(pageItem('&lsaquo;', currentPage - 1, { disabled: currentPage === 1 }));
+
+    const windowSize = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(windowSize / 2));
+    let endPage = Math.min(totalPages, startPage + windowSize - 1);
+    startPage = Math.max(1, endPage - windowSize + 1);
+
+    for (let p = startPage; p <= endPage; p++) {
+      btns.push(pageItem(String(p), p, { active: p === currentPage }));
+    }
+
+    btns.push(pageItem('&rsaquo;', currentPage + 1, { disabled: currentPage === totalPages }));
+    btns.push(pageItem('&raquo;', totalPages, { disabled: currentPage === totalPages }));
+
+    pageButtons.innerHTML = btns.join('');
+  }
+
+  pageButtons.addEventListener('click', function (e) {
+    const item = e.target.closest('.page-item');
+    const btn = e.target.closest('button[data-page]');
+    if (!btn || !item || item.classList.contains('disabled') || item.classList.contains('active')) return;
+    renderPage(Number(btn.getAttribute('data-page')));
+  });
+
+  pageSizeSelect.addEventListener('change', function () {
+    pageSize = Number(pageSizeSelect.value);
+    renderPage(1);
+  });
+
+  renderPage(1);
+
+  return {
+    setRows: function (newRows) { rows = newRows; renderPage(1); },
+  };
+}
+
+// Set by each Barges engine instance below once its lock-checkbox sync fn
+// exists; makeTableController needs the callback wired at construction time,
+// before that fn is defined, so it's called through this indirection.
+const fuelKursLockSync = { bargesMhu: null, bargesCam: null };
+
+const fuelKursTables = {
+  bargesMhu: makeTableController('bargesMhu', function () { if (fuelKursLockSync.bargesMhu) fuelKursLockSync.bargesMhu(); }),
+  bargesCam: makeTableController('bargesCam', function () { if (fuelKursLockSync.bargesCam) fuelKursLockSync.bargesCam(); }),
+  flf: makeTableController('flf'),
+};
+
+// ===== Landing: submodule switcher =====
+
+const fuelKursLanding = document.getElementById('fuelKursLanding');
+
+document.querySelectorAll('.fuelkurs-option-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    fuelKursLanding.classList.add('d-none');
+    document.getElementById(btn.getAttribute('data-target')).classList.remove('d-none');
+  });
+});
+
+document.querySelectorAll('.fuelkurs-back-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('.fuelkurs-section').forEach(function (section) { section.classList.add('d-none'); });
+    fuelKursLanding.classList.remove('d-none');
+  });
+});
+
+// ===== Barges MHU / Barges CAM: RF / ICI / BBS-BMC / BDD daily engine =====
+//
+// Both submodules run the exact same daily-engine logic (Period Fn, Fuel,
+// RF, BBS/BMC, BDD all read the same shared Rates/Jisdor/Kurs Tengah data),
+// but each gets its own mode chooser, table, lock state, and BBS-BMC
+// All-in/Adjust picks so filling one in never touches the other. What
+// differs per instance: which Freight tier (mhu vs cam) feeds the ICI
+// columns, and which bbsBmc override bucket (bbsBmc vs bbsBmcCam) backs the
+// "Pilih All-in atau Adjust per kolom" card.
+const BULAN_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+function isoFromParts(y, m0, d) {
+  return y + '-' + String(m0 + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
+function fuelKursRound(n, decimals) {
+  const f = Math.pow(10, decimals);
+  return Math.round(n * f) / f;
+}
+
+function fmtMoney(n) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// GLS/GMS (Pattern B) are rounded to 0 decimals in the source, unlike other Rp fields.
+function fmtMoney0(n) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+
+function fmtFuelUsd(n) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPct(n) {
+  return (n * 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+}
+
+const fuelKursDailyData = window.bargesMhuData || { kursByDate: {}, jisdorByDate: {}, fuelPeriodTable: {}, config: {} };
+const fuelKursCfg = fuelKursDailyData.config || {};
+
+// Weekend + Indonesian national holiday rows shown red. Holiday list is
+// hardcoded (SKB 3 Menteri 2026: hari libur nasional + cuti bersama).
+const fuelKursHolidaySet = new Set([
+  '2026-01-01', '2026-01-16', '2026-02-17', '2026-03-19', '2026-03-21',
+  '2026-03-22', '2026-04-03', '2026-04-05', '2026-05-01', '2026-05-14',
+  '2026-05-27', '2026-05-31', '2026-06-01', '2026-06-16', '2026-08-17',
+  '2026-08-25', '2026-12-25',
+  // Cuti bersama
+  '2026-02-16', '2026-03-18', '2026-03-20', '2026-03-23', '2026-03-24',
+  '2026-05-15', '2026-05-28', '2026-12-26',
+]);
+
+function isWeekend(y, m0, d) {
+  const day = new Date(y, m0, d).getDay();
+  return day === 0 || day === 6;
+}
+
+function isRedDay(y, m0, d, iso) {
+  return isWeekend(y, m0, d) || fuelKursHolidaySet.has(iso);
+}
+
+function addDays(y, m0, d, n) {
+  const dt = new Date(y, m0, d);
+  dt.setDate(dt.getDate() + n);
+  return { y: dt.getFullYear(), m0: dt.getMonth(), d: dt.getDate() };
+}
+
+function previousWorkingDay(y, m0, d) {
+  let cur = { y: y, m0: m0, d: d };
+  let guard = 0;
+  do {
+    cur = addDays(cur.y, cur.m0, cur.d, -1);
+    guard++;
+  } while (isRedDay(cur.y, cur.m0, cur.d, isoFromParts(cur.y, cur.m0, cur.d)) && guard < 14);
+  return cur;
+}
+
+function nextWorkingDay(y, m0, d) {
+  let cur = { y: y, m0: m0, d: d };
+  let guard = 0;
+  do {
+    cur = addDays(cur.y, cur.m0, cur.d, 1);
+    guard++;
+  } while (isRedDay(cur.y, cur.m0, cur.d, isoFromParts(cur.y, cur.m0, cur.d)) && guard < 14);
+  return cur;
+}
+
+function fuelCell(bulanTahun, periode) {
+  const byPeriode = fuelKursDailyData.fuelPeriodTable[bulanTahun];
+  return (byPeriode && byPeriode[periode]) || { pertamina: 0, total: 0 };
+}
+
+const fuelKursBaseFuel = fuelCell(fuelKursCfg.baseBulanTahun, fuelKursCfg.basePeriode);
+const fuelKursBaseFuelPrice = fuelKursBaseFuel.pertamina;
+const fuelKursBaseJisdor = fuelKursCfg.baseJisdor || 0;
+
+// Period Fn: 1st-14th = Period 1, 15th-end = Period 2 of the calendar month.
+function periodFn(y, m0, d) {
+  const periode = d <= 14 ? 1 : 2;
+  const mmm = BULAN_NAMES[m0];
+  const yy = String(y).slice(-2);
+  return {
+    periode: periode,
+    bulanTahun: mmm + '-' + yy,
+    label: 'Period ' + periode + ' ' + mmm + ' ' + yy,
+  };
+}
+
+// anchorKursVal/anchorFuelTotalVal come from the column's Adjust-mode
+// Ko/Fo picks (per-column anchors), not a fixed global anchor.
+function bbsBmcFormula(kursVal, fuelTaxTotal, rateA, rateB, anchorKursVal, anchorFuelTotalVal) {
+  if (kursVal === undefined || anchorKursVal === undefined) return 0;
+  return rateA * anchorKursVal * (kursVal / anchorKursVal) + (fuelTaxTotal - anchorFuelTotalVal) * rateB;
+}
+
+function fuelKursPostAction(action, params) {
+  const body = new URLSearchParams(Object.assign({ action: action }, params));
+  fetch(window.location.pathname, { method: 'POST', body });
+}
+
+// Lock/unlock a row: locking snapshots its currently displayed cells
+// (excluding the Lock button itself, which sits in column 0) so future
+// recomputes echo them as-is.
+function snapshotRow(tr) {
+  const tds = Array.prototype.slice.call(tr.querySelectorAll('td'), 1);
+  return tds.map(function (td) { return td.innerHTML; });
+}
+
+function lockRowCell(iso, locked) {
+  return '<button type="button" class="btn btn-sm ' + (locked ? 'btn-warning' : 'btn-outline-secondary') +
+    ' row-lock-btn" data-iso="' + iso + '">' + (locked ? 'Locked' : 'Lock') + '</button>';
+}
+
+// opts: { id, tierKey ('mhu'|'cam'), bbsBmcStateKey ('bbsBmc'|'bbsBmcCam'), actionPrefix }
+function makeBargesEngine(opts) {
+  const chooser = document.getElementById(opts.id + '-mode-chooser');
+  const monthPicker = document.getElementById(opts.id + '-month-picker');
+  const monthSelect = document.getElementById(opts.id + '-month-select');
+  const content = document.getElementById('content-' + opts.id);
+  const bbsBmcModeCard = document.getElementById('bbsBmcModeCard-' + opts.id);
+
+  Object.keys(window.fuelKursPertaminaLookup || {}).forEach(function (bt) {
+    const opt = document.createElement('option');
+    opt.value = bt;
+    opt.textContent = bt;
+    monthSelect.appendChild(opt);
+  });
+
+  // BBS/BMC - PPSJ mode, chosen per column: "All-in" lets the user pin a
+  // flat value for that column (applied to every row); "Adjust" wires the
+  // formula's rateA/rateB/anchorKurs/anchorFuelTotal to per-column picks
+  // (Base Freight / Conversi Fuel / Ko / Fo) instead of a fixed constant.
+  // Persisted server-side under rates[bbsBmcStateKey] so it survives a page
+  // refresh; 0/'' means "unset", same convention as the rest of this page's
+  // rate fields.
+  const bbsBmcOverride = window.fuelKursRates[opts.bbsBmcStateKey] || { modes: {}, values: {}, adjust: {} };
+  window.fuelKursRates[opts.bbsBmcStateKey] = bbsBmcOverride;
+
+  // adjustFn(adj) computes the cell for "Adjust" mode from the column's
+  // adjust entry ({ baseFreight, conversiFuel, ko, fo, ... }).
+  function bbsBmcCell(key, fmtFn, adjustFn) {
+    const mode = bbsBmcOverride.modes[key];
+    if (mode === 'allin') {
+      const ov = bbsBmcOverride.values[key];
+      return ov === null || ov === undefined || ov === 0 ? '' : fmtFn(ov);
+    }
+    if (mode === 'adjust' && adjustFn) {
+      const adj = bbsBmcOverride.adjust[key] || {};
+      if (!adj.baseFreight && !adj.conversiFuel) return '';
+      if (adj.ko === undefined || adj.fo === undefined) return '';
+      return fmtFn(adjustFn(adj));
+    }
+    return '';
+  }
+
+  function saveBbsBmcMode(col, mode) {
+    fuelKursPostAction(opts.actionPrefix + '_mode', { state_key: opts.bbsBmcStateKey, col: col, mode: mode });
+  }
+  function saveBbsBmcValue(col, value) {
+    fuelKursPostAction(opts.actionPrefix + '_value', { state_key: opts.bbsBmcStateKey, col: col, value: String(value) });
+  }
+  function saveBbsBmcAdjustBaseFreight(col, value) {
+    fuelKursPostAction(opts.actionPrefix + '_adjust_base_freight', { state_key: opts.bbsBmcStateKey, col: col, value: String(value) });
+  }
+  function saveBbsBmcAdjustConversiFuel(col, value) {
+    fuelKursPostAction(opts.actionPrefix + '_adjust_conversi_fuel', { state_key: opts.bbsBmcStateKey, col: col, value: String(value) });
+  }
+  function saveBbsBmcAdjustKo(col, date) {
+    fuelKursPostAction(opts.actionPrefix + '_adjust_ko', { state_key: opts.bbsBmcStateKey, col: col, date: date });
+  }
+  function saveBbsBmcAdjustFo(col, bulanTahun, periode) {
+    fuelKursPostAction(opts.actionPrefix + '_adjust_fo', { state_key: opts.bbsBmcStateKey, col: col, bulan_tahun: bulanTahun, periode: periode });
+  }
+
+  // Locked rows: iso date -> snapshot of dataCells taken at lock time. While
+  // locked, computeRow ignores freshly computed values and echoes the
+  // snapshot, so edits to Rates/BBS-BMC upstream don't move the row.
+  const lockedRows = {};
+
+  function computeRow(y, m0, d) {
+    const iso = isoFromParts(y, m0, d);
+    const bulanTahunDisplay = BULAN_NAMES[m0] + '-' + String(y).slice(-2);
+    const tanggalDisplay = d + '-' + bulanTahunDisplay;
+
+    const red = isRedDay(y, m0, d, iso);
+
+    // Formulas (Period Fn, Fuel, RF, BBS/BMC, BDD) always use the actual
+    // calendar date — no red-day override. ICI is the exception: it
+    // multiplies by the same Jisdor value shown in this row's Jisdor column
+    // (displayJisdorVal), so red-day rows stay internally consistent.
+    const kursVal = fuelKursDailyData.kursByDate[iso];
+    const jisdorVal = fuelKursDailyData.jisdorByDate[iso];
+    const pf = periodFn(y, m0, d);
+    const fuel = fuelCell(pf.bulanTahun, pf.periode);
+    const fuelPrice = fuel.pertamina;
+
+    // Kurs Tengah / Jisdor columns only: on a weekend/holiday, display the
+    // previous working day's kurs and the next working day's jisdor.
+    let displayKursVal = kursVal;
+    let displayJisdorVal = jisdorVal;
+    if (red) {
+      const prevDay = previousWorkingDay(y, m0, d);
+      displayKursVal = fuelKursDailyData.kursByDate[isoFromParts(prevDay.y, prevDay.m0, prevDay.d)];
+      const nextDay = nextWorkingDay(y, m0, d);
+      displayJisdorVal = fuelKursDailyData.jisdorByDate[isoFromParts(nextDay.y, nextDay.m0, nextDay.d)];
+    }
+
+    const fuelUsd = jisdorVal === undefined ? 0 : fuelPrice / jisdorVal;
+
+    const fuelPct = (window.fuelKursRates.rf.fuelPct || 0) / 100;
+    const fixedCostPct = (window.fuelKursRates.rf.fixedCostPct || 0) / 100;
+    const tolerancePlus = window.fuelKursRates.tolerance.plus10 || 0;
+    const toleranceMinus = window.fuelKursRates.tolerance.minus10 || 0;
+
+    let rf;
+    if (jisdorVal === undefined) {
+      rf = 0;
+    } else if (fuelPrice < tolerancePlus && fuelPrice > toleranceMinus) {
+      rf = 1.0;
+    } else {
+      const baseRatio = fuelKursBaseFuelPrice && fuelKursBaseJisdor ? fuelKursBaseFuelPrice / fuelKursBaseJisdor : 0;
+      const ratio = jisdorVal ? fuelKursRound((fuelPrice / jisdorVal) / (baseRatio || 1), 4) : 0;
+      rf = fuelKursRound(fuelPct * ratio, 4) + fixedCostPct;
+    }
+
+    const jisdorForIci = displayJisdorVal === undefined ? 0 : displayJisdorVal;
+    const tier = window.fuelKursRates[opts.tierKey];
+    const iciLt60 = fuelKursRound(jisdorForIci * (rf * tier.lt60.usdMt), 2);
+    const iciGt60 = fuelKursRound(jisdorForIci * (rf * tier.t60to65.usdMt), 2);
+
+    const dataCells = new Array(COLSPAN - 1).fill('');
+    dataCells[0] = bulanTahunDisplay;
+    dataCells[1] = tanggalDisplay;
+    dataCells[2] = displayKursVal === undefined ? '' : fmtMoney(displayKursVal);
+    dataCells[3] = displayJisdorVal === undefined ? '' : fmtMoney(displayJisdorVal);
+    dataCells[4] = pf.label;
+    dataCells[5] = fmtFuelUsd(fuelUsd);
+    dataCells[6] = fmtPct(rf);
+    dataCells[7] = fmtMoney(iciLt60);
+    dataCells[8] = fmtMoney(iciGt60);
+    function bbsBmcAdjustFn(adj) {
+      return bbsBmcFormula(kursVal, fuel.total, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
+    }
+    dataCells[9] = bbsBmcCell('berau', fmtMoney, bbsBmcAdjustFn);
+    dataCells[10] = bbsBmcCell('pdp', fmtMoney, bbsBmcAdjustFn);
+    dataCells[11] = bbsBmcCell('bdd', fmtMoney, bbsBmcAdjustFn);
+    dataCells[12] = bbsBmcCell('dls', fmtMoney0, bbsBmcAdjustFn);
+    dataCells[13] = bbsBmcCell('gls', fmtMoney0, bbsBmcAdjustFn);
+    dataCells[14] = bbsBmcCell('gms', fmtMoney0, bbsBmcAdjustFn);
+    dataCells[15] = bbsBmcCell('tml', fmtMoney, bbsBmcAdjustFn);
+    dataCells[16] = bbsBmcCell('ksu', fmtMoney, bbsBmcAdjustFn);
+    dataCells[17] = bbsBmcCell('tms', fmtMoney, bbsBmcAdjustFn);
+    dataCells[18] = bbsBmcCell('ayu', fmtMoney, bbsBmcAdjustFn);
+    dataCells[19] = bbsBmcCell('cnb', fmtMoney, bbsBmcAdjustFn);
+    dataCells[20] = bbsBmcCell('ppsj', fmtMoney, bbsBmcAdjustFn);
+
+    // Locked row: freeze at the snapshot taken when the lock was toggled on,
+    // ignore this recompute so rate/nilai edits upstream don't change it.
+    const locked = lockedRows.hasOwnProperty(iso);
+    const cells = locked ? lockedRows[iso].slice() : dataCells;
+    cells.unshift(lockRowCell(iso, locked));
+    return { cells: cells, red: red };
+  }
+
+  // bulanTahun is "Mmm-YY" (e.g. "Jan-26"); rows get one per day.
+  function rowsForMonth(bulanTahun) {
+    const mmm = bulanTahun.split('-')[0];
+    const yy = bulanTahun.split('-')[1];
+    const monthIndex = BULAN_NAMES.indexOf(mmm);
+    if (monthIndex < 0) return [];
+    const year = 2000 + Number(yy);
+    const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+    const rows = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      rows.push(computeRow(year, monthIndex, d));
+    }
+    return rows;
+  }
+
+  function rowsForAllMonths() {
+    return Object.keys(window.fuelKursPertaminaLookup || {}).reduce(function (acc, bt) {
+      return acc.concat(rowsForMonth(bt));
+    }, []);
+  }
+
+  function resetChooser() {
+    chooser.classList.remove('d-none');
+    monthPicker.classList.add('d-none');
+    content.classList.add('d-none');
+    bbsBmcModeCard.classList.add('d-none');
+    monthSelect.value = '';
+  }
+
+  let currentView = null; // 'all' or a bulanTahun string, whichever is on screen
+
+  function syncLockAllCheckbox() {
+    const lockAllCheckbox = document.getElementById('lockAll-' + opts.id);
+    if (!lockAllCheckbox) return;
+    const btns = document.querySelectorAll('#tbody-' + opts.id + ' .row-lock-btn');
+    const lockedCount = Array.prototype.filter.call(btns, function (btn) {
+      return lockedRows.hasOwnProperty(btn.dataset.iso);
+    }).length;
+    lockAllCheckbox.checked = btns.length > 0 && lockedCount === btns.length;
+    lockAllCheckbox.indeterminate = lockedCount > 0 && lockedCount < btns.length;
+  }
+  fuelKursLockSync[opts.id] = syncLockAllCheckbox;
+
+  function refreshTable() {
+    if (!currentView) return;
+    const rows = currentView === 'all' ? rowsForAllMonths() : rowsForMonth(currentView);
+    fuelKursTables[opts.id].setRows(rows);
+  }
+
+  chooser.querySelectorAll('.fuelkurs-mode-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      chooser.classList.add('d-none');
+      if (btn.dataset.mode === 'month') {
+        monthPicker.classList.remove('d-none');
+      } else {
+        bbsBmcModeCard.classList.add('d-none');
+        currentView = 'all';
+        fuelKursTables[opts.id].setRows(rowsForAllMonths());
+        content.classList.remove('d-none');
+      }
+    });
+  });
+
+  monthSelect.addEventListener('change', function () {
+    if (!monthSelect.value) {
+      content.classList.add('d-none');
+      bbsBmcModeCard.classList.add('d-none');
+      return;
+    }
+    currentView = monthSelect.value;
+    fuelKursTables[opts.id].setRows(rowsForMonth(monthSelect.value));
+    content.classList.remove('d-none');
+    bbsBmcModeCard.classList.remove('d-none');
+  });
+
+  document.querySelector('#section-' + opts.id + ' .fuelkurs-back-btn').addEventListener('click', resetChooser);
+
+  document.getElementById('tbody-' + opts.id).addEventListener('click', function (e) {
+    const btn = e.target.closest('.row-lock-btn');
+    if (!btn) return;
+    const iso = btn.dataset.iso;
+    if (lockedRows.hasOwnProperty(iso)) {
+      delete lockedRows[iso];
+    } else {
+      lockedRows[iso] = snapshotRow(btn.closest('tr'));
+    }
+    refreshTable();
+  });
+
+  // Select-all: locks/unlocks every row on the currently rendered page only.
+  const lockAllCheckbox = document.getElementById('lockAll-' + opts.id);
+  if (lockAllCheckbox) {
+    lockAllCheckbox.addEventListener('change', function () {
+      const shouldLock = lockAllCheckbox.checked;
+      document.querySelectorAll('#tbody-' + opts.id + ' .row-lock-btn').forEach(function (btn) {
+        const iso = btn.dataset.iso;
+        const isLocked = lockedRows.hasOwnProperty(iso);
+        if (shouldLock && !isLocked) {
+          lockedRows[iso] = snapshotRow(btn.closest('tr'));
+        } else if (!shouldLock && isLocked) {
+          delete lockedRows[iso];
+        }
+      });
+      refreshTable();
+    });
+  }
+
+  bbsBmcModeCard.querySelectorAll('.bbsBmc-col-row').forEach(function (row) {
+    const key = row.dataset.col;
+    const allinWrap = row.querySelector('.bbsBmc-allin-wrap');
+    const adjustWrap = row.querySelector('.bbsBmc-adjust-wrap');
+    const storedMode = bbsBmcOverride.modes[key] || 'allin';
+    bbsBmcOverride.modes[key] = storedMode;
+    row.querySelectorAll('.bbsBmc-mode-radio').forEach(function (radio) {
+      radio.checked = radio.value === storedMode;
+    });
+    allinWrap.classList.toggle('d-none', storedMode !== 'allin');
+    adjustWrap.classList.toggle('d-none', storedMode !== 'adjust');
+
+    row.querySelectorAll('.bbsBmc-mode-radio').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        bbsBmcOverride.modes[key] = radio.value;
+        allinWrap.classList.toggle('d-none', radio.value !== 'allin');
+        adjustWrap.classList.toggle('d-none', radio.value !== 'adjust');
+        saveBbsBmcMode(key, radio.value);
+        refreshTable();
+      });
+    });
+
+    // All-in value: restore from the persisted rate on load.
+    const allinInput = row.querySelector('.bbsBmc-allin-input');
+    const storedAllinValue = bbsBmcOverride.values[key];
+    if (storedAllinValue) {
+      allinInput.value = fuelKursFormatValue(storedAllinValue);
+    }
+
+    // Ko: user picks a date, value read straight from the Kurs Tengah series
+    // (same dense date->value map the daily engine already uses).
+    const koSelect = row.querySelector('.bbsBmc-ko-select');
+    const koValueEl = row.querySelector('.bbsBmc-ko-value');
+    Object.keys(fuelKursDailyData.kursByDate).sort().forEach(function (iso) {
+      const opt = document.createElement('option');
+      opt.value = iso;
+      opt.textContent = iso;
+      koSelect.appendChild(opt);
+    });
+
+    function applyKoSelection(persist) {
+      const value = koSelect.value ? fuelKursDailyData.kursByDate[koSelect.value] : undefined;
+      koValueEl.textContent = value === undefined ? '-' : fmtMoney(value);
+      bbsBmcOverride.adjust[key] = bbsBmcOverride.adjust[key] || {};
+      bbsBmcOverride.adjust[key].ko = value;
+      if (persist) saveBbsBmcAdjustKo(key, koSelect.value);
+      refreshTable();
+    }
+    koSelect.addEventListener('change', function () { applyKoSelection(true); });
+
+    // Fo: user picks a Bulan-Tahun/Periode, value read from the Fuel page's
+    // "Total" column (pertamina + PPN + PBBKB + PPH22).
+    const foBulanSelect = row.querySelector('.bbsBmc-fo-bulan-select');
+    const foPeriodeSelect = row.querySelector('.bbsBmc-fo-periode-select');
+    const foValueEl = row.querySelector('.bbsBmc-fo-value');
+    Object.keys(fuelKursDailyData.fuelPeriodTable).forEach(function (bt) {
+      const opt = document.createElement('option');
+      opt.value = bt;
+      opt.textContent = bt;
+      foBulanSelect.appendChild(opt);
+    });
+
+    function refreshFoPeriodeOptions() {
+      const periods = fuelKursDailyData.fuelPeriodTable[foBulanSelect.value] || {};
+      foPeriodeSelect.innerHTML = '<option value="">-</option>' +
+        Object.keys(periods).map(function (p) {
+          return '<option value="' + p + '">' + p + '</option>';
+        }).join('');
+    }
+
+    function applyFoSelection(persist) {
+      const periods = fuelKursDailyData.fuelPeriodTable[foBulanSelect.value];
+      const cell = periods ? periods[foPeriodeSelect.value] : undefined;
+      const value = cell ? cell.total : undefined;
+      foValueEl.textContent = value === undefined ? '-' : fmtMoney(value);
+      bbsBmcOverride.adjust[key] = bbsBmcOverride.adjust[key] || {};
+      bbsBmcOverride.adjust[key].fo = value;
+      if (persist) saveBbsBmcAdjustFo(key, foBulanSelect.value, foPeriodeSelect.value);
+      refreshTable();
+    }
+
+    foBulanSelect.addEventListener('change', function () {
+      refreshFoPeriodeOptions();
+      applyFoSelection(true);
+    });
+    foPeriodeSelect.addEventListener('change', function () { applyFoSelection(true); });
+
+    // Restore Base Freight / Conversi Fuel / Ko / Fo from the persisted adjust entry on load.
+    const storedAdjust = bbsBmcOverride.adjust[key] || {};
+    const baseFreightInput = row.querySelector('.bbsBmc-basefreight-input');
+    if (storedAdjust.baseFreight) {
+      baseFreightInput.value = fuelKursFormatValue(storedAdjust.baseFreight);
+    }
+    const conversiFuelInput = row.querySelector('.bbsBmc-conversifuel-input');
+    if (storedAdjust.conversiFuel) {
+      conversiFuelInput.value = fuelKursFormatValue(storedAdjust.conversiFuel);
+    }
+    if (storedAdjust.koDate) {
+      koSelect.value = storedAdjust.koDate;
+      applyKoSelection(false);
+    }
+    if (storedAdjust.foBulanTahun) {
+      foBulanSelect.value = storedAdjust.foBulanTahun;
+      refreshFoPeriodeOptions();
+      foPeriodeSelect.value = storedAdjust.foPeriode != null ? String(storedAdjust.foPeriode) : '';
+      applyFoSelection(false);
+    }
+  });
+
+  bbsBmcModeCard.querySelectorAll('.bbsBmc-allin-input').forEach(function (input) {
+    input.addEventListener('blur', function () {
+      const value = fuelKursParseNumber(input.value);
+      input.value = fuelKursFormatValue(value);
+      bbsBmcOverride.values[input.dataset.col] = value;
+      saveBbsBmcValue(input.dataset.col, value);
+      refreshTable();
+    });
+  });
+
+  bbsBmcModeCard.querySelectorAll('.bbsBmc-basefreight-input').forEach(function (input) {
+    input.addEventListener('blur', function () {
+      const value = fuelKursParseNumber(input.value);
+      input.value = fuelKursFormatValue(value);
+      const key = input.dataset.col;
+      bbsBmcOverride.adjust[key] = bbsBmcOverride.adjust[key] || {};
+      bbsBmcOverride.adjust[key].baseFreight = value;
+      saveBbsBmcAdjustBaseFreight(key, value);
+      refreshTable();
+    });
+  });
+
+  bbsBmcModeCard.querySelectorAll('.bbsBmc-conversifuel-input').forEach(function (input) {
+    input.addEventListener('blur', function () {
+      const value = fuelKursParseNumber(input.value);
+      input.value = fuelKursFormatValue(value);
+      const key = input.dataset.col;
+      bbsBmcOverride.adjust[key] = bbsBmcOverride.adjust[key] || {};
+      bbsBmcOverride.adjust[key].conversiFuel = value;
+      saveBbsBmcAdjustConversiFuel(key, value);
+      refreshTable();
+    });
+  });
+}
+
+makeBargesEngine({ id: 'bargesMhu', tierKey: 'mhu', bbsBmcStateKey: 'bbsBmc', actionPrefix: 'save_bbsbmc' });
+makeBargesEngine({ id: 'bargesCam', tierKey: 'cam', bbsBmcStateKey: 'bbsBmcCam', actionPrefix: 'save_bbsbmc' });
+</script>
+
+<%- include('partials/footer') %>
