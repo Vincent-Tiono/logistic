@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0005
 ---
 
 # Incrementally migrate PHP to Node/TS + Fastify, strangler-fig style
