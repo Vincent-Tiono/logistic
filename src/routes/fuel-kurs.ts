@@ -8,17 +8,26 @@ import {
   BARGES_MHU_BASE_JISDOR,
   BARGES_MHU_BASE_PERIODE,
   buildDenseDateSeries,
+  fuelTaxPertaminaPbbkbPph22,
   fuelTaxTotal,
   getFuelKursRates,
   saveBbsBmcAdjustBaseFreight,
   saveBbsBmcAdjustConversiFuel,
   saveBbsBmcAdjustFo,
+  saveBbsBmcAdjustFoManual,
+  saveBbsBmcAdjustFoSource,
   saveBbsBmcAdjustKo,
+  saveBbsBmcAdjustKoManual,
+  saveBbsBmcAdjustKoSource,
   saveBbsBmcMode,
+  saveBbsBmcRfField,
+  saveBbsBmcRfToleranceBase,
   saveBbsBmcValue,
+  saveFlfFoBase,
+  saveFlfFr,
+  saveFlfToleranceField,
   saveFuelKursFuelValueBase,
   saveFuelKursRate,
-  saveFuelKursToleranceBase,
   type FuelPeriodTable,
 } from "../services/fuel-kurs.service.js";
 import { listFuelData } from "../services/fuel.service.js";
@@ -35,6 +44,9 @@ interface FuelKursBody {
   mode?: string;
   date?: string;
   state_key?: string;
+  source?: string;
+  section?: string;
+  group_key?: string;
 }
 
 const BULAN_NAMES = [
@@ -94,6 +106,7 @@ export async function fuelKursRoutes(app: FastifyInstance) {
         fuelPeriodTable[bulanTahun][Number(periode)] = {
           pertamina: cell.pertamina,
           total: fuelTaxTotal(cell.pertamina),
+          pertaminaPbbkbPph22: fuelTaxPertaminaPbbkbPph22(cell.pertamina),
         };
         if (cell.pertamina === 0) continue;
         pertaminaLookup[bulanTahun] ??= {};
@@ -184,8 +197,19 @@ export async function fuelKursRoutes(app: FastifyInstance) {
         return reply.send(result);
       }
 
-      if (req.body.action === "save_tolerance_base") {
-        const result = await saveFuelKursToleranceBase(pool, {
+      if (req.body.action === "save_bbsbmc_rf_field") {
+        const result = await saveBbsBmcRfField(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
+          field: req.body.field ?? "",
+          value: parseNumericInput(req.body.value),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_bbsbmc_rf_tolerance_base") {
+        const result = await saveBbsBmcRfToleranceBase(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
           bulanTahun: req.body.bulan_tahun ?? "",
           periode: Number.parseInt(req.body.periode ?? "0", 10),
         });
@@ -252,12 +276,83 @@ export async function fuelKursRoutes(app: FastifyInstance) {
         return reply.send(result);
       }
 
+      if (req.body.action === "save_bbsbmc_adjust_ko_source") {
+        const result = await saveBbsBmcAdjustKoSource(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
+          col: req.body.col ?? "",
+          source: req.body.source ?? "",
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_bbsbmc_adjust_ko_manual") {
+        const result = await saveBbsBmcAdjustKoManual(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
+          col: req.body.col ?? "",
+          value: parseNumericInput(req.body.value),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_bbsbmc_adjust_fo_manual") {
+        const result = await saveBbsBmcAdjustFoManual(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
+          col: req.body.col ?? "",
+          value: parseNumericInput(req.body.value),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_bbsbmc_adjust_fo_source") {
+        const result = await saveBbsBmcAdjustFoSource(pool, {
+          stateKey: req.body.state_key ?? "bbsBmc",
+          col: req.body.col ?? "",
+          source: req.body.source ?? "",
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
       if (req.body.action === "save_bbsbmc_adjust_fo") {
         const result = await saveBbsBmcAdjustFo(pool, {
           stateKey: req.body.state_key ?? "bbsBmc",
           col: req.body.col ?? "",
           bulanTahun: req.body.bulan_tahun ?? "",
           periode: Number.parseInt(req.body.periode ?? "0", 10),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_flf_tolerance_field") {
+        const result = await saveFlfToleranceField(pool, {
+          section: req.body.section ?? "",
+          field: req.body.field ?? "",
+          value: parseNumericInput(req.body.value),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_flf_fo_base") {
+        const result = await saveFlfFoBase(pool, {
+          section: req.body.section ?? "",
+          bulanTahun: req.body.bulan_tahun ?? "",
+          periode: Number.parseInt(req.body.periode ?? "0", 10),
+        });
+        if (!result.ok) reply.code(400);
+        return reply.send(result);
+      }
+
+      if (req.body.action === "save_flf_fr") {
+        const result = await saveFlfFr(pool, {
+          section: req.body.section ?? "",
+          groupKey: req.body.group_key ?? "",
+          field: req.body.field ?? "",
+          value: parseNumericInput(req.body.value),
         });
         if (!result.ok) reply.code(400);
         return reply.send(result);
