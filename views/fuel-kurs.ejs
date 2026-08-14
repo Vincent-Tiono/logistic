@@ -417,7 +417,20 @@
 
 </div>
 
-<script>
+<script type="module">
+import {
+  BULAN_NAMES,
+  roundTo as fuelKursRound,
+  periodFn,
+  fuelCell as fuelCellPure,
+  computeRfRatio,
+  bbsBmcAdjustValue,
+  bddValue,
+  dlsValue,
+  glsGmsValue,
+  iciUsdMtValue,
+} from '/assets/js/fuel-kurs-calc.mjs';
+
 // Live rates, kept in sync with the editable cells above; the Barges
 // MHU/CAM and FLF submodules read this for their calculations.
 window.fuelKursRates = <%- JSON.stringify(rates) %>;
@@ -818,8 +831,6 @@ document.querySelectorAll('.fuelkurs-back-btn').forEach(function (btn) {
 // differs per instance: which Freight tier (mhu vs cam) feeds the ICI
 // columns, and which bbsBmc override bucket (bbsBmc vs bbsBmcCam) backs the
 // "Pilih All-in atau Adjust per kolom" card.
-const BULAN_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-
 // "Jan-26" <-> "2026-01", for wiring <input type="month"> to the Mmm-YY
 // bulanTahun keys used throughout fuelPeriodTable/pertaminaLookup.
 function bulanTahunToMonthValue(bt) {
@@ -839,11 +850,6 @@ function monthValueToBulanTahun(mv) {
 
 function isoFromParts(y, m0, d) {
   return y + '-' + String(m0 + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
-}
-
-function fuelKursRound(n, decimals) {
-  const f = Math.pow(10, decimals);
-  return Math.round(n * f) / f;
 }
 
 function fmtMoney(n) {
@@ -909,8 +915,7 @@ function nextWorkingDay(y, m0, d) {
 }
 
 function fuelCell(bulanTahun, periode) {
-  const byPeriode = fuelKursDailyData.fuelPeriodTable[bulanTahun];
-  return (byPeriode && byPeriode[periode]) || { pertamina: 0, total: 0, pertaminaPbbkbPph22: 0 };
+  return fuelCellPure(fuelKursDailyData.fuelPeriodTable, bulanTahun, periode);
 }
 
 const fuelKursBaseFuel = fuelCell(fuelKursCfg.baseBulanTahun, fuelKursCfg.basePeriode);
@@ -920,36 +925,13 @@ const fuelKursBaseJisdor = fuelKursCfg.baseJisdor || 0;
 // RF: single shared config, always Barges MHU's bbsBmc.rf entry — Barges
 // CAM and FLF both copy this value rather than keeping their own.
 function computeRfRatioShared(fuelPrice, displayJisdorVal) {
-  const entry = (window.fuelKursRates.bbsBmc && window.fuelKursRates.bbsBmc.rf) || {};
-  const fuelPct = (entry.fuelPct || 0) / 100;
-  const fixedCostPct = (entry.fixedCostPct || 0) / 100;
-  const tolerancePlus = entry.tolerancePlus10 || 0;
-  const toleranceMinus = entry.toleranceMinus10 || 0;
-  if (displayJisdorVal === undefined) return 0;
-  if (fuelPrice < tolerancePlus && fuelPrice > toleranceMinus) return 1.0;
-  const baseRatio = fuelKursBaseFuelPrice && fuelKursBaseJisdor ? fuelKursBaseFuelPrice / fuelKursBaseJisdor : 0;
-  const rawRatio = displayJisdorVal ? fuelKursRound((fuelPrice / displayJisdorVal) / (baseRatio || 1), 4) : 0;
-  const ratio = rawRatio * fuelPct;
-  return ratio + fixedCostPct;
-}
-
-// Period Fn: 1st-14th = Period 1, 15th-end = Period 2 of the calendar month.
-function periodFn(y, m0, d) {
-  const periode = d <= 14 ? 1 : 2;
-  const mmm = BULAN_NAMES[m0];
-  const yy = String(y).slice(-2);
-  return {
-    periode: periode,
-    bulanTahun: mmm + '-' + yy,
-    label: 'Period ' + periode + ' ' + mmm + ' ' + yy,
-  };
-}
-
-// anchorKursVal/anchorFuelTotalVal come from the column's Adjust-mode
-// Ko/Fo picks (per-column anchors), not a fixed global anchor.
-function bbsBmcFormula(kursVal, fuelTaxTotal, rateA, rateB, anchorKursVal, anchorFuelTotalVal) {
-  if (kursVal === undefined || anchorKursVal === undefined) return 0;
-  return rateA * anchorKursVal * (kursVal / anchorKursVal) + (fuelTaxTotal - anchorFuelTotalVal) * rateB;
+  return computeRfRatio({
+    fuelPrice: fuelPrice,
+    displayJisdorVal: displayJisdorVal,
+    rfConfig: window.fuelKursRates.bbsBmc && window.fuelKursRates.bbsBmc.rf,
+    baseFuelPrice: fuelKursBaseFuelPrice,
+    baseJisdor: fuelKursBaseJisdor,
+  });
 }
 
 function fuelKursPostAction(action, params) {
@@ -1099,15 +1081,6 @@ function makeBargesEngine(opts) {
 
     const jisdorForIci = displayJisdorVal === undefined ? 0 : displayJisdorVal;
     const tier = window.fuelKursRates[opts.tierKey];
-    // Each column below has its own dedicated formula function, kept
-    // separate on purpose — even where the math is identical today, editing
-    // one column's formula must never silently change another's.
-    function iciLt60Fn() {
-      return fuelKursRound(jisdorForIci * (rf * tier.lt60.usdMt), 2);
-    }
-    function iciGt60Fn() {
-      return fuelKursRound(jisdorForIci * (rf * tier.t60to65.usdMt), 2);
-    }
 
     const dataCells = new Array(COLSPAN - 1).fill('');
     dataCells[0] = bulanTahunDisplay;
@@ -1120,82 +1093,35 @@ function makeBargesEngine(opts) {
     // koSource/foSource pick which series backs the formula's "current"
     // value (kursVal vs jisdorVal) and fuel total (Total vs Pertamina) —
     // they must match what the Ko/Fo anchor was read from, per column.
-    function berauAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
+    // Berau/PDP/TML/KSU/TMS/AYU/CNB/PPSJ share one formula (bbsBmcAdjustValue
+    // in fuel-kurs-calc.mjs); BDD/DLS/GLS/GMS each have their own, distinct
+    // formula and stay separate on purpose.
+    function sharedAdjustFn(adj) {
+      return bbsBmcAdjustValue(adj, { jisdorVal: jisdorVal, kursVal: kursVal, fuel: fuel });
     }
-    function pdpAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    // BDD: row's own Jisdor gate + row's own Period Fn Fuel Total, not the
-    // anchor-ratio formula the other BBS/BMC columns use.
-    // = 0 if row's Jisdor blank, else baseFreight + conversiFuel * (fuel.total - fo).
     function bddAdjustFn(adj) {
-      if (displayJisdorVal === undefined) return 0;
-      return adj.baseFreight + adj.conversiFuel * (fuel.total - adj.fo);
+      return bddValue(adj, { displayJisdorVal: displayJisdorVal, fuel: fuel });
     }
-    // = 0 if row's Jisdor blank, else baseFreight + (fuel.total - fo) * conversiFuel.
     function dlsAdjustFn(adj) {
-      if (displayJisdorVal === undefined) return 0;
-      return adj.baseFreight + (fuel.total - adj.fo) * adj.conversiFuel;
+      return dlsValue(adj, { displayJisdorVal: displayJisdorVal, fuel: fuel });
     }
-    // Same base formula as DLS, additionally rounded to a whole number
-    // (displayed with .00 via fmtMoney).
-    function glsAdjustFn(adj) {
-      if (displayJisdorVal === undefined) return 0;
-      return fuelKursRound((adj.baseFreight * 1.11 + (fuel.total - adj.fo) * adj.conversiFuel) / 1.11, 0);
+    function glsGmsAdjustFn(adj) {
+      return glsGmsValue(adj, { displayJisdorVal: displayJisdorVal, fuel: fuel });
     }
-    function gmsAdjustFn(adj) {
-      if (displayJisdorVal === undefined) return 0;
-      return fuelKursRound((adj.baseFreight * 1.11 + (fuel.total - adj.fo) * adj.conversiFuel) / 1.11, 0);
-    }
-    function tmlAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    function ksuAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    function tmsAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    function ayuAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    function cnbAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    function ppsjAdjustFn(adj) {
-      const currentKurs = adj.koSource === 'jisdor' ? jisdorVal : kursVal;
-      const currentFuel = adj.foSource === 'pertamina' ? fuel.pertamina : fuel.total;
-      return bbsBmcFormula(currentKurs, currentFuel, adj.baseFreight, adj.conversiFuel, adj.ko, adj.fo);
-    }
-    dataCells[7] = bbsBmcCellWithDefault('ici_lt60', iciLt60Fn(), fmtMoney);
-    dataCells[8] = bbsBmcCellWithDefault('ici_gt60', iciGt60Fn(), fmtMoney);
-    dataCells[9] = bbsBmcCell('berau', fmtMoney, berauAdjustFn);
-    dataCells[10] = bbsBmcCell('pdp', fmtMoney, pdpAdjustFn);
+    dataCells[7] = bbsBmcCellWithDefault('ici_lt60', iciUsdMtValue(jisdorForIci, rf, tier.lt60.usdMt), fmtMoney);
+    dataCells[8] = bbsBmcCellWithDefault('ici_gt60', iciUsdMtValue(jisdorForIci, rf, tier.t60to65.usdMt), fmtMoney);
+    dataCells[9] = bbsBmcCell('berau', fmtMoney, sharedAdjustFn);
+    dataCells[10] = bbsBmcCell('pdp', fmtMoney, sharedAdjustFn);
     dataCells[11] = bbsBmcCell('bdd', fmtMoney, bddAdjustFn, false);
     dataCells[12] = bbsBmcCell('dls', fmtMoney, dlsAdjustFn, false);
-    dataCells[13] = bbsBmcCell('gls', fmtMoney, glsAdjustFn, false);
-    dataCells[14] = bbsBmcCell('gms', fmtMoney, gmsAdjustFn, false);
-    dataCells[15] = bbsBmcCell('tml', fmtMoney, tmlAdjustFn);
-    dataCells[16] = bbsBmcCell('ksu', fmtMoney, ksuAdjustFn);
-    dataCells[17] = bbsBmcCell('tms', fmtMoney, tmsAdjustFn);
-    dataCells[18] = bbsBmcCell('ayu', fmtMoney, ayuAdjustFn);
-    dataCells[19] = bbsBmcCell('cnb', fmtMoney, cnbAdjustFn);
-    dataCells[20] = bbsBmcCell('ppsj', fmtMoney, ppsjAdjustFn);
+    dataCells[13] = bbsBmcCell('gls', fmtMoney, glsGmsAdjustFn, false);
+    dataCells[14] = bbsBmcCell('gms', fmtMoney, glsGmsAdjustFn, false);
+    dataCells[15] = bbsBmcCell('tml', fmtMoney, sharedAdjustFn);
+    dataCells[16] = bbsBmcCell('ksu', fmtMoney, sharedAdjustFn);
+    dataCells[17] = bbsBmcCell('tms', fmtMoney, sharedAdjustFn);
+    dataCells[18] = bbsBmcCell('ayu', fmtMoney, sharedAdjustFn);
+    dataCells[19] = bbsBmcCell('cnb', fmtMoney, sharedAdjustFn);
+    dataCells[20] = bbsBmcCell('ppsj', fmtMoney, sharedAdjustFn);
 
     // Locked row: freeze at the snapshot taken when the lock was toggled on,
     // ignore this recompute so rate/nilai edits upstream don't change it.

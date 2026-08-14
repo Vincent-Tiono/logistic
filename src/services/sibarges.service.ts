@@ -62,7 +62,6 @@ export interface CreateInput {
   jetty_code?: string;
   shipper_code?: string;
   laycan_start?: string;
-  laycan_end?: string;
   record_status?: string;
   remarks?: string;
 }
@@ -125,6 +124,17 @@ function toDecimal(s: string | undefined): number {
 function monthYearFromYmd(ymd: string): { month: number; year: number } {
   const [year, month] = ymd.split("-").map(Number);
   return { month, year };
+}
+
+/** ACT/CANCEL only (DISCARD is a separate transition, not writable via create/update) — blank or invalid input falls back to ACT. Shared by createSibarges/updateSibarges. */
+function resolveRecordStatus(raw: string | undefined): string {
+  const status = (clean(raw) || "ACT").toUpperCase();
+  return RECORD_STATUSES_WRITABLE.includes(status) ? status : "ACT";
+}
+
+/** Laycan End is never user-supplied — always Laycan Start + 1 day. Shared by createSibarges/updateSibarges. */
+function deriveLaycanEnd(laycanStart: string | null): string | null {
+  return laycanStart ? addDaysYmd(laycanStart, 1) : null;
 }
 
 export async function listSibarges(
@@ -321,14 +331,8 @@ export async function createSibarges(
   const shipper_code = cleanCode(input.shipper_code);
 
   const laycan_start = parseDateAny(input.laycan_start);
-  let laycan_end = parseDateAny(input.laycan_end);
-  if (laycan_start) {
-    laycan_end = addDaysYmd(laycan_start, 1);
-  }
-
-  let record_status = (clean(input.record_status) || "ACT").toUpperCase();
-  if (!RECORD_STATUSES_WRITABLE.includes(record_status)) record_status = "ACT";
-
+  const laycan_end = deriveLaycanEnd(laycan_start);
+  const record_status = resolveRecordStatus(input.record_status);
   const remarks = clean(input.remarks);
 
   if (no_pk === "") return { ok: false, msg: "No PK wajib diisi." };
@@ -431,11 +435,8 @@ export async function updateSibarges(
   const shipper_code = cleanCode(input.shipper_code);
 
   const laycan_start = parseDateAny(input.laycan_start);
-  const laycan_end = laycan_start ? addDaysYmd(laycan_start, 1) : null;
-
-  let record_status = (clean(input.record_status) || "ACT").toUpperCase();
-  if (!RECORD_STATUSES_WRITABLE.includes(record_status)) record_status = "ACT";
-
+  const laycan_end = deriveLaycanEnd(laycan_start);
+  const record_status = resolveRecordStatus(input.record_status);
   const remarks = clean(input.remarks);
 
   const [statusRows] = await pool.query<({ record_status: string } & RowDataPacket)[]>(

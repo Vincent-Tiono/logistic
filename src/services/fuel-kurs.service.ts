@@ -1,6 +1,6 @@
 import type { Pool, RowDataPacket } from "mysql2/promise";
 import { addDaysYmd } from "../lib/date.js";
-import type { ActionResult } from "./fuel.service.js";
+import type { ActionResult, FuelRates } from "./fuel.service.js";
 
 export interface FreightTier {
   usdMt: number;
@@ -261,478 +261,248 @@ export async function getFuelKursRates(pool: Pool): Promise<FuelKursRates> {
   return merged;
 }
 
-export interface SaveFuelKursRateInput {
-  field: string;
-  value: number;
-}
-
-export async function saveFuelKursRate(
-  pool: Pool,
-  input: SaveFuelKursRateInput
-): Promise<ActionResult> {
-  if (!isFuelKursRateField(input.field)) {
-    return { ok: false, error: "Invalid input" };
-  }
-
-  await pool.query(
-    "UPDATE fuel_kurs_rates SET rates_json = JSON_SET(rates_json, ?, ?) WHERE id = 1",
-    [`$.${input.field}`, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveFuelKursBaseInput {
-  bulanTahun: string;
-  periode: number;
-}
-
-async function saveFuelKursBase(
-  pool: Pool,
-  bulanTahunPath: string,
-  periodePath: string,
-  input: SaveFuelKursBaseInput
-): Promise<ActionResult> {
-  const bulanTahun = input.bulanTahun.trim();
-  if (bulanTahun !== "" && input.periode !== 1 && input.periode !== 2) {
-    return { ok: false, error: "Invalid input" };
-  }
-
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_SET(rates_json, ?, ?, ?, ?)
-     WHERE id = 1`,
-    [bulanTahunPath, bulanTahun, periodePath, bulanTahun === "" ? 0 : input.periode]
-  );
-  return { ok: true };
-}
-
-export function saveFuelKursFuelValueBase(
-  pool: Pool,
-  input: SaveFuelKursBaseInput
-): Promise<ActionResult> {
-  return saveFuelKursBase(pool, "$.rf.fuelValueBulanTahun", "$.rf.fuelValuePeriode", input);
-}
-
-// ===== Barges MHU / Barges CAM: BBS/BMC "All-in vs Adjust" per-column overrides =====
-//
-// Both submodules share the same column set and formula shape but keep
-// independent state — `bbsBmc` for Barges MHU, `bbsBmcCam` for Barges CAM —
-// so picking All-in/Adjust (or Ko/Fo anchors) on one never touches the other.
-
+// Barges MHU/Barges CAM keep independent BBS/BMC override state — `bbsBmc`
+// for MHU, `bbsBmcCam` for CAM — so picking All-in/Adjust (or Ko/Fo anchors)
+// on one never touches the other.
 export type BbsBmcStateKey = "bbsBmc" | "bbsBmcCam";
 
 function isBbsBmcStateKey(key: string): key is BbsBmcStateKey {
   return key === "bbsBmc" || key === "bbsBmcCam";
 }
 
-export interface SaveBbsBmcModeInput {
-  stateKey: string;
-  col: string;
-  mode: string;
-}
-
-// JSON_SET requires every path segment above the leaf to already exist, and
-// bbsBmc's per-column sub-objects (modes/values/adjust.<col>) are never
-// pre-scaffolded, so a plain JSON_SET silently no-ops on a column's first
-// write. JSON_MERGE_PATCH creates missing nested objects along the way, so
-// every bbsBmc.* save below uses it instead.
-export async function saveBbsBmcMode(
-  pool: Pool,
-  input: SaveBbsBmcModeInput
-): Promise<ActionResult> {
-  if (
-    !isBbsBmcStateKey(input.stateKey) ||
-    !BBS_BMC_COLUMNS.has(input.col) ||
-    (input.mode !== "allin" && input.mode !== "adjust")
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('modes', JSON_OBJECT(?, ?))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.mode]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcValueInput {
-  stateKey: string;
-  col: string;
-  value: number;
-}
-
-export async function saveBbsBmcValue(
-  pool: Pool,
-  input: SaveBbsBmcValueInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('values', JSON_OBJECT(?, ?))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustFieldInput {
-  stateKey: string;
-  col: string;
-  value: number;
-}
-
-/** Base Freight: the flat freight-rate input in the "Adjust" formula group. */
-export async function saveBbsBmcAdjustBaseFreight(
-  pool: Pool,
-  input: SaveBbsBmcAdjustFieldInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('baseFreight', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.value]
-  );
-  return { ok: true };
-}
-
-/** Conversi Fuel: the fuel-conversion input in the "Adjust" formula group. */
-export async function saveBbsBmcAdjustConversiFuel(
-  pool: Pool,
-  input: SaveBbsBmcAdjustFieldInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('conversiFuel', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustKoInput {
-  stateKey: string;
-  col: string;
-  date: string;
-}
-
-/** Ko: the date the user picked out of the Kurs Tengah table. */
-export async function saveBbsBmcAdjustKo(
-  pool: Pool,
-  input: SaveBbsBmcAdjustKoInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('koDate', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.date]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustKoSourceInput {
-  stateKey: string;
-  col: string;
-  source: string;
-}
-
-/** Ko Sumber: which series (Kurs Tengah, Jisdor, or a typed-in Manual value) the Ko value is read from. */
-export async function saveBbsBmcAdjustKoSource(
-  pool: Pool,
-  input: SaveBbsBmcAdjustKoSourceInput
-): Promise<ActionResult> {
-  if (
-    !isBbsBmcStateKey(input.stateKey) ||
-    !BBS_BMC_COLUMNS.has(input.col) ||
-    (input.source !== "kurs" && input.source !== "jisdor" && input.source !== "manual")
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('koSource', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.source]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustKoManualInput {
-  stateKey: string;
-  col: string;
-  value: number;
-}
-
-/** Ko manual entry: user types the anchor value directly instead of picking a date. */
-export async function saveBbsBmcAdjustKoManual(
-  pool: Pool,
-  input: SaveBbsBmcAdjustKoManualInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('ko', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustFoInput {
-  stateKey: string;
-  col: string;
-  bulanTahun: string;
-  periode: number;
-}
-
-/** Fo: the Bulan-Tahun/Periode the user picked out of the Fuel page's Total column. */
-export async function saveBbsBmcAdjustFo(
-  pool: Pool,
-  input: SaveBbsBmcAdjustFoInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  const bulanTahun = input.bulanTahun.trim();
-  if (bulanTahun !== "" && input.periode !== 1 && input.periode !== 2) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('foBulanTahun', ?, 'foPeriode', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, bulanTahun, bulanTahun === "" ? 0 : input.periode]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustFoManualInput {
-  stateKey: string;
-  col: string;
-  value: number;
-}
-
-/** Fo manual entry: user types the anchor value directly instead of picking a period. */
-export async function saveBbsBmcAdjustFoManual(
-  pool: Pool,
-  input: SaveBbsBmcAdjustFoManualInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey) || !BBS_BMC_COLUMNS.has(input.col)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('fo', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcAdjustFoSourceInput {
-  stateKey: string;
-  col: string;
-  source: string;
-}
-
-/** Fo Sumber: which Fuel-module column (Pertamina, Total, or a typed-in Manual value) the Fo value is read from. */
-export async function saveBbsBmcAdjustFoSource(
-  pool: Pool,
-  input: SaveBbsBmcAdjustFoSourceInput
-): Promise<ActionResult> {
-  if (
-    !isBbsBmcStateKey(input.stateKey) ||
-    !BBS_BMC_COLUMNS.has(input.col) ||
-    (input.source !== "pertamina" && input.source !== "total" && input.source !== "manual")
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('adjust', JSON_OBJECT(?, JSON_OBJECT('foSource', ?)))))
-     WHERE id = 1`,
-    [input.stateKey, input.col, input.source]
-  );
-  return { ok: true };
-}
-
-// ===== ici_lt60 / ici_gt60: shared RF/Tolerance parameters =====
-//
-// Fuel%, Fixed Cost%, Tolerance +10%/-10%, and Tolerance Base are one value
-// per submodule, shared by both Adjust-mode ICI cells (<60 and >60), stored
-// under bbsBmc(Cam).rf.
-
-export interface SaveBbsBmcRfFieldInput {
-  stateKey: string;
-  field: string;
-  value: number;
-}
-
-export async function saveBbsBmcRfField(
-  pool: Pool,
-  input: SaveBbsBmcRfFieldInput
-): Promise<ActionResult> {
-  if (
-    !isBbsBmcStateKey(input.stateKey) ||
-    !RF_NUMERIC_FIELDS.has(input.field as RfNumericField)
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('rf', JSON_OBJECT(?, ?))))
-     WHERE id = 1`,
-    [input.stateKey, input.field, input.value]
-  );
-  return { ok: true };
-}
-
-export interface SaveBbsBmcRfToleranceBaseInput {
-  stateKey: string;
-  bulanTahun: string;
-  periode: number;
-}
-
-export async function saveBbsBmcRfToleranceBase(
-  pool: Pool,
-  input: SaveBbsBmcRfToleranceBaseInput
-): Promise<ActionResult> {
-  if (!isBbsBmcStateKey(input.stateKey)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  const bulanTahun = input.bulanTahun.trim();
-  if (bulanTahun !== "" && input.periode !== 1 && input.periode !== 2) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('rf', JSON_OBJECT('toleranceBaseBulanTahun', ?, 'toleranceBasePeriode', ?))))
-     WHERE id = 1`,
-    [input.stateKey, bulanTahun, bulanTahun === "" ? 0 : input.periode]
-  );
-  return { ok: true };
-}
-
-// ===== FLF: PNTS/PSS input section — Fo pick + auto Fo +5%/-5% =====
-//
-// Each of the two subsections keeps its own independent Fo pick, derived
-// +5%/-5% values, and Fuel %/Fixed Cost % inputs, stored under flfPnts/flfPss
-// at the rates root (same shape as bbsBmc(Cam).rf).
-
+// FLF's PNTS/PSS input sections each keep their own independent Fo pick,
+// derived +5%/-5% values, and Fuel %/Fixed Cost % inputs.
 export type FlfSectionKey = "flfPnts" | "flfPss";
 
 function isFlfSectionKey(key: string): key is FlfSectionKey {
   return key === "flfPnts" || key === "flfPss";
 }
 
-export interface SaveFlfToleranceFieldInput {
-  section: string;
-  field: string;
-  value: number;
+// ===== One save mechanism for every fuel-kurs rate field =====
+//
+// All 17 POST actions on /fuel-kurs (see fuelKursRoutes) reduce to the same
+// shape: validate a few domain values out of the raw form body, then
+// JSON_MERGE_PATCH one or more leaf fields into rates_json at a path built
+// from those values. JSON_MERGE_PATCH (not JSON_SET) is required throughout
+// because bbsBmc's per-column sub-objects (modes/values/adjust.<col>) are
+// never pre-scaffolded — JSON_SET silently no-ops when a path segment above
+// the leaf doesn't exist yet, JSON_MERGE_PATCH creates it.
+//
+// `saveFuelKursField` is the one write primitive; `FUEL_KURS_ACTIONS` is the
+// declarative action -> validate-and-build table the route dispatches
+// through. Each entry keeps the action's real per-action business rule
+// (which stateKey/col/section/field values are legal) — that's the part
+// that's genuinely different action to action — while the SQL and the
+// dispatch mechanics live in exactly one place.
+
+/** Bulan-Tahun/Periode pair, blanked together: periode collapses to 0 whenever bulanTahun is "". */
+function bulanTahunPeriodeFields(
+  prefix: string,
+  bulanTahunRaw: string,
+  periode: number
+): Record<string, unknown> | null {
+  const bulanTahun = bulanTahunRaw.trim();
+  if (bulanTahun !== "" && periode !== 1 && periode !== 2) return null;
+  return { [`${prefix}BulanTahun`]: bulanTahun, [`${prefix}Periode`]: bulanTahun === "" ? 0 : periode };
 }
 
-export async function saveFlfToleranceField(
+async function saveFuelKursField(
   pool: Pool,
-  input: SaveFlfToleranceFieldInput
+  path: string[],
+  fields: Record<string, unknown>
 ): Promise<ActionResult> {
-  if (
-    !isFlfSectionKey(input.section) ||
-    !FLF_TOLERANCE_NUMERIC_FIELDS.has(input.field as FlfToleranceNumericField)
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT(?, ?)))
-     WHERE id = 1`,
-    [input.section, input.field, input.value]
-  );
+  const patch = path.reduceRight<Record<string, unknown>>((node, key) => ({ [key]: node }), fields);
+  await pool.query("UPDATE fuel_kurs_rates SET rates_json = JSON_MERGE_PATCH(rates_json, ?) WHERE id = 1", [
+    JSON.stringify(patch),
+  ]);
   return { ok: true };
 }
 
-export interface SaveFlfFoBaseInput {
-  section: string;
-  bulanTahun: string;
-  periode: number;
+const INVALID: ActionResult = { ok: false, error: "Invalid input" };
+
+/** Raw POST /fuel-kurs body — every field is optional since each action only uses a subset. */
+export interface FuelKursActionBody {
+  field?: string;
+  value?: number;
+  bulanTahun?: string;
+  periode?: number;
+  col?: string;
+  mode?: string;
+  date?: string;
+  stateKey?: string;
+  source?: string;
+  section?: string;
+  groupKey?: string;
 }
 
-/** Fo: Bulan-Tahun/Periode pick off fuel.pertamina — also drives auto-derived tolerancePlus5/toleranceMinus5. */
-export async function saveFlfFoBase(
-  pool: Pool,
-  input: SaveFlfFoBaseInput
-): Promise<ActionResult> {
-  if (!isFlfSectionKey(input.section)) {
-    return { ok: false, error: "Invalid input" };
-  }
-  const bulanTahun = input.bulanTahun.trim();
-  if (bulanTahun !== "" && input.periode !== 1 && input.periode !== 2) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('foBulanTahun', ?, 'foPeriode', ?)))
-     WHERE id = 1`,
-    [input.section, bulanTahun, bulanTahun === "" ? 0 : input.periode]
-  );
-  return { ok: true };
+export type FuelKursActionHandler = (pool: Pool, body: FuelKursActionBody) => Promise<ActionResult>;
+
+/** bbsBmc/bbsBmcCam per-column Adjust-group fields (Base Freight, Conversi Fuel, Ko*, Fo*) all share this path. */
+function bbsBmcAdjustPath(stateKey: string, col: string): string[] {
+  return [stateKey, "adjust", col];
 }
 
-export type FlfFrField = "single" | "blending";
+export const FUEL_KURS_ACTIONS: Record<string, FuelKursActionHandler> = {
+  // Flat rate fields (mhu.*/cam.*/rf.fuelValue/rf.forexValue): field is a
+  // dotted path, e.g. "mhu.lt60.usdMt" — split it into path + leaf key.
+  save_rate: async (pool, body) => {
+    const field = body.field ?? "";
+    if (!isFuelKursRateField(field)) return INVALID;
+    const segments = field.split(".");
+    const leafKey = segments.pop() as string;
+    return saveFuelKursField(pool, segments, { [leafKey]: body.value });
+  },
 
-export interface SaveFlfFrInput {
-  section: string;
-  groupKey: string;
-  field: string;
-  value: number;
-}
+  // ===== ici_lt60/ici_gt60 shared RF/Tolerance parameters (bbsBmc(Cam).rf) =====
+  save_bbsbmc_rf_field: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const field = body.field ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !RF_NUMERIC_FIELDS.has(field as RfNumericField)) return INVALID;
+    return saveFuelKursField(pool, [stateKey, "rf"], { [field]: body.value });
+  },
+  save_bbsbmc_rf_tolerance_base: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    if (!isBbsBmcStateKey(stateKey)) return INVALID;
+    const fields = bulanTahunPeriodeFields("toleranceBase", body.bulanTahun ?? "", body.periode ?? 0);
+    if (!fields) return INVALID;
+    return saveFuelKursField(pool, [stateKey, "rf"], fields);
+  },
 
-/** Fr: user-typed decimal per region-group, Single + Blending each — no derived calc, straight input. */
-export async function saveFlfFr(pool: Pool, input: SaveFlfFrInput): Promise<ActionResult> {
-  if (
-    !isFlfSectionKey(input.section) ||
-    !FLF_GROUP_KEYS.has(input.groupKey) ||
-    (input.field !== "single" && input.field !== "blending")
-  ) {
-    return { ok: false, error: "Invalid input" };
-  }
-  await pool.query(
-    `UPDATE fuel_kurs_rates
-     SET rates_json = JSON_MERGE_PATCH(rates_json, JSON_OBJECT(?, JSON_OBJECT('fr', JSON_OBJECT(?, JSON_OBJECT(?, ?)))))
-     WHERE id = 1`,
-    [input.section, input.groupKey, input.field, input.value]
-  );
-  return { ok: true };
-}
+  // rf.fuelValueBulanTahun/rf.fuelValuePeriode — not stateKey-scoped, one shared pick.
+  save_fuel_value_base: async (pool, body) => {
+    const fields = bulanTahunPeriodeFields("fuelValue", body.bulanTahun ?? "", body.periode ?? 0);
+    if (!fields) return INVALID;
+    return saveFuelKursField(pool, ["rf"], fields);
+  },
+
+  // ===== Barges MHU/CAM: BBS/BMC per-column "All-in vs Adjust" overrides =====
+  save_bbsbmc_mode: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    const mode = body.mode ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col) || (mode !== "allin" && mode !== "adjust")) {
+      return INVALID;
+    }
+    return saveFuelKursField(pool, [stateKey, "modes"], { [col]: mode });
+  },
+  save_bbsbmc_value: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, [stateKey, "values"], { [col]: body.value });
+  },
+  // Base Freight/Conversi Fuel/Ko*/Fo*: the "Adjust" formula group's inputs,
+  // all stored under bbsBmc(Cam).adjust.<col> — see bbsBmcAdjustPath.
+  save_bbsbmc_adjust_base_freight: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { baseFreight: body.value });
+  },
+  save_bbsbmc_adjust_conversi_fuel: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { conversiFuel: body.value });
+  },
+  save_bbsbmc_adjust_ko: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { koDate: body.date ?? "" });
+  },
+  save_bbsbmc_adjust_ko_source: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    const source = body.source ?? "";
+    if (
+      !isBbsBmcStateKey(stateKey) ||
+      !BBS_BMC_COLUMNS.has(col) ||
+      (source !== "kurs" && source !== "jisdor" && source !== "manual")
+    ) {
+      return INVALID;
+    }
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { koSource: source });
+  },
+  save_bbsbmc_adjust_ko_manual: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { ko: body.value });
+  },
+  save_bbsbmc_adjust_fo_manual: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { fo: body.value });
+  },
+  save_bbsbmc_adjust_fo_source: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    const source = body.source ?? "";
+    if (
+      !isBbsBmcStateKey(stateKey) ||
+      !BBS_BMC_COLUMNS.has(col) ||
+      (source !== "pertamina" && source !== "total" && source !== "manual")
+    ) {
+      return INVALID;
+    }
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), { foSource: source });
+  },
+  save_bbsbmc_adjust_fo: async (pool, body) => {
+    const stateKey = body.stateKey ?? "";
+    const col = body.col ?? "";
+    if (!isBbsBmcStateKey(stateKey) || !BBS_BMC_COLUMNS.has(col)) return INVALID;
+    const fields = bulanTahunPeriodeFields("fo", body.bulanTahun ?? "", body.periode ?? 0);
+    if (!fields) return INVALID;
+    return saveFuelKursField(pool, bbsBmcAdjustPath(stateKey, col), fields);
+  },
+
+  // ===== FLF: PNTS/PSS input section — Fo pick + auto Fo +5%/-5% =====
+  save_flf_tolerance_field: async (pool, body) => {
+    const section = body.section ?? "";
+    const field = body.field ?? "";
+    if (!isFlfSectionKey(section) || !FLF_TOLERANCE_NUMERIC_FIELDS.has(field as FlfToleranceNumericField)) {
+      return INVALID;
+    }
+    return saveFuelKursField(pool, [section], { [field]: body.value });
+  },
+  save_flf_fo_base: async (pool, body) => {
+    const section = body.section ?? "";
+    if (!isFlfSectionKey(section)) return INVALID;
+    const fields = bulanTahunPeriodeFields("fo", body.bulanTahun ?? "", body.periode ?? 0);
+    if (!fields) return INVALID;
+    return saveFuelKursField(pool, [section], fields);
+  },
+  // Fr: user-typed decimal per region-group, Single + Blending each — no derived calc, straight input.
+  save_flf_fr: async (pool, body) => {
+    const section = body.section ?? "";
+    const groupKey = body.groupKey ?? "";
+    const field = body.field ?? "";
+    if (!isFlfSectionKey(section) || !FLF_GROUP_KEYS.has(groupKey) || (field !== "single" && field !== "blending")) {
+      return INVALID;
+    }
+    return saveFuelKursField(pool, [section, "fr", groupKey], { [field]: body.value });
+  },
+};
 
 // ===== Barges MHU daily engine: Section 2 lookup table + anchor config =====
 
-/** Fixed Section 2 tax rates on top of pertamina_price (PPN/PBBKB/PPH22). */
-export const FUEL_TAX_RATES = { ppn: 0.11, pbbkb: 0.075, pph22: 0.003 };
-
-/** total = pertamina + ppn + pbbkb + pph22, per Section 2 of the spec. */
-export function fuelTaxTotal(pertamina: number): number {
-  return (
-    pertamina *
-    (1 + FUEL_TAX_RATES.ppn + FUEL_TAX_RATES.pbbkb + FUEL_TAX_RATES.pph22)
-  );
+/**
+ * total = pertamina + ppn + pbbkb + pph22, per Section 2 of the spec.
+ * `rates` is the month's *effective* PPN/PBBKB/PPH22 — resolve it with
+ * fuel.service.ts's computeEffectiveRates(getFuelRatesByMonth(pool), ...)
+ * rather than a fixed constant, so a rate override saved on the Fuel page
+ * carries forward into this table too (ppnRate/pbbkbRate/pph22Rate are
+ * whole-number percentages, e.g. 11 = 11%).
+ */
+export function fuelTaxTotal(pertamina: number, rates: FuelRates): number {
+  return pertamina * (1 + rates.ppnRate / 100 + rates.pbbkbRate / 100 + rates.pph22Rate / 100);
 }
 
-/** pertamina + pbbkb + pph22, excluding ppn — FLF's PSS Fo formula. */
-export function fuelTaxPertaminaPbbkbPph22(pertamina: number): number {
-  return pertamina * (1 + FUEL_TAX_RATES.pbbkb + FUEL_TAX_RATES.pph22);
+/** pertamina + pbbkb + pph22, excluding ppn — FLF's PSS Fo formula. Same `rates` contract as fuelTaxTotal. */
+export function fuelTaxPertaminaPbbkbPph22(pertamina: number, rates: FuelRates): number {
+  return pertamina * (1 + rates.pbbkbRate / 100 + rates.pph22Rate / 100);
 }
 
 export interface FuelPeriodCell {

@@ -8,29 +8,14 @@ import {
   BARGES_MHU_BASE_JISDOR,
   BARGES_MHU_BASE_PERIODE,
   buildDenseDateSeries,
+  FUEL_KURS_ACTIONS,
   fuelTaxPertaminaPbbkbPph22,
   fuelTaxTotal,
   getFuelKursRates,
-  saveBbsBmcAdjustBaseFreight,
-  saveBbsBmcAdjustConversiFuel,
-  saveBbsBmcAdjustFo,
-  saveBbsBmcAdjustFoManual,
-  saveBbsBmcAdjustFoSource,
-  saveBbsBmcAdjustKo,
-  saveBbsBmcAdjustKoManual,
-  saveBbsBmcAdjustKoSource,
-  saveBbsBmcMode,
-  saveBbsBmcRfField,
-  saveBbsBmcRfToleranceBase,
-  saveBbsBmcValue,
-  saveFlfFoBase,
-  saveFlfFr,
-  saveFlfToleranceField,
-  saveFuelKursFuelValueBase,
-  saveFuelKursRate,
+  type FuelKursActionBody,
   type FuelPeriodTable,
 } from "../services/fuel-kurs.service.js";
-import { listFuelData } from "../services/fuel.service.js";
+import { computeEffectiveRates, getFuelRatesByMonth, listFuelData } from "../services/fuel.service.js";
 import { getJisdorRange } from "../services/jisdor.service.js";
 import { getKursTengahRange } from "../services/kurs-tengah.service.js";
 
@@ -92,21 +77,27 @@ export async function fuelKursRoutes(app: FastifyInstance) {
 
   app.get("/fuel-kurs", { preHandler: requireGate }, async (req, reply) => {
     const pool = dbPool("databarging");
-    const [rates, fuelData] = await Promise.all([
+    const [rates, fuelData, fuelRateOverrides] = await Promise.all([
       getFuelKursRates(pool),
       listFuelData(pool),
+      getFuelRatesByMonth(pool),
     ]);
 
     const pertaminaLookup: Record<string, Record<number, number>> = {};
     const fuelPeriodTable: FuelPeriodTable = {};
     const bulanTahunKeys = Object.keys(fuelData).sort(compareBulanTahun);
+    // Effective PPN/PBBKB/PPH22 per month, carried forward from the Fuel
+    // page's rate overrides (same resolver fuel.ts uses) — not a fixed
+    // constant, so a rate change there is reflected here too.
+    const effectiveFuelRates = computeEffectiveRates(fuelRateOverrides, bulanTahunKeys);
     for (const bulanTahun of bulanTahunKeys) {
+      const monthRates = effectiveFuelRates[bulanTahun];
       for (const [periode, cell] of Object.entries(fuelData[bulanTahun] ?? {})) {
         fuelPeriodTable[bulanTahun] ??= {};
         fuelPeriodTable[bulanTahun][Number(periode)] = {
           pertamina: cell.pertamina,
-          total: fuelTaxTotal(cell.pertamina),
-          pertaminaPbbkbPph22: fuelTaxPertaminaPbbkbPph22(cell.pertamina),
+          total: fuelTaxTotal(cell.pertamina, monthRates),
+          pertaminaPbbkbPph22: fuelTaxPertaminaPbbkbPph22(cell.pertamina, monthRates),
         };
         if (cell.pertamina === 0) continue;
         pertaminaLookup[bulanTahun] ??= {};
@@ -188,178 +179,32 @@ export async function fuelKursRoutes(app: FastifyInstance) {
     async (req, reply) => {
       const pool = dbPool("databarging");
 
-      if (req.body.action === "save_rate") {
-        const result = await saveFuelKursRate(pool, {
-          field: req.body.field ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
+      const handler = FUEL_KURS_ACTIONS[req.body.action ?? ""];
+      if (!handler) {
+        reply.code(400);
+        return reply.send({ ok: false, error: "Invalid input" });
       }
 
-      if (req.body.action === "save_bbsbmc_rf_field") {
-        const result = await saveBbsBmcRfField(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          field: req.body.field ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
+      // Every action reads its inputs off this same normalized shape —
+      // stateKey defaults to "bbsBmc" to match every bbsBmc(Cam)-scoped
+      // action's original per-branch default.
+      const body: FuelKursActionBody = {
+        field: req.body.field ?? "",
+        value: parseNumericInput(req.body.value),
+        bulanTahun: req.body.bulan_tahun ?? "",
+        periode: Number.parseInt(req.body.periode ?? "0", 10),
+        col: req.body.col ?? "",
+        mode: req.body.mode ?? "",
+        date: req.body.date ?? "",
+        stateKey: req.body.state_key ?? "bbsBmc",
+        source: req.body.source ?? "",
+        section: req.body.section ?? "",
+        groupKey: req.body.group_key ?? "",
+      };
 
-      if (req.body.action === "save_bbsbmc_rf_tolerance_base") {
-        const result = await saveBbsBmcRfToleranceBase(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          bulanTahun: req.body.bulan_tahun ?? "",
-          periode: Number.parseInt(req.body.periode ?? "0", 10),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_fuel_value_base") {
-        const result = await saveFuelKursFuelValueBase(pool, {
-          bulanTahun: req.body.bulan_tahun ?? "",
-          periode: Number.parseInt(req.body.periode ?? "0", 10),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_mode") {
-        const result = await saveBbsBmcMode(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          mode: req.body.mode ?? "",
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_value") {
-        const result = await saveBbsBmcValue(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_base_freight") {
-        const result = await saveBbsBmcAdjustBaseFreight(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_conversi_fuel") {
-        const result = await saveBbsBmcAdjustConversiFuel(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_ko") {
-        const result = await saveBbsBmcAdjustKo(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          date: req.body.date ?? "",
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_ko_source") {
-        const result = await saveBbsBmcAdjustKoSource(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          source: req.body.source ?? "",
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_ko_manual") {
-        const result = await saveBbsBmcAdjustKoManual(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_fo_manual") {
-        const result = await saveBbsBmcAdjustFoManual(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_fo_source") {
-        const result = await saveBbsBmcAdjustFoSource(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          source: req.body.source ?? "",
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_bbsbmc_adjust_fo") {
-        const result = await saveBbsBmcAdjustFo(pool, {
-          stateKey: req.body.state_key ?? "bbsBmc",
-          col: req.body.col ?? "",
-          bulanTahun: req.body.bulan_tahun ?? "",
-          periode: Number.parseInt(req.body.periode ?? "0", 10),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_flf_tolerance_field") {
-        const result = await saveFlfToleranceField(pool, {
-          section: req.body.section ?? "",
-          field: req.body.field ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_flf_fo_base") {
-        const result = await saveFlfFoBase(pool, {
-          section: req.body.section ?? "",
-          bulanTahun: req.body.bulan_tahun ?? "",
-          periode: Number.parseInt(req.body.periode ?? "0", 10),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      if (req.body.action === "save_flf_fr") {
-        const result = await saveFlfFr(pool, {
-          section: req.body.section ?? "",
-          groupKey: req.body.group_key ?? "",
-          field: req.body.field ?? "",
-          value: parseNumericInput(req.body.value),
-        });
-        if (!result.ok) reply.code(400);
-        return reply.send(result);
-      }
-
-      reply.code(400);
-      return reply.send({ ok: false, error: "Invalid input" });
+      const result = await handler(pool, body);
+      if (!result.ok) reply.code(400);
+      return reply.send(result);
     }
   );
 }
