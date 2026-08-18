@@ -331,3 +331,51 @@ export async function ensureFuelKursTables(pool: mysql.Pool): Promise<void> {
     [JSON.stringify(DEFAULT_FUEL_KURS_RATES)]
   );
 }
+
+/**
+ * Creates `spal_agreements`, storing the field values behind each generated
+ * SJN (Surat Perjanjian Angkutan Laut) docx — the docx itself is regenerated
+ * from the template on every download rather than stored as a blob. Records
+ * are append-only (no update/delete route) since each row is a signed
+ * agreement.
+ */
+export async function ensureSpalTable(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS spal_agreements (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      nomor VARCHAR(150) NOT NULL,
+      tanggal DATE NOT NULL,
+      nama_pt VARCHAR(255) NOT NULL,
+      alamat TEXT NOT NULL,
+      uang_tambang DECIMAL(15,2) NOT NULL,
+      jetty_muat VARCHAR(255) NOT NULL,
+      jetty_bongkar VARCHAR(255) NOT NULL,
+      denda_demurrage DECIMAL(15,2) NOT NULL DEFAULT 35000000,
+      nama_penandatangan VARCHAR(255) NOT NULL,
+      jabatan VARCHAR(150) NOT NULL,
+      created_by VARCHAR(150) DEFAULT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_nomor (nomor),
+      INDEX idx_tanggal (tanggal),
+      INDEX idx_nama_pt (nama_pt)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+
+  const [dbRows] = await pool.query<mysql.RowDataPacket[]>(
+    "SELECT DATABASE() AS db_name"
+  );
+  const database = String(dbRows[0]?.db_name ?? "");
+  if (database) {
+    const [indexes] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT INDEX_NAME
+       FROM INFORMATION_SCHEMA.STATISTICS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'spal_agreements' AND INDEX_NAME = 'uniq_nomor'`,
+      [database]
+    );
+    if (indexes.length === 0) {
+      await pool.query(
+        "ALTER TABLE spal_agreements ADD UNIQUE KEY uniq_nomor (nomor)"
+      );
+    }
+  }
+}

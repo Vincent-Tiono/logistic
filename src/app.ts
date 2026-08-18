@@ -12,6 +12,7 @@ import {
   ensureFuelKursTables,
   ensureFuelTables,
   ensureShipperLaytimeColumn,
+  ensureSpalTable,
   ensureVendorTable,
   ensureVesselScheduleColumns,
 } from "./config/database.js";
@@ -27,6 +28,7 @@ import { jisdorRoutes } from "./routes/jisdor.js";
 import { kursTengahRoutes } from "./routes/kurs-tengah.js";
 import { shipperRoutes } from "./routes/shipper.js";
 import { sibargesRoutes } from "./routes/sibarges.js";
+import { spalRoutes } from "./routes/spal.js";
 import { tluOperationRoutes } from "./routes/tlu-operation.js";
 import { userRoutes } from "./routes/users.js";
 import { vendorRoutes } from "./routes/vendor.js";
@@ -68,6 +70,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(kursTengahRoutes);
   await app.register(fuelRoutes);
   await app.register(fuelKursRoutes);
+  await app.register(spalRoutes);
 
   await ensureVesselScheduleColumns(dbPool("databarging"));
   await ensureShipperLaytimeColumn(dbPool("databarging"));
@@ -75,6 +78,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await ensureCoalBargingDatabase();
   await ensureFuelTables(dbPool("databarging"));
   await ensureFuelKursTables(dbPool("databarging"));
+  await ensureSpalTable(dbPool("databarging"));
 
   return app;
 }

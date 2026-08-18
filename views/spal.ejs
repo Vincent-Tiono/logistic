@@ -1,0 +1,163 @@
+<%- include('partials/header', { pageTitle: 'SPAL - MLP Logistic', username, divisi }) %>
+<%- include('partials/sidebar', { divisi }) %>
+
+<div class="content">
+  <% if (error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+
+  <div class="card mb-3">
+    <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
+         data-bs-toggle="collapse" data-bs-target="#collapseSpalForm" aria-expanded="true" aria-controls="collapseSpalForm">
+      <h6 class="m-0">Buat Perjanjian SJN Baru</h6>
+      <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div class="collapse show" id="collapseSpalForm">
+    <div class="card-body">
+      <form method="post" action="/spal" class="row g-3">
+        <div class="col-md-4">
+          <label for="nomor" class="form-label mb-1">Nomor Perjanjian</label>
+          <input type="text" id="nomor" name="nomor" class="form-control" placeholder="cth: 001/SJN-SPAL/MLP/VIII/2026" value="<%= formValues.nomor %>" required>
+        </div>
+        <div class="col-md-4">
+          <label for="tanggal" class="form-label mb-1">Tanggal</label>
+          <input type="date" id="tanggal" name="tanggal" class="form-control" value="<%= formValues.tanggal %>" required>
+        </div>
+        <div class="col-md-4">
+          <label for="nama_pt" class="form-label mb-1">Nama PT Customer</label>
+          <div class="input-group">
+            <span class="input-group-text">PT</span>
+            <input type="text" id="nama_pt" name="nama_pt" class="form-control" placeholder="cth: Contoh Mining Nusantara" value="<%= formValues.nama_pt %>" required>
+          </div>
+        </div>
+
+        <div class="col-md-8">
+          <label for="alamat" class="form-label mb-1">Alamat Customer</label>
+          <textarea id="alamat" name="alamat" class="form-control" rows="3" placeholder="Satu baris per alamat" required><%= formValues.alamat %></textarea>
+        </div>
+        <div class="col-md-4">
+          <label for="uang_tambang" class="form-label mb-1">Uang Tambang (Rp)</label>
+          <input type="number" id="uang_tambang" name="uang_tambang" class="form-control" min="0" step="1" value="<%= formValues.uang_tambang %>" required>
+        </div>
+
+        <div class="col-md-4">
+          <label for="jetty_muat" class="form-label mb-1">Jetty Muat</label>
+          <div class="input-group">
+            <span class="input-group-text">Jetty</span>
+            <input type="text" id="jetty_muat" name="jetty_muat" class="form-control" placeholder="cth: Taboneo" value="<%= formValues.jetty_muat %>" required>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label for="jetty_bongkar" class="form-label mb-1">Jetty Bongkar</label>
+          <div class="input-group">
+            <span class="input-group-text">Jetty</span>
+            <input type="text" id="jetty_bongkar" name="jetty_bongkar" class="form-control" placeholder="cth: Suralaya" value="<%= formValues.jetty_bongkar %>" required>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <label for="denda_demurrage" class="form-label mb-1">Denda Demurrage (Rp/Hari)</label>
+          <input type="number" id="denda_demurrage" name="denda_demurrage" class="form-control" min="0" step="1" value="<%= formValues.denda_demurrage %>">
+        </div>
+
+        <div class="col-md-6">
+          <label for="nama_penandatangan" class="form-label mb-1">Nama Penandatangan</label>
+          <input type="text" id="nama_penandatangan" name="nama_penandatangan" class="form-control" value="<%= formValues.nama_penandatangan %>" required>
+        </div>
+        <div class="col-md-6">
+          <label for="jabatan" class="form-label mb-1">Jabatan</label>
+          <input type="text" id="jabatan" name="jabatan" class="form-control" placeholder="cth: Direktur" value="<%= formValues.jabatan %>" required>
+        </div>
+
+        <div class="col-12">
+          <button type="submit" class="btn btn-primary px-4" style="background:#0d4d94; border-color:#0d4d94;">Generate &amp; Unduh Docx</button>
+        </div>
+      </form>
+    </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">
+      <h6 class="m-0">Cari Riwayat</h6>
+    </div>
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-auto">
+          <label for="dari" class="form-label mb-1">Dari</label>
+          <input type="date" id="dari" name="dari" class="form-control" value="<%= dariInput %>">
+        </div>
+        <div class="col-auto">
+          <label for="sampai" class="form-label mb-1">Sampai</label>
+          <input type="date" id="sampai" name="sampai" class="form-control" value="<%= sampaiInput %>">
+        </div>
+        <div class="col-auto">
+          <label for="customer" class="form-label mb-1">Customer</label>
+          <input type="text" id="customer" name="customer" class="form-control" value="<%= customerInput %>" placeholder="Cari nama PT">
+        </div>
+        <div class="col-auto">
+          <button type="submit" class="btn btn-primary px-4" style="background:#0d4d94; border-color:#0d4d94;">Cari</button>
+        </div>
+        <div class="col-auto">
+          <a href="/spal" class="btn btn-outline-secondary px-4">Reset</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="card-body p-0">
+      <table class="table mb-0 align-middle">
+        <thead class="table-light">
+          <tr>
+            <th class="py-3 px-4">Nomor</th>
+            <th class="py-3 px-4">Tanggal</th>
+            <th class="py-3 px-4">Customer</th>
+            <th class="py-3 px-4">Uang Tambang</th>
+            <th class="py-3 px-4">Jetty Muat</th>
+            <th class="py-3 px-4">Jetty Bongkar</th>
+            <th class="py-3 px-4"></th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (rows.length === 0) { %>
+            <tr><td colspan="7" class="text-center text-muted py-4">Belum ada data.</td></tr>
+          <% } else { rows.forEach(function (row) { %>
+            <tr>
+              <td class="px-4"><%= row.nomor %></td>
+              <td class="px-4"><%= row.tanggal %></td>
+              <td class="px-4">PT <%= row.namaPt %></td>
+              <td class="px-4"><%= formatRupiahAmount(row.uangTambang) %></td>
+              <td class="px-4"><%= row.jettyMuat %></td>
+              <td class="px-4"><%= row.jettyBongkar %></td>
+              <td class="px-4"><a class="btn btn-sm btn-outline-primary" href="/spal?download=agreement&id=<%= row.id %>">Unduh</a></td>
+            </tr>
+          <% }); } %>
+        </tbody>
+      </table>
+    </div>
+
+    <% if (totalRows > 0) {
+      const windowSize = 5;
+      let startPage = Math.max(1, page - Math.floor(windowSize / 2));
+      let endPage = Math.min(totalPages, startPage + windowSize - 1);
+      startPage = Math.max(1, endPage - windowSize + 1);
+    %>
+      <div class="card-footer d-flex justify-content-between align-items-center bg-white">
+        <span class="text-muted small">Halaman <%= page %> dari <%= totalPages %></span>
+        <nav>
+          <ul class="pagination pagination-sm mb-0">
+            <li class="page-item<%= page <= 1 ? ' disabled' : '' %>"><a class="page-link" href="<%= pageUrl(1) %>">&laquo;</a></li>
+            <li class="page-item<%= page <= 1 ? ' disabled' : '' %>"><a class="page-link" href="<%= pageUrl(page - 1) %>">&lsaquo;</a></li>
+            <% for (let p = startPage; p <= endPage; p++) { %>
+              <li class="page-item<%= p === page ? ' active' : '' %>"><a class="page-link" href="<%= pageUrl(p) %>"><%= p %></a></li>
+            <% } %>
+            <li class="page-item<%= page >= totalPages ? ' disabled' : '' %>"><a class="page-link" href="<%= pageUrl(page + 1) %>">&rsaquo;</a></li>
+            <li class="page-item<%= page >= totalPages ? ' disabled' : '' %>"><a class="page-link" href="<%= pageUrl(totalPages) %>">&raquo;</a></li>
+          </ul>
+        </nav>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

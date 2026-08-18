@@ -21,6 +21,7 @@ export interface Target {
     kursTengah: string;
     fuel: string;
     fuelKurs: string;
+    spal: string;
   };
 }
 
@@ -46,6 +47,7 @@ export const targets: Target[] = [
       kursTengah: "/kurs-tengah",
       fuel: "/fuel",
       fuelKurs: "/fuel-kurs",
+      spal: "/spal",
     },
   },
 ];

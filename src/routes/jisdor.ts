@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { formatRupiah, formatTanggalID } from "../lib/bi-kurs.js";
+import { buildQueryString } from "../lib/query-string.js";
 import { requireAnyDivisi } from "../plugins/session.js";
 import { getJisdorPage } from "../services/jisdor.service.js";
 
@@ -11,15 +12,6 @@ interface JisdorQuerystring {
 }
 
 const MAX_RETRIES = 5;
-
-function buildQueryString(params: Record<string, string | undefined>): string {
-  const usp = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") usp.set(key, value);
-  }
-  const qs = usp.toString();
-  return qs ? `?${qs}` : "";
-}
 
 export async function jisdorRoutes(app: FastifyInstance) {
   const requireGate = requireAnyDivisi(["IT", "VM&FAT"]);
