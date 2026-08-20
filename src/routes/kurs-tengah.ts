@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { dbPool } from "../config/database.js";
 import { formatRupiah, formatTanggalID } from "../lib/bi-kurs.js";
 import { buildQueryString } from "../lib/query-string.js";
 import { requireAnyDivisi } from "../plugins/session.js";
@@ -25,8 +26,9 @@ export async function kursTengahRoutes(app: FastifyInstance) {
       const page = Math.max(1, Number.parseInt(req.query.page ?? "1", 10) || 1);
       const retry = Math.max(0, Number.parseInt(req.query.retry ?? "0", 10) || 0);
 
-      const result = await getKursTengahPage({ dari, sampai, page });
-      const shouldAutoReload = result.fetchFailed && retry < MAX_RETRIES;
+      const result = await getKursTengahPage({ dari, sampai, page }, dbPool("databarging"));
+      const shouldAutoReload =
+        result.fetchFailed && result.totalRows === 0 && retry < MAX_RETRIES;
 
       const reloadUrl = shouldAutoReload
         ? buildQueryString({ dari, sampai, page: String(page), retry: String(retry + 1) })
@@ -45,6 +47,7 @@ export async function kursTengahRoutes(app: FastifyInstance) {
         sampaiInput: sampai,
         rows: result.pageData,
         fetchFailed: result.fetchFailed,
+        usingStaleData: result.usingStaleData,
         shouldAutoReload,
         reloadUrl,
         retryUrl,

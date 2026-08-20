@@ -97,6 +97,22 @@
         </table>
       </div>
 
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+        <div class="d-flex align-items-center gap-2 small text-muted">
+          Show
+          <select id="pageSizeSelect" class="form-select form-select-sm" style="width:auto;">
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+          entries (<span id="pageInfo">Showing 0 to 0 of 0 entries</span>)
+        </div>
+        <nav>
+          <ul class="pagination pagination-sm mb-0" id="pageButtons"></ul>
+        </nav>
+      </div>
+
       <% if ((divisi || '').toUpperCase() === 'IT') { %>
       <div class="d-flex justify-content-end mt-3">
         <button class="btn btn-sm btn-danger" id="btnDeleteAll" type="button">Delete All</button>
@@ -158,18 +174,89 @@ function rowTemplate(r){
   </tr>`;
 }
 
+const pageSizeSelect = document.getElementById('pageSizeSelect');
+const pageInfo = document.getElementById('pageInfo');
+const pageButtons = document.getElementById('pageButtons');
+let allRows = [];
+let currentPage = 1;
+let pageSize = Number(pageSizeSelect.value);
+
+function renderPageInfo(total, start, end){
+  const from = total === 0 ? 0 : start + 1;
+  pageInfo.textContent = `Showing ${from} to ${end} of ${total} entries`;
+}
+
+function renderPageButtons(totalPages){
+  function pageItem(label, page, opts = {}){
+    const cls = 'page-item' + (opts.disabled ? ' disabled' : '') + (opts.active ? ' active' : '');
+    return `<li class="${cls}"><button class="page-link" type="button" data-page="${page}">${label}</button></li>`;
+  }
+
+  const btns = [];
+  btns.push(pageItem('&laquo;', 1, { disabled: currentPage === 1 }));
+  btns.push(pageItem('&lsaquo;', currentPage - 1, { disabled: currentPage === 1 }));
+
+  const windowSize = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(windowSize / 2));
+  let endPage = Math.min(totalPages, startPage + windowSize - 1);
+  startPage = Math.max(1, endPage - windowSize + 1);
+
+  for (let p = startPage; p <= endPage; p++){
+    btns.push(pageItem(String(p), p, { active: p === currentPage }));
+  }
+
+  btns.push(pageItem('&rsaquo;', currentPage + 1, { disabled: currentPage === totalPages }));
+  btns.push(pageItem('&raquo;', totalPages, { disabled: currentPage === totalPages }));
+
+  pageButtons.innerHTML = btns.join('');
+}
+
+function renderPage(){
+  const total = allRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const start = total === 0 ? 0 : (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, total);
+  const pageRows = allRows.slice(start, end);
+
+  tbody.innerHTML = pageRows.length === 0
+    ? `<tr><td colspan="7" class="text-center text-muted">No data</td></tr>`
+    : pageRows.map(rowTemplate).join('');
+
+  renderPageInfo(total, start, end);
+  renderPageButtons(totalPages);
+}
+
+pageButtons.addEventListener('click', (e) => {
+  const item = e.target.closest('.page-item');
+  const btn = e.target.closest('button[data-page]');
+  if (!btn || !item || item.classList.contains('disabled') || item.classList.contains('active')) return;
+  currentPage = Number(btn.getAttribute('data-page'));
+  renderPage();
+});
+
+pageSizeSelect.addEventListener('change', () => {
+  pageSize = Number(pageSizeSelect.value);
+  currentPage = 1;
+  renderPage();
+});
+
 async function loadBarges(q=''){
   const res = await fetch('/barges?ajax=1&action=list&q=' + encodeURIComponent(q));
   const r = await res.json();
   if (!r.ok){
+    allRows = [];
+    currentPage = 1;
     tbody.innerHTML = `<tr><td colspan="7" class="text-center text-danger">${escapeHtml(r.msg || 'Error')}</td></tr>`;
+    renderPageInfo(0, 0, 0);
+    renderPageButtons(1);
     return;
   }
-  if (!r.data || r.data.length === 0){
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No data</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = r.data.map(rowTemplate).join('');
+  allRows = r.data || [];
+  currentPage = 1;
+  renderPage();
 }
 
 const searchBox = document.getElementById('searchBox');

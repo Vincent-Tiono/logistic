@@ -146,6 +146,24 @@ export function formatTanggalID(isoDate: string): string {
   return `${day} ${BULAN_ID[month]} ${year}`;
 }
 
+/** Collapses a date range into the shortest Indonesian form that still reads
+ * unambiguously — e.g. "9 – 11 Mei 2026" when month/year match, falling back
+ * to full dates on both ends when they don't (cth: "30 Mei – 2 Juni 2026"). */
+export function formatTanggalRangeID(isoStart: string, isoEnd: string): string {
+  const start = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoStart);
+  const end = /^(\d{4})-(\d{2})-(\d{2})/.exec(isoEnd);
+  if (!start || !end) return `${isoStart} – ${isoEnd}`;
+
+  const [, startYear, startMonth, startDay] = start;
+  const [, endYear, endMonth, endDay] = end;
+  if (isoStart === isoEnd) return formatTanggalID(isoStart);
+
+  if (startYear === endYear && startMonth === endMonth) {
+    return `${Number(startDay)} – ${Number(endDay)} ${BULAN_ID[Number(startMonth)]} ${startYear}`;
+  }
+  return `${formatTanggalID(isoStart)} – ${formatTanggalID(isoEnd)}`;
+}
+
 export function formatRupiah(n: number): string {
   const fixed = n.toFixed(2);
   const [intPart, decPart] = fixed.split(".");

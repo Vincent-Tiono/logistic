@@ -9,72 +9,423 @@
   <div class="card mb-3">
     <div class="card-header card-toggle d-flex justify-content-between align-items-center" role="button"
          data-bs-toggle="collapse" data-bs-target="#collapseSpalForm" aria-expanded="true" aria-controls="collapseSpalForm">
-      <h6 class="m-0">Buat Perjanjian SJN Baru</h6>
+      <h6 class="m-0">SPAL Input</h6>
       <svg class="chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     <div class="collapse show" id="collapseSpalForm">
     <div class="card-body">
-      <form method="post" action="/spal" class="row g-3">
+      <form method="post" action="/spal" id="spalForm" class="row g-3">
         <div class="col-md-4">
-          <label for="nomor" class="form-label mb-1">Nomor Perjanjian</label>
-          <input type="text" id="nomor" name="nomor" class="form-control" placeholder="cth: 001/SJN-SPAL/MLP/VIII/2026" value="<%= formValues.nomor %>" required>
+          <label for="operator_select" class="form-label mb-1">Operator</label>
+          <select id="operator_select" name="operator" class="form-select" required>
+            <option value="SJN" <%= formValues.operator !== "SNP" ? "selected" : "" %>>SJN</option>
+            <option value="SNP" <%= formValues.operator === "SNP" ? "selected" : "" %>>SNP</option>
+          </select>
         </div>
         <div class="col-md-4">
-          <label for="tanggal" class="form-label mb-1">Tanggal</label>
-          <input type="date" id="tanggal" name="tanggal" class="form-control" value="<%= formValues.tanggal %>" required>
-        </div>
-        <div class="col-md-4">
-          <label for="nama_pt" class="form-label mb-1">Nama PT Customer</label>
-          <div class="input-group">
-            <span class="input-group-text">PT</span>
-            <input type="text" id="nama_pt" name="nama_pt" class="form-control" placeholder="cth: Contoh Mining Nusantara" value="<%= formValues.nama_pt %>" required>
-          </div>
+          <label for="customer_select" class="form-label mb-1">Customer</label>
+          <select id="customer_select" class="form-select" required>
+            <option value="">-- pilih --</option>
+            <% shipperRows.forEach(function (s) { %>
+              <option value="<%= s.shipper %>" data-pt="<%= (s.pt || '').replace(/^PT\.?\s*/i, '') %>" data-alamat="<%= s.nama_lengkap %>" <%= formValues.nama_pt === (s.pt || '').replace(/^PT\.?\s*/i, '') ? 'selected' : '' %>><%= s.shipper %> - <%= s.pt %></option>
+            <% }) %>
+          </select>
+          <input type="hidden" id="nama_pt" name="nama_pt" value="<%= formValues.nama_pt %>">
+          <input type="hidden" id="alamat" name="alamat" value="<%= formValues.alamat %>">
+          <input type="hidden" id="kode_customer" name="kode_customer" value="<%= formValues.kode_customer %>">
         </div>
 
-        <div class="col-md-8">
-          <label for="alamat" class="form-label mb-1">Alamat Customer</label>
-          <textarea id="alamat" name="alamat" class="form-control" rows="3" placeholder="Satu baris per alamat" required><%= formValues.alamat %></textarea>
+        <div class="col-12">
+          <label class="form-label mb-1">Kapal (Tugboat / Barge)</label>
+          <div id="kapalRows">
+            <% (formValues.kapalPairs.length > 0 ? formValues.kapalPairs : [{ tugboat: '', barge: '' }]).forEach(function (pair, i) { %>
+              <div class="d-flex gap-2 mb-2 kapal-row">
+                <select name="kapal_tugboat" class="form-select" required>
+                  <option value="">-- pilih Tugboat --</option>
+                  <% tugboatOptions.forEach(function (t) { %>
+                    <option value="<%= t %>" <%= pair.tugboat === t ? 'selected' : '' %>><%= t %></option>
+                  <% }) %>
+                </select>
+                <select name="kapal_barge" class="form-select" required>
+                  <option value="">-- pilih Barge --</option>
+                  <% bargeOptions.forEach(function (b) { %>
+                    <option value="<%= b %>" <%= pair.barge === b ? 'selected' : '' %>><%= b %></option>
+                  <% }) %>
+                </select>
+                <button type="button" class="btn btn-outline-danger btnRemoveKapal"<%= i === 0 ? ' style="visibility:hidden"' : '' %>>&times;</button>
+              </div>
+            <% }) %>
+          </div>
+          <button type="button" id="btnAddKapal" class="btn btn-sm btn-outline-secondary">+ Tambah Kapal</button>
         </div>
-        <div class="col-md-4">
-          <label for="uang_tambang" class="form-label mb-1">Uang Tambang (Rp)</label>
-          <input type="number" id="uang_tambang" name="uang_tambang" class="form-control" min="0" step="1" value="<%= formValues.uang_tambang %>" required>
+
+        <div class="col-md-3">
+          <label for="jetty_muat" class="form-label mb-1">Pelabuhan Muat</label>
+          <select id="jetty_muat" name="jetty_muat" class="form-select" required>
+            <option value="">-- pilih --</option>
+            <% jettyRows.forEach(function(j){ %>
+              <option value="<%= j.jetty %>" <%= formValues.jetty_muat === j.jetty ? 'selected' : '' %>><%= j.jetty %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label for="jetty_bongkar" class="form-label mb-1">Pelabuhan Bongkar</label>
+          <select id="jetty_bongkar" name="jetty_bongkar" class="form-select" required>
+            <option value="">-- pilih --</option>
+            <% jettyRows.forEach(function(j){ %>
+              <option value="<%= j.jetty %>" <%= formValues.jetty_bongkar === j.jetty ? 'selected' : '' %>><%= j.jetty %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="col-md-3">
+          <label for="kesediaan_kapal_mulai" class="form-label mb-1">Kesediaan Kapal Untuk Dimuat (Mulai)</label>
+          <input type="date" id="kesediaan_kapal_mulai" name="kesediaan_kapal_mulai" class="form-control" value="<%= formValues.kesediaan_kapal_mulai %>" required>
+        </div>
+        <div class="col-md-3">
+          <label for="kesediaan_kapal_selesai" class="form-label mb-1">Kesediaan Kapal Untuk Dimuat (Selesai)</label>
+          <input type="date" id="kesediaan_kapal_selesai" name="kesediaan_kapal_selesai" class="form-control" value="<%= formValues.kesediaan_kapal_selesai %>" required>
         </div>
 
         <div class="col-md-4">
-          <label for="jetty_muat" class="form-label mb-1">Jetty Muat</label>
-          <div class="input-group">
-            <span class="input-group-text">Jetty</span>
-            <input type="text" id="jetty_muat" name="jetty_muat" class="form-control" placeholder="cth: Taboneo" value="<%= formValues.jetty_muat %>" required>
+          <label for="posisi_kapal" class="form-label mb-1">Posisi Kapal Saat Ini</label>
+          <input type="text" id="posisi_kapal" name="posisi_kapal" class="form-control" value="<%= formValues.posisi_kapal %>" required>
+        </div>
+        <% var totalHariPresets = ['7 Hari', '8 Hari', '10 Hari', 'CQD'];
+           var isTotalHariManual = !!formValues.total_hari_muat_bongkar && totalHariPresets.indexOf(formValues.total_hari_muat_bongkar) === -1; %>
+        <div class="col-md-4">
+          <label for="total_hari_pilihan" class="form-label mb-1">Total Hari Muat / Bongkar</label>
+          <select id="total_hari_pilihan" class="form-select" style="<%= isTotalHariManual ? 'display:none' : '' %>" <%= isTotalHariManual ? '' : 'required' %>>
+            <option value="">-- pilih --</option>
+            <% totalHariPresets.forEach(function (opt) { %>
+              <option value="<%= opt %>" <%= formValues.total_hari_muat_bongkar === opt ? 'selected' : '' %>><%= opt %></option>
+            <% }) %>
+            <option value="__manual__">Manual (isi sendiri)</option>
+          </select>
+          <div class="input-group" id="total_hari_muat_bongkar_group" style="<%= isTotalHariManual ? '' : 'display:none' %>">
+            <input type="text" id="total_hari_muat_bongkar" name="total_hari_muat_bongkar" class="form-control" placeholder="cth: 9 Hari" value="<%= formValues.total_hari_muat_bongkar %>" <%= isTotalHariManual ? 'required' : '' %>>
+            <button type="button" class="btn btn-outline-secondary" id="total_hari_muat_bongkar_reset" title="Ganti pilihan">&times;</button>
           </div>
         </div>
-        <div class="col-md-4">
-          <label for="jetty_bongkar" class="form-label mb-1">Jetty Bongkar</label>
-          <div class="input-group">
-            <span class="input-group-text">Jetty</span>
-            <input type="text" id="jetty_bongkar" name="jetty_bongkar" class="form-control" placeholder="cth: Suralaya" value="<%= formValues.jetty_bongkar %>" required>
-          </div>
+        <div class="w-100"></div>
+
+        <div class="col-md-4" id="deadfreight_field" style="<%= formValues.operator === 'SNP' ? '' : 'display:none' %>">
+          <label for="deadfreight" class="form-label mb-1">Deadfreight (MT)</label>
+          <input type="text" inputmode="numeric" id="deadfreight" name="deadfreight" class="form-control" value="<%= formValues.deadfreight && Number(formValues.deadfreight) > 0 ? Number(formValues.deadfreight).toLocaleString('en-US') : '' %>" <%= formValues.operator === 'SNP' ? 'required' : '' %>>
         </div>
         <div class="col-md-4">
-          <label for="denda_demurrage" class="form-label mb-1">Denda Demurrage (Rp/Hari)</label>
-          <input type="number" id="denda_demurrage" name="denda_demurrage" class="form-control" min="0" step="1" value="<%= formValues.denda_demurrage %>">
+          <label for="uang_tambang" class="form-label mb-1">Uang Tambang (Rp/MT)</label>
+          <input type="text" inputmode="numeric" id="uang_tambang" name="uang_tambang" class="form-control" value="<%= formValues.uang_tambang && Number(formValues.uang_tambang) > 0 ? Number(formValues.uang_tambang).toLocaleString('en-US') : '' %>" required>
         </div>
 
-        <div class="col-md-6">
+        <div class="col-md-4">
+          <% var isDendaManual = !!formValues.denda_demurrage && Number(formValues.denda_demurrage) > 0; %>
+          <label for="denda_demurrage_pilihan" class="form-label mb-1">Denda Demurrage (Rp/Hari)</label>
+          <select id="denda_demurrage_pilihan" class="form-select" style="<%= isDendaManual ? 'display:none' : '' %>">
+            <option value="" <%= isDendaManual ? '' : 'selected' %>>-- pilih --</option>
+            <option value="tidak_ada">Tidak Ada</option>
+            <option value="__manual__">Isi Nominal</option>
+          </select>
+          <div class="input-group" id="denda_demurrage_group" style="<%= isDendaManual ? '' : 'display:none' %>">
+            <input type="text" inputmode="numeric" id="denda_demurrage" name="denda_demurrage" class="form-control" placeholder="cth: 35.000.000" value="<%= isDendaManual ? Number(formValues.denda_demurrage).toLocaleString('en-US') : '' %>">
+            <button type="button" class="btn btn-outline-secondary" id="denda_demurrage_reset" title="Ganti pilihan">&times;</button>
+          </div>
+        </div>
+        <div class="w-100"></div>
+
+        <div class="col-md-4">
           <label for="nama_penandatangan" class="form-label mb-1">Nama Penandatangan</label>
           <input type="text" id="nama_penandatangan" name="nama_penandatangan" class="form-control" value="<%= formValues.nama_penandatangan %>" required>
         </div>
-        <div class="col-md-6">
+        <div class="col-md-4">
           <label for="jabatan" class="form-label mb-1">Jabatan</label>
           <input type="text" id="jabatan" name="jabatan" class="form-control" placeholder="cth: Direktur" value="<%= formValues.jabatan %>" required>
         </div>
 
-        <div class="col-12">
+        <div class="col-md-4 d-flex align-items-end">
           <button type="submit" class="btn btn-primary px-4" style="background:#0d4d94; border-color:#0d4d94;">Generate &amp; Unduh Docx</button>
         </div>
       </form>
     </div>
     </div>
   </div>
+
+  <script>
+    document.getElementById('customer_select').addEventListener('change', function () {
+      var opt = this.options[this.selectedIndex];
+      if (!opt.value) return;
+      document.getElementById('nama_pt').value = opt.dataset.pt || '';
+      document.getElementById('alamat').value = opt.dataset.alamat || '';
+      document.getElementById('kode_customer').value = opt.value || '';
+    });
+
+    document.getElementById('uang_tambang').addEventListener('input', function () {
+      var digits = this.value.replace(/\D/g, '');
+      this.value = digits ? Number(digits).toLocaleString('en-US') : '';
+    });
+
+    document.getElementById('deadfreight').addEventListener('input', function () {
+      var digits = this.value.replace(/\D/g, '');
+      this.value = digits ? Number(digits).toLocaleString('en-US') : '';
+    });
+
+    document.getElementById('operator_select').addEventListener('change', function () {
+      var field = document.getElementById('deadfreight_field');
+      var input = document.getElementById('deadfreight');
+      if (this.value === 'SNP') {
+        field.style.display = '';
+        input.required = true;
+      } else {
+        field.style.display = 'none';
+        input.required = false;
+        input.value = '';
+      }
+    });
+
+    document.getElementById('denda_demurrage').addEventListener('input', function () {
+      var digits = this.value.replace(/\D/g, '');
+      this.value = digits ? Number(digits).toLocaleString('en-US') : '';
+    });
+
+    document.getElementById('denda_demurrage_pilihan').addEventListener('change', function () {
+      var select = this;
+      var group = document.getElementById('denda_demurrage_group');
+      var input = document.getElementById('denda_demurrage');
+      if (this.value === '__manual__') {
+        select.style.display = 'none';
+        group.style.display = '';
+        input.value = '';
+        input.focus();
+      } else {
+        input.value = '';
+        group.style.display = 'none';
+      }
+    });
+
+    document.getElementById('denda_demurrage_reset').addEventListener('click', function () {
+      var select = document.getElementById('denda_demurrage_pilihan');
+      document.getElementById('denda_demurrage_group').style.display = 'none';
+      document.getElementById('denda_demurrage').value = '';
+      select.style.display = '';
+      select.value = '';
+      select.focus();
+    });
+
+    document.getElementById('total_hari_pilihan').addEventListener('change', function () {
+      var group = document.getElementById('total_hari_muat_bongkar_group');
+      var input = document.getElementById('total_hari_muat_bongkar');
+      if (this.value === '__manual__') {
+        this.style.display = 'none';
+        this.required = false;
+        group.style.display = '';
+        input.required = true;
+        input.value = '';
+        input.focus();
+      } else {
+        input.value = this.value;
+      }
+    });
+
+    document.getElementById('total_hari_muat_bongkar_reset').addEventListener('click', function () {
+      var select = document.getElementById('total_hari_pilihan');
+      var group = document.getElementById('total_hari_muat_bongkar_group');
+      var input = document.getElementById('total_hari_muat_bongkar');
+      group.style.display = 'none';
+      input.required = false;
+      input.value = '';
+      select.style.display = '';
+      select.required = true;
+      select.value = '';
+      select.focus();
+    });
+
+    document.getElementById('btnAddKapal').addEventListener('click', function () {
+      var rows = document.getElementById('kapalRows');
+      var newRow = rows.firstElementChild.cloneNode(true);
+      newRow.querySelectorAll('select').forEach(function (sel) { sel.value = ''; });
+      newRow.querySelector('.btnRemoveKapal').style.visibility = 'visible';
+      rows.appendChild(newRow);
+    });
+
+    document.getElementById('kapalRows').addEventListener('click', function (e) {
+      if (!e.target.classList.contains('btnRemoveKapal')) return;
+      var rows = document.getElementById('kapalRows');
+      if (rows.children.length <= 1) return;
+      e.target.closest('.kapal-row').remove();
+    });
+
+    document.getElementById('spalForm').addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var form = e.target;
+      var btn = form.querySelector('button[type="submit"]');
+      var originalText = btn.textContent;
+
+      var existingAlert = document.getElementById('spalFormError');
+      if (existingAlert) existingAlert.remove();
+
+      btn.disabled = true;
+      btn.textContent = 'Memproses...';
+
+      try {
+        var res = await fetch('/spal', {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+          body: new FormData(form),
+        });
+        var data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          var alertDiv = document.createElement('div');
+          alertDiv.id = 'spalFormError';
+          alertDiv.className = 'alert alert-danger';
+          alertDiv.textContent = data.message || data.error || 'Gagal menyimpan data.';
+          form.closest('.card').before(alertDiv);
+          return;
+        }
+
+        var dl = document.createElement('a');
+        dl.href = data.downloadUrl;
+        dl.download = '';
+        document.body.appendChild(dl);
+        dl.click();
+        dl.remove();
+        form.reset();
+        window.location.reload();
+      } catch (err) {
+        var alertDiv = document.createElement('div');
+        alertDiv.id = 'spalFormError';
+        alertDiv.className = 'alert alert-danger';
+        alertDiv.textContent = 'Terjadi kesalahan jaringan.';
+        form.closest('.card').before(alertDiv);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+
+    document.addEventListener('click', async function (e) {
+      var deleteBtn = e.target.closest('.spalDeleteBtn');
+      if (!deleteBtn) return;
+      if (!confirm('Hapus data SPAL ini?')) return;
+
+      var id = deleteBtn.dataset.id;
+      deleteBtn.disabled = true;
+      try {
+        var res = await fetch('/spal/' + id, { method: 'DELETE' });
+        var data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert(data.error || 'Gagal menghapus data.');
+          deleteBtn.disabled = false;
+          return;
+        }
+        var tr = deleteBtn.closest('tr');
+        var tbody = tr.parentElement;
+        tr.remove();
+        if (!tbody.querySelector('tr')) {
+          var emptyRow = document.createElement('tr');
+          emptyRow.innerHTML = '<td colspan="16" class="text-center text-muted py-4">Belum ada data.</td>';
+          tbody.appendChild(emptyRow);
+        }
+      } catch (err) {
+        alert('Terjadi kesalahan jaringan.');
+        deleteBtn.disabled = false;
+      }
+    });
+
+    function collectSpalRowPatch(tr) {
+      var patch = {};
+      var customerSel = tr.querySelector('[data-field="customer"]');
+      if (customerSel) {
+        var opt = customerSel.options[customerSel.selectedIndex];
+        patch.kode_customer = customerSel.value;
+        patch.nama_pt = opt ? (opt.dataset.pt || '') : '';
+        patch.alamat = opt ? (opt.dataset.alamat || '') : '';
+      }
+      [
+        'operator', 'deadfreight', 'uang_tambang', 'jetty_muat', 'jetty_bongkar', 'denda_demurrage',
+        'kesediaan_kapal_mulai', 'kesediaan_kapal_selesai', 'posisi_kapal',
+        'total_hari_muat_bongkar', 'nama_penandatangan', 'jabatan'
+      ].forEach(function (field) {
+        var el = tr.querySelector('[data-field="' + field + '"]');
+        if (!el) return;
+        patch[field] = (field === 'deadfreight' || field === 'uang_tambang' || field === 'denda_demurrage')
+          ? el.value.replace(/\D/g, '')
+          : el.value;
+      });
+      var tugboatSels = tr.querySelectorAll('[data-field="kapal_tugboat"]');
+      var bargeSels = tr.querySelectorAll('[data-field="kapal_barge"]');
+      if (tugboatSels.length) {
+        patch.kapal_tugboat = Array.from(tugboatSels).map(function (s) { return s.value; });
+        patch.kapal_barge = Array.from(bargeSels).map(function (s) { return s.value; });
+      }
+      return patch;
+    }
+
+    async function saveSpalRow(tr, btn) {
+      var id = tr.dataset.id;
+      if (!id) return;
+      var originalText = btn ? btn.textContent : null;
+      if (btn) { btn.disabled = true; btn.textContent = 'Menyimpan...'; }
+      try {
+        var res = await fetch('/spal/' + id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(collectSpalRowPatch(tr))
+        });
+        var data = await res.json();
+        if (!res.ok || !data.ok) {
+          alert(data.error || 'Gagal menyimpan perubahan.');
+          return;
+        }
+        var nomorCell = tr.querySelector('.spal-nomor-cell');
+        if (nomorCell) nomorCell.textContent = data.row.nomor;
+      } catch (err) {
+        alert('Terjadi kesalahan jaringan.');
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = originalText; }
+      }
+    }
+
+    document.addEventListener('input', function (e) {
+      if (!e.target.classList || !e.target.classList.contains('spal-numeric')) return;
+      var digits = e.target.value.replace(/\D/g, '');
+      e.target.value = digits ? Number(digits).toLocaleString('en-US') : '';
+    });
+
+    document.addEventListener('change', function (e) {
+      if (!e.target.matches('[data-field="operator"]')) return;
+      var tr = e.target.closest('#spalRowsBody tr');
+      if (!tr) return;
+      var deadfreightInput = tr.querySelector('[data-field="deadfreight"]');
+      if (!deadfreightInput) return;
+      if (e.target.value === 'SNP') {
+        deadfreightInput.disabled = false;
+      } else {
+        deadfreightInput.disabled = true;
+        deadfreightInput.value = '';
+      }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (e.target.classList.contains('spal-kapal-add')) {
+        var cell = e.target.closest('td');
+        var container = cell.querySelector('.spal-kapal-rows');
+        var newRow = container.firstElementChild.cloneNode(true);
+        newRow.querySelectorAll('select').forEach(function (sel) { sel.value = ''; });
+        container.appendChild(newRow);
+        return;
+      }
+      if (e.target.classList.contains('spal-kapal-remove')) {
+        var container = e.target.closest('.spal-kapal-rows');
+        if (container.children.length <= 1) return;
+        e.target.closest('.spal-kapal-row').remove();
+        return;
+      }
+      if (e.target.classList.contains('spal-update-btn')) {
+        var tr = e.target.closest('#spalRowsBody tr');
+        if (tr) saveSpalRow(tr, e.target);
+      }
+    });
+  </script>
 
   <div class="card mb-3">
     <div class="card-header">
@@ -106,34 +457,125 @@
 
   <div class="card shadow-sm">
     <div class="card-body p-0">
-      <table class="table mb-0 align-middle">
+      <div class="table-responsive">
+      <table class="table mb-0 align-middle text-nowrap">
         <thead class="table-light">
           <tr>
             <th class="py-3 px-4">Nomor</th>
-            <th class="py-3 px-4">Tanggal</th>
+            <th class="py-3 px-4">Operator</th>
             <th class="py-3 px-4">Customer</th>
+            <th class="py-3 px-4">Kapal</th>
+            <th class="py-3 px-4">Pelabuhan Muat</th>
+            <th class="py-3 px-4">Pelabuhan Bongkar</th>
+            <th class="py-3 px-4">Kesediaan Kapal Untuk Dimuat (Mulai)</th>
+            <th class="py-3 px-4">Kesediaan Kapal Untuk Dimuat (Selesai)</th>
+            <th class="py-3 px-4">Posisi Kapal Saat Ini</th>
+            <th class="py-3 px-4">Total Hari Muat / Bongkar</th>
+            <th class="py-3 px-4">Deadfreight (MT)</th>
             <th class="py-3 px-4">Uang Tambang</th>
-            <th class="py-3 px-4">Jetty Muat</th>
-            <th class="py-3 px-4">Jetty Bongkar</th>
-            <th class="py-3 px-4"></th>
+            <th class="py-3 px-4">Denda Demurrage (Rp/Hari)</th>
+            <th class="py-3 px-4">Nama Penandatangan</th>
+            <th class="py-3 px-4">Jabatan</th>
+            <th class="py-3 px-4">Aksi</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody id="spalRowsBody">
           <% if (rows.length === 0) { %>
-            <tr><td colspan="7" class="text-center text-muted py-4">Belum ada data.</td></tr>
+            <tr><td colspan="16" class="text-center text-muted py-4">Belum ada data.</td></tr>
           <% } else { rows.forEach(function (row) { %>
-            <tr>
-              <td class="px-4"><%= row.nomor %></td>
-              <td class="px-4"><%= row.tanggal %></td>
-              <td class="px-4">PT <%= row.namaPt %></td>
-              <td class="px-4"><%= formatRupiahAmount(row.uangTambang) %></td>
-              <td class="px-4"><%= row.jettyMuat %></td>
-              <td class="px-4"><%= row.jettyBongkar %></td>
-              <td class="px-4"><a class="btn btn-sm btn-outline-primary" href="/spal?download=agreement&id=<%= row.id %>">Unduh</a></td>
+            <tr data-id="<%= row.id %>">
+              <td class="px-4 spal-nomor-cell"><%= row.nomor %></td>
+              <td class="px-4" style="min-width:150px">
+                <select class="form-select form-select-sm spal-edit" data-field="operator">
+                  <option value="SJN" <%= row.operator !== 'SNP' ? 'selected' : '' %>>SJN</option>
+                  <option value="SNP" <%= row.operator === 'SNP' ? 'selected' : '' %>>SNP</option>
+                </select>
+              </td>
+              <td class="px-4" style="min-width:220px">
+                <select class="form-select form-select-sm spal-edit" data-field="customer">
+                  <option value="">-- pilih --</option>
+                  <% shipperRows.forEach(function (s) { var pt = (s.pt || '').replace(/^PT\.?\s*/i, ''); %>
+                    <option value="<%= s.shipper %>" data-pt="<%= pt %>" data-alamat="<%= s.nama_lengkap %>" <%= pt === row.namaPt ? 'selected' : '' %>><%= s.shipper %> - <%= s.pt %></option>
+                  <% }) %>
+                </select>
+              </td>
+              <td class="px-4" style="min-width:280px">
+                <div class="spal-kapal-rows">
+                  <% row.kapal.forEach(function (k) { %>
+                    <div class="d-flex gap-1 mb-1 spal-kapal-row">
+                      <select class="form-select form-select-sm spal-edit" data-field="kapal_tugboat">
+                        <option value="">-- Tugboat --</option>
+                        <% tugboatOptions.forEach(function (t) { %>
+                          <option value="<%= t %>" <%= k.tugboat === t ? 'selected' : '' %>><%= t %></option>
+                        <% }) %>
+                      </select>
+                      <select class="form-select form-select-sm spal-edit" data-field="kapal_barge">
+                        <option value="">-- Barge --</option>
+                        <% bargeOptions.forEach(function (b) { %>
+                          <option value="<%= b %>" <%= k.barge === b ? 'selected' : '' %>><%= b %></option>
+                        <% }) %>
+                      </select>
+                      <button type="button" class="btn btn-sm btn-outline-danger spal-kapal-remove">&times;</button>
+                    </div>
+                  <% }) %>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary spal-kapal-add">+ Kapal</button>
+              </td>
+              <td class="px-4" style="min-width:160px">
+                <select class="form-select form-select-sm spal-edit" data-field="jetty_muat">
+                  <option value="">-- pilih --</option>
+                  <% jettyRows.forEach(function (j) { %>
+                    <option value="<%= j.jetty %>" <%= row.jettyMuat === j.jetty ? 'selected' : '' %>><%= j.jetty %></option>
+                  <% }) %>
+                </select>
+              </td>
+              <td class="px-4" style="min-width:160px">
+                <select class="form-select form-select-sm spal-edit" data-field="jetty_bongkar">
+                  <option value="">-- pilih --</option>
+                  <% jettyRows.forEach(function (j) { %>
+                    <option value="<%= j.jetty %>" <%= row.jettyBongkar === j.jetty ? 'selected' : '' %>><%= j.jetty %></option>
+                  <% }) %>
+                </select>
+              </td>
+              <td class="px-4">
+                <input type="date" class="form-control form-control-sm spal-edit" style="min-width:150px" data-field="kesediaan_kapal_mulai" value="<%= row.kesediaanKapalMulai %>">
+              </td>
+              <td class="px-4">
+                <input type="date" class="form-control form-control-sm spal-edit" style="min-width:150px" data-field="kesediaan_kapal_selesai" value="<%= row.kesediaanKapalSelesai %>">
+              </td>
+              <td class="px-4">
+                <input type="text" class="form-control form-control-sm spal-edit" style="min-width:160px" data-field="posisi_kapal" value="<%= row.posisiKapal %>">
+              </td>
+              <td class="px-4">
+                <input type="text" class="form-control form-control-sm spal-edit" style="min-width:140px" data-field="total_hari_muat_bongkar" value="<%= row.totalHariMuatBongkar %>">
+              </td>
+              <td class="px-4">
+                <input type="text" inputmode="numeric" class="form-control form-control-sm spal-edit spal-numeric" style="min-width:120px" data-field="deadfreight" <%= row.operator === 'SNP' ? '' : 'disabled' %> value="<%= row.operator === 'SNP' && row.deadfreight ? Number(row.deadfreight).toLocaleString('en-US') : '' %>">
+              </td>
+              <td class="px-4">
+                <input type="text" inputmode="numeric" class="form-control form-control-sm spal-edit spal-numeric" style="min-width:140px" data-field="uang_tambang" value="<%= row.uangTambang ? Number(row.uangTambang).toLocaleString('en-US') : '' %>">
+              </td>
+              <td class="px-4">
+                <input type="text" inputmode="numeric" class="form-control form-control-sm spal-edit spal-numeric" style="min-width:140px" data-field="denda_demurrage" value="<%= row.dendaDemurrage ? Number(row.dendaDemurrage).toLocaleString('en-US') : '' %>">
+              </td>
+              <td class="px-4">
+                <input type="text" class="form-control form-control-sm spal-edit" style="min-width:160px" data-field="nama_penandatangan" value="<%= row.namaPenandatangan %>">
+              </td>
+              <td class="px-4">
+                <input type="text" class="form-control form-control-sm spal-edit" style="min-width:140px" data-field="jabatan" value="<%= row.jabatan %>">
+              </td>
+              <td class="px-4">
+                <div class="d-flex gap-2">
+                  <button type="button" class="btn btn-sm btn-outline-success spal-update-btn">Update</button>
+                  <a class="btn btn-sm btn-outline-primary" href="/spal?download=agreement&id=<%= row.id %>">Unduh</a>
+                  <button type="button" class="btn btn-sm btn-outline-danger spalDeleteBtn" data-id="<%= row.id %>">Hapus</button>
+                </div>
+              </td>
             </tr>
           <% }); } %>
         </tbody>
       </table>
+      </div>
     </div>
 
     <% if (totalRows > 0) {
@@ -141,9 +583,19 @@
       let startPage = Math.max(1, page - Math.floor(windowSize / 2));
       let endPage = Math.min(totalPages, startPage + windowSize - 1);
       startPage = Math.max(1, endPage - windowSize + 1);
+      const rowFrom = (page - 1) * perPage + 1;
+      const rowTo = Math.min(page * perPage, totalRows);
     %>
-      <div class="card-footer d-flex justify-content-between align-items-center bg-white">
-        <span class="text-muted small">Halaman <%= page %> dari <%= totalPages %></span>
+      <div class="card-footer d-flex justify-content-between align-items-center bg-white flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <span class="text-muted small">Show</span>
+          <select id="spalPageSizeSelect" class="form-select form-select-sm" style="width:auto;">
+            <% pageSizes.forEach(function (size) { %>
+              <option value="<%= size %>" <%= size === perPage ? 'selected' : '' %>><%= size %></option>
+            <% }) %>
+          </select>
+          <span class="text-muted small">entries ( Showing <%= rowFrom %> to <%= rowTo %> of <%= totalRows %> entries )</span>
+        </div>
         <nav>
           <ul class="pagination pagination-sm mb-0">
             <li class="page-item<%= page <= 1 ? ' disabled' : '' %>"><a class="page-link" href="<%= pageUrl(1) %>">&laquo;</a></li>
@@ -157,6 +609,14 @@
         </nav>
       </div>
     <% } %>
+    <script>
+      document.getElementById('spalPageSizeSelect')?.addEventListener('change', function () {
+        var url = new URL(window.location.href);
+        url.searchParams.set('per_page', this.value);
+        url.searchParams.set('page', '1');
+        window.location.href = url.toString();
+      });
+    </script>
   </div>
 </div>
 

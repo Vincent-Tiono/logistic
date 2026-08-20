@@ -333,6 +333,43 @@ export async function ensureFuelKursTables(pool: mysql.Pool): Promise<void> {
 }
 
 /**
+ * Creates `jisdor_rates`, a local cache of every Jisdor (BI) row the app has
+ * ever successfully fetched. The /jisdor page upserts into this on every
+ * successful live fetch and falls back to reading from it when bi.go.id is
+ * unreachable, so previously-seen dates stay visible during an outage
+ * instead of the page going blank.
+ */
+export async function ensureJisdorTable(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS jisdor_rates (
+      mts VARCHAR(10) NOT NULL,
+      tanggal DATE NOT NULL,
+      kurs DECIMAL(15,4) NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (mts, tanggal)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+
+/**
+ * Creates `kurs_tengah_rates`, the Kurs Tengah counterpart to
+ * `jisdor_rates` — see ensureJisdorTable for the outage-fallback rationale.
+ * `tengah` isn't stored since it's a pure derivation of jual/beli.
+ */
+export async function ensureKursTengahTable(pool: mysql.Pool): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS kurs_tengah_rates (
+      mts VARCHAR(10) NOT NULL,
+      tanggal DATE NOT NULL,
+      jual DECIMAL(15,4) NOT NULL,
+      beli DECIMAL(15,4) NOT NULL,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (mts, tanggal)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
+}
+
+/**
  * Creates `spal_agreements`, storing the field values behind each generated
  * SJN (Surat Perjanjian Angkutan Laut) docx — the docx itself is regenerated
  * from the template on every download rather than stored as a blob. Records
@@ -343,13 +380,19 @@ export async function ensureSpalTable(pool: mysql.Pool): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS spal_agreements (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      operator VARCHAR(10) NOT NULL DEFAULT 'MHU',
       nomor VARCHAR(150) NOT NULL,
       tanggal DATE NOT NULL,
       nama_pt VARCHAR(255) NOT NULL,
       alamat TEXT NOT NULL,
       uang_tambang DECIMAL(15,2) NOT NULL,
+      deadfreight DECIMAL(15,2) DEFAULT NULL,
       jetty_muat VARCHAR(255) NOT NULL,
       jetty_bongkar VARCHAR(255) NOT NULL,
+      kesediaan_kapal_mulai DATE DEFAULT NULL,
+      kesediaan_kapal_selesai DATE DEFAULT NULL,
+      posisi_kapal VARCHAR(255) NOT NULL DEFAULT '',
+      total_hari_muat_bongkar VARCHAR(50) NOT NULL DEFAULT '',
       denda_demurrage DECIMAL(15,2) NOT NULL DEFAULT 35000000,
       nama_penandatangan VARCHAR(255) NOT NULL,
       jabatan VARCHAR(150) NOT NULL,
@@ -377,5 +420,65 @@ export async function ensureSpalTable(pool: mysql.Pool): Promise<void> {
         "ALTER TABLE spal_agreements ADD UNIQUE KEY uniq_nomor (nomor)"
       );
     }
+
+    const [operatorColumns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'spal_agreements' AND COLUMN_NAME = 'operator'`,
+      [database]
+    );
+    if (operatorColumns.length === 0) {
+      await pool.query(
+        "ALTER TABLE spal_agreements ADD COLUMN operator VARCHAR(10) NOT NULL DEFAULT 'MHU' AFTER id"
+      );
+    }
+
+    const [kesediaanColumns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'spal_agreements' AND COLUMN_NAME = 'kesediaan_kapal_mulai'`,
+      [database]
+    );
+    if (kesediaanColumns.length === 0) {
+      await pool.query(
+        "ALTER TABLE spal_agreements ADD COLUMN kesediaan_kapal_mulai DATE DEFAULT NULL AFTER jetty_bongkar, ADD COLUMN kesediaan_kapal_selesai DATE DEFAULT NULL AFTER kesediaan_kapal_mulai"
+      );
+    }
+
+    const [posisiColumns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'spal_agreements' AND COLUMN_NAME = 'posisi_kapal'`,
+      [database]
+    );
+    if (posisiColumns.length === 0) {
+      await pool.query(
+        "ALTER TABLE spal_agreements ADD COLUMN posisi_kapal VARCHAR(255) NOT NULL DEFAULT '' AFTER kesediaan_kapal_selesai, ADD COLUMN total_hari_muat_bongkar VARCHAR(50) NOT NULL DEFAULT '' AFTER posisi_kapal"
+      );
+    }
+
+    const [deadfreightColumns] = await pool.query<mysql.RowDataPacket[]>(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'spal_agreements' AND COLUMN_NAME = 'deadfreight'`,
+      [database]
+    );
+    if (deadfreightColumns.length === 0) {
+      await pool.query(
+        "ALTER TABLE spal_agreements ADD COLUMN deadfreight DECIMAL(15,2) DEFAULT NULL AFTER uang_tambang"
+      );
+    }
   }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS spal_kapal (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      spal_agreement_id INT UNSIGNED NOT NULL,
+      tugboat VARCHAR(255) NOT NULL,
+      barge VARCHAR(255) NOT NULL,
+      INDEX idx_spal_kapal_agreement (spal_agreement_id),
+      CONSTRAINT fk_spal_kapal_agreement FOREIGN KEY (spal_agreement_id)
+        REFERENCES spal_agreements (id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+  `);
 }

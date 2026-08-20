@@ -10,27 +10,34 @@ function pool() {
   });
 }
 
-export async function deleteSpalAgreementByNomor(nomor: string): Promise<void> {
+export async function deleteSpalAgreementsByNamaPt(namaPt: string): Promise<void> {
   const p = pool();
-  await p.query("DELETE FROM spal_agreements WHERE nomor = ?", [nomor]);
+  await p.query("DELETE FROM spal_agreements WHERE nama_pt = ?", [namaPt]);
   await p.end();
 }
 
-export async function readSpalAgreementByNomor(
-  nomor: string
-): Promise<{ id: number; nama_pt: string; uang_tambang: number } | null> {
+export interface SpalAgreementRow {
+  id: number;
+  nomor: string;
+  nama_pt: string;
+  uang_tambang: number;
+  denda_demurrage: number;
+}
+
+export async function readSpalAgreementsByNamaPt(
+  namaPt: string
+): Promise<SpalAgreementRow[]> {
   const p = pool();
   const [rows] = await p.query<mysql.RowDataPacket[]>(
-    "SELECT id, nama_pt, uang_tambang FROM spal_agreements WHERE nomor = ?",
-    [nomor]
+    "SELECT id, nomor, nama_pt, uang_tambang, denda_demurrage FROM spal_agreements WHERE nama_pt = ? ORDER BY id ASC",
+    [namaPt]
   );
   await p.end();
-  const row = rows[0];
-  return row
-    ? {
-        id: Number(row.id),
-        nama_pt: String(row.nama_pt),
-        uang_tambang: Number(row.uang_tambang),
-      }
-    : null;
+  return rows.map((row) => ({
+    id: Number(row.id),
+    nomor: String(row.nomor),
+    nama_pt: String(row.nama_pt),
+    uang_tambang: Number(row.uang_tambang),
+    denda_demurrage: Number(row.denda_demurrage),
+  }));
 }

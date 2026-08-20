@@ -11,6 +11,8 @@ import {
   ensureCoalBargingDatabase,
   ensureFuelKursTables,
   ensureFuelTables,
+  ensureJisdorTable,
+  ensureKursTengahTable,
   ensureShipperLaytimeColumn,
   ensureSpalTable,
   ensureVendorTable,
@@ -53,7 +55,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   });
 
   await app.register(fastifyFormbody);
-  await app.register(fastifyMultipart);
+  await app.register(fastifyMultipart, { attachFieldsToBody: "keyValues" });
 
   await app.register(authRoutes);
   await app.register(userRoutes);
@@ -78,6 +80,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await ensureCoalBargingDatabase();
   await ensureFuelTables(dbPool("databarging"));
   await ensureFuelKursTables(dbPool("databarging"));
+  await ensureJisdorTable(dbPool("databarging"));
+  await ensureKursTengahTable(dbPool("databarging"));
   await ensureSpalTable(dbPool("databarging"));
 
   return app;

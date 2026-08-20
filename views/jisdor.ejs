@@ -31,6 +31,12 @@
     </div>
   </div>
 
+  <% if (usingStaleData) { %>
+    <div class="alert alert-warning py-2 px-3 mb-3">
+      Server Jisdor (BI) sedang tidak dapat diakses. Menampilkan data tersimpan dari pengambilan sebelumnya &mdash; <a href="<%= retryUrl %>">coba muat data terbaru</a>.
+    </div>
+  <% } %>
+
   <div class="card shadow-sm">
     <div class="card-body p-0">
       <table class="table mb-0 align-middle">
@@ -43,7 +49,7 @@
         <tbody>
           <% if (shouldAutoReload) { %>
             <tr><td colspan="2" class="text-center text-muted py-4">Loading&hellip;</td></tr>
-          <% } else if (fetchFailed) { %>
+          <% } else if (fetchFailed && rows.length === 0) { %>
             <tr><td colspan="2" class="text-center text-muted py-4">Gagal memuat data. <a href="<%= retryUrl %>">Coba lagi</a>.</td></tr>
           <% } else if (rows.length === 0) { %>
             <tr><td colspan="2" class="text-center text-muted py-4">Data tidak tersedia.</td></tr>
@@ -57,7 +63,7 @@
       </table>
     </div>
 
-    <% if (!shouldAutoReload && !fetchFailed && totalRows > 0) {
+    <% if (!shouldAutoReload && (!fetchFailed || usingStaleData) && totalRows > 0) {
       const windowSize = 5;
       let startPage = Math.max(1, page - Math.floor(windowSize / 2));
       let endPage = Math.min(totalPages, startPage + windowSize - 1);

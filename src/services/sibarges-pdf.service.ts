@@ -42,6 +42,7 @@ const PDF_ROW_COLUMNS = `
   qty_plan,
   jetty_code, jetty_name,
   shipper_code, shipper_name,
+  shipper.pt AS shipper_pt,
   laycan_start, laycan_end,
   record_status, remarks,
   created_by, created_at, updated_at
@@ -66,6 +67,7 @@ export interface SibargesPdfRow extends RowDataPacket {
   jetty_name: string | null;
   shipper_code: string;
   shipper_name: string | null;
+  shipper_pt: string | null;
   laycan_start: string | null;
   laycan_end: string | null;
   record_status: string;
@@ -78,7 +80,7 @@ export interface SibargesPdfRow extends RowDataPacket {
 export async function fetchPdfRow(pool: Pool, id: number): Promise<SibargesPdfRow | null> {
   const [rows] = await pool.query<SibargesPdfRow[]>(
     {
-      sql: `SELECT ${PDF_ROW_COLUMNS} FROM sibarges WHERE id=? LIMIT 1`,
+      sql: `SELECT ${PDF_ROW_COLUMNS} FROM sibarges LEFT JOIN shipper ON shipper.shipper = sibarges.shipper_code WHERE sibarges.id=? LIMIT 1`,
       dateStrings: true,
     },
     [id]
@@ -91,7 +93,7 @@ export async function fetchPdfRows(pool: Pool, ids: number[]): Promise<SibargesP
   const placeholders = ids.map(() => "?").join(",");
   const [rows] = await pool.query<SibargesPdfRow[]>(
     {
-      sql: `SELECT ${PDF_ROW_COLUMNS} FROM sibarges WHERE id IN (${placeholders}) ORDER BY id ASC`,
+      sql: `SELECT ${PDF_ROW_COLUMNS} FROM sibarges LEFT JOIN shipper ON shipper.shipper = sibarges.shipper_code WHERE sibarges.id IN (${placeholders}) ORDER BY sibarges.id ASC`,
       dateStrings: true,
     },
     ids
@@ -175,7 +177,7 @@ export function getSibargesPdfFields(row: SibargesPdfRow): PdfField[] {
     { label: "Laycan", value: laycan },
     {
       label: "Shipper",
-      value: (row.shipper_name ?? "").replace(/\s+/g, " ").trim(),
+      value: `${row.shipper_pt ?? ""} ${row.shipper_name ?? ""}`.replace(/\s+/g, " ").trim(),
     },
     { label: "Laycan Start", value: row.laycan_start ?? "" },
     { label: "Laycan End", value: row.laycan_end ?? "" },
